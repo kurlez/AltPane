@@ -1,0 +1,174 @@
+using AltPane.Core.Models;
+
+namespace AltPane.Core.Input;
+
+public abstract record UiOp
+{
+    public sealed record Open(int Delta) : UiOp;
+    public sealed record Cycle(int Delta) : UiOp;
+    public sealed record AppendQuery(string Text) : UiOp;
+    public sealed record Backspace : UiOp;
+    public sealed record Commit(ModifierKeys Trigger) : UiOp;
+    public sealed record Cancel(ModifierKeys Trigger) : UiOp;
+    public sealed record EnterSearch(ModifierKeys Trigger) : UiOp;
+    public sealed record CloseWindow : UiOp;
+    public sealed record KillProcess : UiOp;
+    public sealed record Minimize : UiOp;
+    public sealed record Maximize : UiOp;
+    public sealed record Restore : UiOp;
+    public sealed record Home : UiOp;
+    public sealed record End : UiOp;
+    public sealed record Page(int Direction) : UiOp;
+    public sealed record BringToFront : UiOp;
+}
+
+/// <summary>
+/// Mirror of the switcher that the keyboard hook updates synchronously.
+/// UI work is described by <see cref="UiOp"/> and runs later on the dispatcher.
+/// </summary>
+public readonly record struct GestureSnapshot(
+    bool SwitcherOpen,
+    bool SearchMode,
+    bool GestureLatched,
+    int QueryLength,
+    ModifierKeys LatchedTrigger,
+    ModifierKeys PendingTriggerRelease)
+{
+    public bool HasSearchQuery => QueryLength > 0;
+
+    public static GestureSnapshot Idle => new(false, false, false, 0, ModifierKeys.None, ModifierKeys.None);
+
+    public HookInput ToHookInput(HotkeyChord hotkey, bool captureWinTab, bool paused, bool recording, int vk, bool isKeyDown, bool isRepeat, ModifierState mods) =>
+        new()
+        {
+            Paused = paused,
+            RecordingHotkey = recording,
+            SwitcherOpen = SwitcherOpen,
+            SearchMode = SearchMode,
+            GestureLatched = GestureLatched,
+            HasSearchQuery = HasSearchQuery,
+            LatchedTrigger = LatchedTrigger,
+            PendingTriggerRelease = PendingTriggerRelease,
+            Hotkey = hotkey,
+            CaptureWinTab = captureWinTab,
+            VirtualKey = vk,
+            IsKeyDown = isKeyDown,
+            IsRepeat = isRepeat,
+            Modifiers = mods
+        };
+}
+
+public readonly record struct TransitionResult(GestureSnapshot Next, UiOp? Op);
+
+public static class GestureTransitions
+{
+    public static TransitionResult Apply(
+        GestureSnapshot state,
+        HookResult result,
+        string? typed,
+        bool triggerStillDown,
+        ModifierKeys activationTrigger)
+    {
+        switch (result.Command)
+        {
+            case HookCommand.Pass:
+                return new(state, null);
+            case HookCommand.Swallow:
+                return result.ClearAwaitingRelease
+                    ? new(state with { PendingTriggerRelease = ModifierKeys.None }, null)
+                    : new(state, null);
+            case HookCommand.Cycle:
+                return Cycle(state, result, activationTrigger);
+            case HookCommand.Commit:
+                if (!state.SwitcherOpen) return new(state, null);
+                return new(GestureSnapshot.Idle, new UiOp.Commit(state.LatchedTrigger));
+            case HookCommand.Cancel:
+                if (!state.SwitcherOpen) return new(state, null);
+                var cancelTrigger = state.LatchedTrigger;
+                var pending = triggerStillDown && state.GestureLatched ? cancelTrigger : ModifierKeys.None;
+                return new(GestureSnapshot.Idle with { PendingTriggerRelease = pending }, new UiOp.Cancel(cancelTrigger));
+            case HookCommand.Type:
+                if (string.IsNullOrEmpty(typed)) return new(state, null);
+                return new(state with { QueryLength = state.QueryLength + typed.Length }, new UiOp.AppendQuery(typed));
+            case HookCommand.Backspace:
+                return new(state with { QueryLength = Math.Max(0, state.QueryLength - 1) }, new UiOp.Backspace());
+            case HookCommand.EnterSearch:
+                if (!state.SwitcherOpen) return new(state, null);
+                var searchTrigger = state.LatchedTrigger;
+                var searchPending = triggerStillDown && searchTrigger != ModifierKeys.None
+                    ? searchTrigger
+                    : state.PendingTriggerRelease;
+                return new(state with
+                {
+                    SearchMode = true,
+                    GestureLatched = false,
+                    LatchedTrigger = ModifierKeys.None,
+                    PendingTriggerRelease = searchPending
+                }, new UiOp.EnterSearch(searchTrigger));
+            case HookCommand.CloseWindow:
+                return state.SwitcherOpen ? new(state, new UiOp.CloseWindow()) : new(state, null);
+            case HookCommand.KillProcess:
+                return state.SwitcherOpen ? new(state, new UiOp.KillProcess()) : new(state, null);
+            case HookCommand.Minimize:
+                return state.SwitcherOpen ? new(state, new UiOp.Minimize()) : new(state, null);
+            case HookCommand.Maximize:
+                return state.SwitcherOpen ? new(state, new UiOp.Maximize()) : new(state, null);
+            case HookCommand.Restore:
+                return state.SwitcherOpen ? new(state, new UiOp.Restore()) : new(state, null);
+            case HookCommand.Home:
+                return state.SwitcherOpen ? new(state, new UiOp.Home()) : new(state, null);
+            case HookCommand.End:
+                return state.SwitcherOpen ? new(state, new UiOp.End()) : new(state, null);
+            case HookCommand.Page:
+                return state.SwitcherOpen ? new(state, new UiOp.Page(result.Delta)) : new(state, null);
+            default:
+                return new(state, null);
+        }
+    }
+
+    public static TransitionResult OpenSticky(GestureSnapshot state)
+    {
+        if (state.SwitcherOpen) return new(state, new UiOp.BringToFront());
+        return new(state with
+        {
+            SwitcherOpen = true,
+            SearchMode = false,
+            GestureLatched = false,
+            QueryLength = 0,
+            LatchedTrigger = ModifierKeys.None
+        }, new UiOp.Open(0));
+    }
+
+    public static bool ShouldQuickCommit(GestureSnapshot snap, bool triggerIsDown, bool pendingShow, bool moreOpsQueued) =>
+        pendingShow
+        && snap.SwitcherOpen
+        && snap.GestureLatched
+        && !snap.SearchMode
+        && snap.QueryLength == 0
+        && snap.LatchedTrigger != ModifierKeys.None
+        && !triggerIsDown
+        && !moreOpsQueued;
+
+    static TransitionResult Cycle(GestureSnapshot state, HookResult result, ModifierKeys activationTrigger)
+    {
+        if (!state.SwitcherOpen)
+        {
+            return new(state with
+            {
+                SwitcherOpen = true,
+                SearchMode = false,
+                GestureLatched = result.LatchGesture,
+                QueryLength = 0,
+                LatchedTrigger = result.LatchGesture ? activationTrigger : ModifierKeys.None,
+                PendingTriggerRelease = ModifierKeys.None
+            }, new UiOp.Open(result.Delta));
+        }
+
+        return new(state with
+        {
+            GestureLatched = state.GestureLatched || result.LatchGesture,
+            PendingTriggerRelease = ModifierKeys.None,
+            LatchedTrigger = result.LatchGesture ? activationTrigger : state.LatchedTrigger
+        }, new UiOp.Cycle(result.Delta));
+    }
+}

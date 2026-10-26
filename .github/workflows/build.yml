@@ -1,0 +1,38 @@
+name: build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Test core logic
+        run: dotnet test tests/AltPane.Tests/AltPane.Tests.csproj -c Release
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Build the WPF app
+        run: dotnet build src/AltPane/AltPane.csproj -c Release
+      - name: Publish a single-file executable
+        run: >
+          dotnet publish src/AltPane/AltPane.csproj -c Release -r win-x64 --self-contained true
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:EnableCompressionInSingleFile=true
+          -o publish
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AltPane-win-x64
+          path: publish/AltPane.exe
+          if-no-files-found: error

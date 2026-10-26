@@ -1,0 +1,77 @@
+<Window x:Class="AltPane.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="AltPane"
+        Width="560"
+        Height="700"
+        MinWidth="480"
+        MinHeight="520"
+        WindowStyle="None"
+        ResizeMode="CanResize"
+        WindowStartupLocation="CenterScreen"
+        Background="{DynamicResource SettingsBgBrush}"
+        Foreground="{DynamicResource TextPrimaryBrush}"
+        FontFamily="Segoe UI, Microsoft YaHei UI, Microsoft YaHei, sans-serif"
+        SnapsToDevicePixels="True"
+        UseLayoutRounding="True">
+  <Border BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="1">
+    <Grid>
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="*"/>
+        <RowDefinition Height="Auto"/>
+      </Grid.RowDefinitions>
+      <DockPanel x:Name="TitleBar" Background="{DynamicResource SurfaceBrush}" MouseLeftButtonDown="Title_Drag" Height="44">
+        <Button x:Name="CloseButton" DockPanel.Dock="Right" Width="44" Content="×" FontSize="16"
+                Background="Transparent" BorderThickness="0" Foreground="{DynamicResource TextPrimaryBrush}" Click="Close_Click" Cursor="Hand"/>
+        <TextBlock x:Name="TitleText" VerticalAlignment="Center" Margin="16,0" FontSize="14" FontWeight="SemiBold"/>
+      </DockPanel>
+      <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="20,16">
+        <StackPanel>
+          <TextBlock x:Name="HotkeyLabel" FontWeight="SemiBold" Margin="0,0,0,6"/>
+          <DockPanel Margin="0,0,0,4">
+            <Button x:Name="RecordButton" DockPanel.Dock="Right" Style="{DynamicResource ActionButton}" Margin="8,0,0,0" MinWidth="88" Click="Record_Click"/>
+            <Border Background="{DynamicResource SearchBgBrush}" BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="1" CornerRadius="8" Padding="10,8">
+              <TextBlock x:Name="HotkeyText" VerticalAlignment="Center"/>
+            </Border>
+          </DockPanel>
+          <TextBlock x:Name="HotkeyError" Foreground="{DynamicResource DangerBrush}" TextWrapping="Wrap" Margin="0,0,0,8" Visibility="Collapsed"/>
+          <CheckBox x:Name="WinTabBox" Margin="0,4,0,2"/>
+          <TextBlock x:Name="WinTabNote" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="22,0,0,14"/>
+
+          <TextBlock x:Name="ThemeLabel" FontWeight="SemiBold" Margin="0,0,0,6"/>
+          <ComboBox x:Name="ThemeBox" Margin="0,0,0,10"/>
+          <TextBlock x:Name="LanguageLabel" FontWeight="SemiBold" Margin="0,0,0,6"/>
+          <ComboBox x:Name="LanguageBox" Margin="0,0,0,10"/>
+          <TextBlock x:Name="SizeLabel" FontWeight="SemiBold" Margin="0,0,0,6"/>
+          <ComboBox x:Name="SizeBox" Margin="0,0,0,10"/>
+          <TextBlock x:Name="PlacementLabel" FontWeight="SemiBold" Margin="0,0,0,6"/>
+          <ComboBox x:Name="PlacementBox" Margin="0,0,0,10"/>
+          <CheckBox x:Name="PreviewBox" Margin="0,0,0,6"/>
+          <CheckBox x:Name="DesktopBox" Margin="0,0,0,6"/>
+          <CheckBox x:Name="StartupBox" Margin="0,0,0,6"/>
+          <CheckBox x:Name="PauseBox" Margin="0,0,0,14"/>
+
+          <TextBlock x:Name="ExclusionLabel" FontWeight="SemiBold" Margin="0,0,0,6"/>
+          <TextBlock x:Name="ExclusionHint" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,6"/>
+          <TextBox x:Name="ExclusionBox" AcceptsReturn="True" Height="96" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
+                   FontFamily="Cascadia Mono, Consolas, Segoe UI" Padding="8"/>
+
+          <TextBlock x:Name="ShortcutTitle" FontWeight="SemiBold" Margin="0,16,0,6"/>
+          <TextBlock x:Name="ShortcutBody" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap"/>
+          <TextBlock x:Name="AdminNote" TextWrapping="Wrap" Margin="0,16,0,8"/>
+          <Button x:Name="AdminButton" Style="{DynamicResource ActionButton}" HorizontalAlignment="Left" Click="Admin_Click"/>
+        </StackPanel>
+      </ScrollViewer>
+      <Border Grid.Row="2" BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="0,1,0,0" Padding="16">
+        <DockPanel>
+          <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
+            <Button x:Name="CancelButton" Style="{DynamicResource ActionButton}" Margin="0,0,8,0" MinWidth="88" IsCancel="True" Click="Cancel_Click"/>
+            <Button x:Name="SaveButton" Style="{DynamicResource ActionButton}" MinWidth="88" IsDefault="True" Click="Save_Click"/>
+          </StackPanel>
+          <TextBlock x:Name="VersionText" VerticalAlignment="Center" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12"/>
+        </DockPanel>
+      </Border>
+    </Grid>
+  </Border>
+</Window>
