@@ -1,0 +1,78 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Version from the tag
+        id: version
+        shell: bash
+        run: echo "ver=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - name: Test
+        run: dotnet test tests/AltPane.Tests/AltPane.Tests.csproj -c Release
+      - name: Publish a framework-dependent single file
+        run: >
+          dotnet publish src/AltPane/AltPane.csproj -c Release -r win-x64 --self-contained false
+          -p:PublishSingleFile=true
+          -p:DebugType=none
+          -p:DebugSymbols=false
+          -p:Version=${{ steps.version.outputs.ver }}
+          -p:AssemblyVersion=${{ steps.version.outputs.ver }}.0
+          -p:FileVersion=${{ steps.version.outputs.ver }}.0
+          -p:InformationalVersion=${{ steps.version.outputs.ver }}
+          -o publish-fx
+      - name: Zip the executable and write its SHA256
+        shell: pwsh
+        run: |
+          $ver = "${{ steps.version.outputs.ver }}"
+          $zip = "AltPane-$ver-win-x64.zip"
+          Compress-Archive -Path publish-fx/AltPane.exe -DestinationPath $zip
+          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          Set-Content -Path "$zip.sha256" -Value "$hash  $zip" -NoNewline
+      - uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-release
+          path: |
+            AltPane-*-win-x64.zip
+            AltPane-*-win-x64.zip.sha256
+          if-no-files-found: error
+
+  # sign:
+  #   needs: build
+  #   runs-on: windows-latest
+  #   # SignPath Foundation signing belongs between this build and the GitHub Release.
+  #   # After the application is approved, download unsigned-release, submit AltPane-<version>-win-x64.zip
+  #   # to SignPath, and upload the signed zip (and a new .sha256) as the signed-release artifact.
+  #   # Release then downloads signed-release instead of unsigned-release.
+  #   # Do not sign a binary that was built on a developer machine.
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: unsigned-release
+          path: dist
+      - name: Create or update the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" dist/* --clobber
+          else
+            gh release create "$tag" dist/* --title "$tag" --generate-notes
+          fi

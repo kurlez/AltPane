@@ -1,0 +1,29 @@
+name: winget
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  winget:
+    runs-on: windows-latest
+    steps:
+      - name: Detect the winget token
+        id: token
+        env:
+          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+        shell: bash
+        run: |
+          if [ -n "$WINGET_TOKEN" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "WINGET_TOKEN is not set. Skipping the winget submission."
+          fi
+      - name: Submit kurlez.AltPane
+        if: steps.token.outputs.present == 'true'
+        uses: vedantmgoyal9/winget-releaser@v2
+        with:
+          identifier: kurlez.AltPane
+          token: ${{ secrets.WINGET_TOKEN }}
+          max-versions-to-keep: 3

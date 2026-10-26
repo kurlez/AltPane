@@ -85,7 +85,9 @@ public static class AppCatalog
         AppSource.StartMenu => 3,
         AppSource.Store => 3,
         AppSource.Desktop => 2,
+        AppSource.Installed => 2,
         AppSource.Path => 1,
+        AppSource.Everything => 0,
         _ => 0
     };
 

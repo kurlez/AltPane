@@ -33,7 +33,7 @@ public partial class SettingsWindow : Window
         Closed += (_, _) => ThemeService.Changed -= OnThemeChanged;
         MaxHeight = SystemParameters.WorkArea.Height * 0.92;
         var version = typeof(SettingsWindow).Assembly.GetName().Version;
-        VersionText.Text = "AltPane " + (version?.ToString(3) ?? "0.2.0");
+        VersionText.Text = "AltPane " + (version?.ToString(3) ?? "0.3.0");
         LoadDraft();
         Localizer.Current.LanguageChanged += (_, _) =>
         {
@@ -47,6 +47,7 @@ public partial class SettingsWindow : Window
         ApplyLabels();
         HotkeyText.Text = HotkeyLogic.Format(_draft.Hotkey ?? HotkeyChord.AltTab());
         WinTabBox.IsChecked = _draft.CaptureWinTab;
+        UpdateWinTabState();
         StickyBox.IsChecked = _draft.StickySwitcher;
         QuickTapBox.IsChecked = _draft.QuickTapSwitches;
         UpdateQuickTapEnabled();
@@ -71,6 +72,12 @@ public partial class SettingsWindow : Window
         Select(PlacementBox, _draft.Placement);
         OtherMonitorsBox.IsChecked = _draft.ShowOtherMonitorHints;
         MonitorBadgesBox.IsChecked = _draft.ShowMonitorBadges;
+        MoveBox.IsChecked = _draft.MoveToSwitcherMonitor;
+        VerboseBox.IsChecked = _draft.VerboseLog;
+        EverythingBox.IsChecked = _draft.UseEverything;
+        EverythingExtBox.Text = _draft.EverythingExtensions;
+        EverythingExcludeBox.Text = string.Join(Environment.NewLine, _draft.EverythingExcludedPaths ?? new List<string>());
+        UpdateEverythingStatus();
         Select(SortBox, _draft.SortMode);
         var admin = Admin.IsRunningAsAdmin();
         AdminButton.IsEnabled = !admin;
@@ -87,6 +94,7 @@ public partial class SettingsWindow : Window
         RecordButton.Content = _recording ? loc["settings.recording"] : loc["settings.record"];
         WinTabBox.Content = loc["settings.winTab"];
         WinTabNote.Text = loc["settings.winTabNote"];
+        UpdateWinTabState();
         StickyBox.Content = loc["settings.sticky"];
         StickyNote.Text = loc["settings.stickyNote"];
         QuickTapBox.Content = loc["settings.quickTap"];
@@ -99,6 +107,17 @@ public partial class SettingsWindow : Window
         OtherMonitorsNote.Text = loc["settings.otherMonitorsNote"];
         MonitorBadgesBox.Content = loc["settings.monitorBadges"];
         MonitorBadgesNote.Text = loc["settings.monitorBadgesNote"];
+        MoveBox.Content = loc["settings.move"];
+        MoveNote.Text = loc["settings.moveNote"];
+        VerboseBox.Content = loc["settings.verbose"];
+        VerboseNote.Text = loc["settings.verboseNote"];
+        EverythingBox.Content = loc["settings.everything"];
+        EverythingNote.Text = loc["settings.everythingNote"];
+        EverythingExtLabel.Text = loc["settings.everythingExt"];
+        EverythingExcludeLabel.Text = loc["settings.everythingExclude"];
+        EverythingExcludeHint.Text = loc["settings.everythingExcludeHint"];
+        EverythingStartButton.Content = loc["settings.everythingStart"];
+        EverythingSiteButton.Content = loc["settings.everythingSite"];
         PreviewBox.Content = loc["settings.preview"];
         PreviewMinimizedBox.Content = loc["settings.previewMinimized"];
         PreviewMinimizedNote.Text = loc["settings.previewMinimizedNote"];
@@ -308,6 +327,13 @@ public partial class SettingsWindow : Window
         _draft.Placement = Read(PlacementBox, _draft.Placement);
         _draft.ShowOtherMonitorHints = OtherMonitorsBox.IsChecked == true;
         _draft.ShowMonitorBadges = MonitorBadgesBox.IsChecked == true;
+        _draft.MoveToSwitcherMonitor = MoveBox.IsChecked == true;
+        _draft.VerboseLog = VerboseBox.IsChecked == true;
+        _draft.UseEverything = EverythingBox.IsChecked == true;
+        _draft.EverythingExtensions = EverythingExtBox.Text.Trim();
+        _draft.EverythingExcludedPaths = EverythingExcludeBox.Text
+            .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+            .ToList();
         _draft.ExcludedProcesses = ExclusionBox.Text
             .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
             .ToList();
@@ -340,6 +366,52 @@ public partial class SettingsWindow : Window
     {
         if (Admin.TryRestartAsAdmin())
             System.Windows.Application.Current.Shutdown();
+    }
+
+    void WinTabBox_Changed(object sender, RoutedEventArgs e) => UpdateWinTabState();
+
+    void UpdateWinTabState()
+    {
+        if (WinTabState is null) return;
+        WinTabState.Text = Localizer.Current[WinTabBox.IsChecked == true ? "settings.winTabOn" : "settings.winTabOff"];
+    }
+
+    void UpdateEverythingStatus()
+    {
+        if (EverythingStatus is null) return;
+        try
+        {
+            var status = new EverythingClient().Probe();
+            EverythingStatus.Text = Localizer.Current[status.Running
+                ? "settings.everythingRunning"
+                : status.Installed
+                    ? "settings.everythingStopped"
+                    : "settings.everythingMissing"];
+            EverythingStartButton.IsEnabled = status.Installed && !status.Running;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error(ex);
+            EverythingStartButton.IsEnabled = false;
+        }
+    }
+
+    void EverythingStart_Click(object sender, RoutedEventArgs e)
+    {
+        if (new EverythingClient().TryStart())
+            Dispatcher.BeginInvoke(UpdateEverythingStatus, System.Windows.Threading.DispatcherPriority.Background);
+    }
+
+    void EverythingSite_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("https://www.voidtools.com/") { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error(ex);
+        }
     }
 
     void Title_Drag(object sender, MouseButtonEventArgs e)
@@ -377,6 +449,11 @@ public partial class SettingsWindow : Window
         Placement = source.Placement,
         ShowOtherMonitorHints = source.ShowOtherMonitorHints,
         ShowMonitorBadges = source.ShowMonitorBadges,
+        MoveToSwitcherMonitor = source.MoveToSwitcherMonitor,
+        UseEverything = source.UseEverything,
+        EverythingExtensions = source.EverythingExtensions,
+        EverythingExcludedPaths = new List<string>(source.EverythingExcludedPaths ?? new List<string>()),
+        VerboseLog = source.VerboseLog,
         Language = source.Language,
         ExcludedProcesses = new List<string>(source.ExcludedProcesses ?? new List<string>()),
         StartWithWindows = source.StartWithWindows,

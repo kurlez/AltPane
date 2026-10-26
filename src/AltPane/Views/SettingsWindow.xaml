@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="AltPane"
         Width="560"
-        Height="780"
+        Height="920"
         MinWidth="480"
         MinHeight="560"
         WindowStyle="None"
@@ -36,8 +36,9 @@
             </Border>
           </DockPanel>
           <TextBlock x:Name="HotkeyError" Foreground="{DynamicResource DangerBrush}" TextWrapping="Wrap" Margin="0,0,0,8" Visibility="Collapsed"/>
-          <CheckBox x:Name="WinTabBox" Margin="0,4,0,2"/>
-          <TextBlock x:Name="WinTabNote" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="22,0,0,10"/>
+          <CheckBox x:Name="WinTabBox" Margin="0,4,0,2" Checked="WinTabBox_Changed" Unchecked="WinTabBox_Changed"/>
+          <TextBlock x:Name="WinTabNote" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="22,0,0,4"/>
+          <TextBlock x:Name="WinTabState" FontWeight="SemiBold" TextWrapping="Wrap" Margin="22,0,0,10"/>
           <CheckBox x:Name="StickyBox" Margin="0,4,0,2" Checked="StickyBox_Changed" Unchecked="StickyBox_Changed"/>
           <TextBlock x:Name="StickyNote" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="22,0,0,8"/>
           <CheckBox x:Name="QuickTapBox" Margin="22,0,0,2"/>
@@ -54,7 +55,9 @@
           <CheckBox x:Name="OtherMonitorsBox" Margin="0,0,0,2"/>
           <TextBlock x:Name="OtherMonitorsNote" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="22,0,0,8"/>
           <CheckBox x:Name="MonitorBadgesBox" Margin="0,0,0,2"/>
-          <TextBlock x:Name="MonitorBadgesNote" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="22,0,0,10"/>
+          <TextBlock x:Name="MonitorBadgesNote" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="22,0,0,8"/>
+          <CheckBox x:Name="MoveBox" Margin="0,0,0,2"/>
+          <TextBlock x:Name="MoveNote" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="22,0,0,10"/>
           <CheckBox x:Name="PreviewBox" Margin="0,0,0,6"/>
           <CheckBox x:Name="PreviewMinimizedBox" Margin="22,0,0,2"/>
           <TextBlock x:Name="PreviewMinimizedNote" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="22,0,0,10"/>
@@ -65,7 +68,9 @@
           <CheckBox x:Name="KillTreeBox" Margin="0,0,0,6"/>
           <CheckBox x:Name="DesktopBox" Margin="0,0,0,6"/>
           <CheckBox x:Name="StartupBox" Margin="0,0,0,6"/>
-          <CheckBox x:Name="PauseBox" Margin="0,0,0,14"/>
+          <CheckBox x:Name="PauseBox" Margin="0,0,0,6"/>
+          <CheckBox x:Name="VerboseBox" Margin="0,0,0,2"/>
+          <TextBlock x:Name="VerboseNote" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="22,0,0,14"/>
 
           <CheckBox x:Name="LaunchBox" Margin="0,0,0,2"/>
           <TextBlock x:Name="LaunchNote" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="22,0,0,8"/>
@@ -73,7 +78,20 @@
           <CheckBox x:Name="IndexStoreBox" Margin="22,0,0,4"/>
           <CheckBox x:Name="IndexDesktopBox" Margin="22,0,0,4"/>
           <CheckBox x:Name="IndexPathBox" Margin="22,0,0,2"/>
-          <TextBlock x:Name="IndexPathNote" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="44,0,0,10"/>
+          <TextBlock x:Name="IndexPathNote" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="44,0,0,8"/>
+          <CheckBox x:Name="EverythingBox" Margin="22,0,0,2"/>
+          <TextBlock x:Name="EverythingNote" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="44,0,0,6"/>
+          <TextBlock x:Name="EverythingStatus" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="44,0,0,6"/>
+          <StackPanel Orientation="Horizontal" Margin="44,0,0,8">
+            <Button x:Name="EverythingStartButton" Style="{DynamicResource ActionButton}" Margin="0,0,8,0" Click="EverythingStart_Click"/>
+            <Button x:Name="EverythingSiteButton" Style="{DynamicResource ActionButton}" Click="EverythingSite_Click"/>
+          </StackPanel>
+          <TextBlock x:Name="EverythingExtLabel" FontWeight="SemiBold" Margin="44,0,0,4"/>
+          <TextBox x:Name="EverythingExtBox" Margin="44,0,0,8" Padding="8,4"/>
+          <TextBlock x:Name="EverythingExcludeLabel" FontWeight="SemiBold" Margin="44,0,0,4"/>
+          <TextBlock x:Name="EverythingExcludeHint" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="44,0,0,4"/>
+          <TextBox x:Name="EverythingExcludeBox" AcceptsReturn="True" Height="64" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
+                   FontFamily="Cascadia Mono, Consolas, Segoe UI" Padding="8" Margin="44,0,0,10"/>
           <TextBlock x:Name="ExcludedAppsLabel" FontWeight="SemiBold" Margin="22,0,0,6"/>
           <TextBlock x:Name="ExcludedAppsHint" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="22,0,0,6"/>
           <TextBox x:Name="ExcludedAppsBox" AcceptsReturn="True" Height="72" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"

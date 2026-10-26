@@ -16,8 +16,13 @@ internal sealed class AppIndexService : IDisposable
     readonly string _indexPath;
     readonly string _historyPath;
     readonly List<FileSystemWatcher> _watchers = new();
+    readonly EverythingClient _everything = new();
     IReadOnlyList<AppEntry> _all = Array.Empty<AppEntry>();
     IReadOnlyList<AppEntry> _visible = Array.Empty<AppEntry>();
+    IReadOnlyList<AppEntry> _extra = Array.Empty<AppEntry>();
+    string _searchQuery = "";
+    int _searchGeneration;
+    Timer? _search;
     Dictionary<string, LaunchMemory> _usage = new(StringComparer.OrdinalIgnoreCase);
     Timer? _save;
     Timer? _periodic;
@@ -38,6 +43,37 @@ internal sealed class AppIndexService : IDisposable
     public IReadOnlyList<AppEntry> Visible
     {
         get { lock (_gate) return _visible; }
+    }
+
+    public EverythingStatus EverythingStatus() => _everything.Probe();
+
+    public bool TryStartEverything() => _everything.TryStart();
+
+    /// <summary>Built-in catalog plus Everything hits for this exact query. Hits are not written to apps.json.</summary>
+    public IReadOnlyList<AppEntry> ForQuery(string? query)
+    {
+        lock (_gate)
+        {
+            if (string.IsNullOrWhiteSpace(query) || _extra.Count == 0 || !string.Equals(_searchQuery, query.Trim(), StringComparison.Ordinal))
+                return _visible;
+            return EverythingIndex.Combine(_visible, _extra);
+        }
+    }
+
+    public void ScheduleSearch(string? query)
+    {
+        var text = query?.Trim() ?? "";
+        var generation = Interlocked.Increment(ref _searchGeneration);
+        lock (_gate)
+        {
+            _searchQuery = text;
+            _extra = Array.Empty<AppEntry>();
+        }
+        Updated?.Invoke();
+        var settings = _settings();
+        if (text.Length == 0 || !settings.LaunchApps || !settings.UseEverything) return;
+        _search ??= new Timer(RunSearch, null, Timeout.Infinite, Timeout.Infinite);
+        _search.Change(40, Timeout.Infinite);
     }
 
     public IReadOnlyDictionary<string, LaunchMemory> UsageSnapshot()
@@ -91,6 +127,7 @@ internal sealed class AppIndexService : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        _search?.Dispose();
         _periodic?.Dispose();
         _save?.Dispose();
         lock (_watchers)
@@ -363,6 +400,59 @@ internal sealed class AppIndexService : IDisposable
     {
         yield return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Microsoft", "Windows", "Start Menu");
         yield return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Microsoft", "Windows", "Start Menu");
+    }
+
+    void RunSearch(object? _)
+    {
+        int generation;
+        string query;
+        lock (_gate)
+        {
+            generation = _searchGeneration;
+            query = _searchQuery;
+        }
+        var settings = _settings();
+        var built = EverythingIndex.Build(query, settings.EverythingExtensions, settings.EverythingExcludedPaths);
+        if (built is null || generation != Volatile.Read(ref _searchGeneration)) return;
+        IReadOnlyList<string> paths;
+        try
+        {
+            paths = _everything.Query(built, 30, 200);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error(ex);
+            return;
+        }
+        if (generation != Volatile.Read(ref _searchGeneration)) return;
+        var entries = new List<AppEntry>();
+        foreach (var path in paths)
+        {
+            AppEntry? entry = null;
+            try
+            {
+                if (path.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase)
+                    && File.Exists(path)
+                    && ShellLinkReader.TryRead(File.ReadAllBytes(path), out var link))
+                {
+                    entry = AppCatalog.FromShortcut(path, link, EverythingIndex.ClassifyPath(path));
+                }
+            }
+            catch
+            {
+                entry = null;
+            }
+            entry ??= EverythingIndex.FromFile(path);
+            if (entry is null || EverythingIndex.IsNoise(entry.ResolvedPath) || EverythingIndex.IsNoise(entry.LaunchPath))
+                continue;
+            entries.Add(entry);
+        }
+        lock (_gate)
+        {
+            if (generation != _searchGeneration) return;
+            _extra = entries;
+        }
+        Updated?.Invoke();
     }
 
     static IEnumerable<string> DesktopRoots()

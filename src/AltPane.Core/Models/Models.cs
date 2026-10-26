@@ -111,7 +111,13 @@ public sealed class HotkeyChord
 
 public sealed class AppSettings
 {
-    public int Version { get; set; } = 1;
+    /// <summary>
+    /// 1 is a v0.1.0 file (Win+Tab capture defaulted off). v0.2.0 still wrote 1, and is
+    /// recognized by the presence of stickySwitcher. 3 is a file saved by v0.3.0.
+    /// </summary>
+    public const int CurrentSchema = 3;
+
+    public int Version { get; set; } = CurrentSchema;
     public HotkeyChord? Hotkey { get; set; } = HotkeyChord.AltTab();
     /// <summary>When true (the default), Win+Tab opens AltPane instead of Task View.</summary>
     public bool CaptureWinTab { get; set; } = true;
@@ -152,10 +158,18 @@ public sealed class AppSettings
     /// <summary>Executables on PATH. Off by default because system directories are noisy.</summary>
     public bool IndexPath { get; set; }
     public List<string> ExcludedApps { get; set; } = new();
+    /// <summary>When true (the default), a chosen window on another monitor is moved onto the switcher's monitor.</summary>
+    public bool MoveToSwitcherMonitor { get; set; } = true;
+    /// <summary>When true (the default), a search with no built-in hit also asks Everything, if it is running.</summary>
+    public bool UseEverything { get; set; } = true;
+    public string EverythingExtensions { get; set; } = "exe,lnk,url,appref-ms";
+    public List<string> EverythingExcludedPaths { get; set; } = new();
+    /// <summary>When true, Win and Tab hook decisions are written to altpane.log.</summary>
+    public bool VerboseLog { get; set; }
 
     public static AppSettings CreateDefault() => new()
     {
-        Version = 1,
+        Version = CurrentSchema,
         Hotkey = HotkeyChord.AltTab(),
         ShowPreview = true,
         Size = SwitcherSize.Comfortable,
@@ -175,6 +189,10 @@ public sealed class AppSettings
         LaunchApps = true,
         IndexStartMenu = true,
         IndexStoreApps = true,
-        IndexDesktop = true
+        IndexDesktop = true,
+        MoveToSwitcherMonitor = true,
+        UseEverything = true,
+        EverythingExtensions = "exe,lnk,url,appref-ms",
+        EverythingExcludedPaths = new List<string>()
     };
 }

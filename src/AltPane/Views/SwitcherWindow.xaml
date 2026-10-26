@@ -88,7 +88,7 @@
                    Focusable="False"
                    IsTextSearchEnabled="False"
                    ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                   VirtualizingPanel.IsVirtualizing="True"
+                   VirtualizingPanel.IsVirtualizing="False"
                    HorizontalContentAlignment="Stretch"
                    PreviewMouseRightButtonDown="List_PreviewMouseRightButtonDown"
                    PreviewMouseDown="List_PreviewMouseDown">

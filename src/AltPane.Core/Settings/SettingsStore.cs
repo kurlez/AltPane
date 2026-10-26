@@ -6,7 +6,7 @@ using AltPane.Core.Models;
 
 namespace AltPane.Core.Settings;
 
-public readonly record struct SettingsLoadResult(AppSettings Settings, bool RecoveredFromError, string? Error);
+public readonly record struct SettingsLoadResult(AppSettings Settings, bool RecoveredFromError, string? Error, bool Migrated);
 
 public static class SettingsStore
 {
@@ -31,16 +31,27 @@ public static class SettingsStore
         try
         {
             if (!File.Exists(path))
-                return new SettingsLoadResult(AppSettings.CreateDefault(), false, null);
+                return new SettingsLoadResult(AppSettings.CreateDefault(), false, null, false);
             var json = File.ReadAllText(path);
             var settings = JsonSerializer.Deserialize<AppSettings>(json, Options) ?? AppSettings.CreateDefault();
+            var migrated = false;
+            try
+            {
+                using var document = JsonDocument.Parse(json);
+                if (document.RootElement.ValueKind == JsonValueKind.Object)
+                    migrated = SettingsMigration.Apply(document.RootElement, settings);
+            }
+            catch (JsonException)
+            {
+                // Deserialize already accepted the text, or the caller will see a later failure.
+            }
             Normalize(settings);
-            return new SettingsLoadResult(settings, false, null);
+            return new SettingsLoadResult(settings, false, null, migrated);
         }
         catch (Exception ex)
         {
             TryBackup(path);
-            return new SettingsLoadResult(AppSettings.CreateDefault(), true, ex.Message);
+            return new SettingsLoadResult(AppSettings.CreateDefault(), true, ex.Message, false);
         }
     }
 
@@ -58,7 +69,8 @@ public static class SettingsStore
 
     public static void Normalize(AppSettings settings)
     {
-        settings.Version = 1;
+        if (settings.Version != AppSettings.CurrentSchema)
+            settings.Version = AppSettings.CurrentSchema;
         settings.Hotkey ??= HotkeyChord.AltTab();
         if (!HotkeyLogic.IsValid(settings.Hotkey))
             settings.Hotkey = HotkeyChord.AltTab();
@@ -69,6 +81,9 @@ public static class SettingsStore
         if (!Enum.IsDefined(settings.SortMode)) settings.SortMode = LoadSortMode.Recent;
         settings.ExcludedProcesses = ProcessNames.NormalizeList(settings.ExcludedProcesses);
         settings.ExcludedApps = NormalizeNames(settings.ExcludedApps);
+        settings.EverythingExcludedPaths = NormalizeNames(settings.EverythingExcludedPaths);
+        if (string.IsNullOrWhiteSpace(settings.EverythingExtensions))
+            settings.EverythingExtensions = "exe,lnk,url,appref-ms";
     }
 
     static List<string> NormalizeNames(List<string>? items)

@@ -16,7 +16,9 @@ public enum AppSource
     StartMenu,
     Store,
     Desktop,
-    Path
+    Path,
+    Installed,
+    Everything
 }
 
 public sealed class AppEntry

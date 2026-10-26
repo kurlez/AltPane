@@ -1,0 +1,19 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.locale.1.6.0.schema.json
+
+PackageIdentifier: kurlez.AltPane
+PackageVersion: 0.3.0
+PackageLocale: zh-CN
+Publisher: kurlez
+PackageName: AltPane
+License: MIT
+ShortDescription: 适用于 Windows 的现代 Alt+Tab 替换工具。
+Description: |-
+  AltPane 在运行期间替换 Windows 的 Alt+Tab 切换器。
+  它列出打开的窗口、预览当前选择，并可以从同一个搜索框启动已安装的应用。
+Tags:
+  - alt-tab
+  - 窗口切换
+  - 任务切换
+ReleaseNotesUrl: https://github.com/kurlez/AltPane/releases/tag/v0.3.0
+ManifestType: locale
+ManifestVersion: 1.6.0

@@ -8,7 +8,8 @@ public abstract record UiOp
     public sealed record Cycle(int Delta) : UiOp;
     public sealed record AppendQuery(string Text) : UiOp;
     public sealed record Backspace : UiOp;
-    public sealed record Commit(ModifierKeys Trigger) : UiOp;
+    /// <param name="MoveToMonitor">Null follows the setting. False stays. True moves even when the setting is off.</param>
+    public sealed record Commit(ModifierKeys Trigger, bool? MoveToMonitor = null) : UiOp;
     public sealed record Cancel(ModifierKeys Trigger) : UiOp;
     public sealed record EnterSearch(ModifierKeys Trigger) : UiOp;
     /// <summary>Trigger was released in sticky mode. The switcher stays open and takes the keyboard.</summary>
@@ -24,6 +25,7 @@ public abstract record UiOp
     public sealed record Page(int Direction) : UiOp;
     public sealed record BringToFront : UiOp;
     public sealed record SpaceAction : UiOp;
+    public sealed record ClearQuery : UiOp;
 }
 
 /// <summary>
@@ -99,7 +101,16 @@ public static class GestureTransitions
                 return Cycle(state, result, activationTrigger);
             case HookCommand.Commit:
                 if (!state.SwitcherOpen) return new(state, null);
-                return new(GestureSnapshot.Idle, new UiOp.Commit(state.LatchedTrigger));
+                bool? move = result.MoveChoice switch
+                {
+                    0 => false,
+                    1 => true,
+                    _ => null
+                };
+                return new(GestureSnapshot.Idle, new UiOp.Commit(state.LatchedTrigger, move));
+            case HookCommand.ClearQuery:
+                if (!state.SwitcherOpen || state.QueryLength == 0) return new(state, null);
+                return new(state with { QueryLength = 0 }, new UiOp.ClearQuery());
             case HookCommand.Cancel:
                 if (!state.SwitcherOpen) return new(state, null);
                 var cancelTrigger = state.LatchedTrigger;

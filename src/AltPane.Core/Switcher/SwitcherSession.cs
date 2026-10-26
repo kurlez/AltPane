@@ -11,6 +11,7 @@ public sealed class SwitcherSession
     readonly List<WindowEntry> _all;
     readonly Dictionary<long, TaskLoad> _loads = new();
     List<WindowEntry> _filtered;
+    readonly List<long> _frozen = new();
     List<AppHit> _apps = new();
     IReadOnlyList<AppEntry> _catalog = Array.Empty<AppEntry>();
     IReadOnlyDictionary<string, LaunchMemory> _usage = new Dictionary<string, LaunchMemory>();
@@ -18,6 +19,7 @@ public sealed class SwitcherSession
     bool _launchEnabled;
     DateTime _usageUtc = DateTime.UnixEpoch;
     string _query = "";
+    long _queryAnchor;
     LoadSortMode _sort = LoadSortMode.Recent;
     int _monitorFilter;
 
@@ -26,6 +28,8 @@ public sealed class SwitcherSession
         _all = windows.ToList();
         _filtered = _all.ToList();
         SelectedIndex = _filtered.Count > 0 ? 0 : -1;
+        CaptureOrder();
+        Recompute(resetSelection: false);
     }
 
     public IReadOnlyList<WindowEntry> All => _all;
@@ -109,8 +113,25 @@ public sealed class SwitcherSession
     public void AppendQuery(string text)
     {
         if (string.IsNullOrEmpty(text)) return;
+        NoteQueryStart(_query, _query + text);
         _query += text;
         Recompute(resetSelection: true);
+    }
+
+    /// <summary>
+    /// Clears the query and selects the window that was current when the query became non-empty.
+    /// Returns false when the query was already empty.
+    /// </summary>
+    public bool ClearQuery()
+    {
+        if (_query.Length == 0) return false;
+        var anchor = _queryAnchor;
+        _query = "";
+        _queryAnchor = 0;
+        Recompute(resetSelection: false);
+        if (anchor != 0 && SelectHandle(anchor)) return true;
+        SelectedIndex = ResultCount > 0 ? 0 : -1;
+        return true;
     }
 
     public void Backspace()
@@ -138,22 +159,40 @@ public sealed class SwitcherSession
         if (!Enum.IsDefined(mode)) mode = LoadSortMode.Recent;
         if (mode == _sort) return;
         _sort = mode;
+        CaptureOrder();
         Recompute(resetSelection: false);
     }
 
+    /// <summary>
+    /// Stores new CPU and memory figures. The row order captured at open, or by the last
+    /// explicit sort change, stays put.
+    /// </summary>
     public void UpdateLoads(IReadOnlyDictionary<long, TaskLoad> loads)
     {
         _loads.Clear();
         foreach (var pair in loads)
             _loads[pair.Key] = pair.Value;
-        if (_query.Length == 0 && _sort != LoadSortMode.Recent)
-            Recompute(resetSelection: false);
+    }
+
+    /// <summary>
+    /// A window that appears while the switcher is open is added at the end.
+    /// Existing rows are not moved.
+    /// </summary>
+    public bool NoteArrived(WindowEntry entry)
+    {
+        if (entry is null || _all.Any(window => window.Handle == entry.Handle)) return false;
+        _all.Add(entry);
+        _frozen.Add(entry.Handle);
+        Recompute(resetSelection: false);
+        return true;
     }
 
     public void SetQuery(string? query)
     {
         var next = query ?? "";
         if (next == _query) return;
+        NoteQueryStart(_query, next);
+        if (next.Length == 0) _queryAnchor = 0;
         _query = next;
         Recompute(resetSelection: true);
     }
@@ -167,6 +206,7 @@ public sealed class SwitcherSession
         var selectedWasRemoved = selectedHandle == handle;
         var oldSelected = SelectedIndex;
         _all.RemoveAt(index);
+        _frozen.Remove(handle);
         Recompute(resetSelection: false);
         if (!string.IsNullOrEmpty(selectedApp))
         {
@@ -199,29 +239,41 @@ public sealed class SwitcherSession
         return true;
     }
 
+    void NoteQueryStart(string previous, string next)
+    {
+        if (previous.Length == 0 && next.Length > 0)
+            _queryAnchor = Selected?.Handle ?? 0;
+    }
+
+    void CaptureOrder()
+    {
+        var ordered = LoadSorter.Sort(
+            _all,
+            _sort,
+            entry => entry.OriginalIndex,
+            entry => LoadFor(entry.Handle).ProcessCount > 0 ? LoadFor(entry.Handle).CpuPercent : null,
+            entry => LoadFor(entry.Handle).WorkingSetBytes);
+        _frozen.Clear();
+        foreach (var entry in ordered)
+            _frozen.Add(entry.Handle);
+    }
+
     void Recompute(bool resetSelection)
     {
         var selectedHandle = Selected?.Handle ?? 0;
         var selectedApp = SelectedApp?.App.Id;
-        _filtered = SearchMatcher.Rank(_all, _query, e => e.Title, e => e.DisplayProcessName, e => e.OriginalIndex);
-        if (_query.Length == 0 && _sort != LoadSortMode.Recent)
+        var byHandle = new Dictionary<long, WindowEntry>(_all.Count);
+        foreach (var entry in _all)
+            byHandle[entry.Handle] = entry;
+        var filtered = new List<WindowEntry>(_frozen.Count);
+        foreach (var handle in _frozen)
         {
-            _filtered = LoadSorter.Sort(
-                _filtered,
-                _sort,
-                e => e.OriginalIndex,
-                e => LoadFor(e.Handle).ProcessCount > 0 ? LoadFor(e.Handle).CpuPercent : null,
-                e => LoadFor(e.Handle).WorkingSetBytes);
+            if (!byHandle.TryGetValue(handle, out var entry)) continue;
+            if (!SearchMatcher.Matches(_query, entry.Title, entry.DisplayProcessName)) continue;
+            if (_monitorFilter > 0 && entry.MonitorNumber != _monitorFilter) continue;
+            filtered.Add(entry);
         }
-        if (_monitorFilter > 0)
-        {
-            var kept = new List<WindowEntry>(_filtered.Count);
-            foreach (var entry in _filtered)
-            {
-                if (entry.MonitorNumber == _monitorFilter) kept.Add(entry);
-            }
-            _filtered = kept;
-        }
+        _filtered = filtered;
         _apps = _launchEnabled && _query.Length > 0
             ? AppCatalog.Rank(_catalog, _query, _usage, _all, _filtered, _excludedApps, _usageUtc)
             : new List<AppHit>();

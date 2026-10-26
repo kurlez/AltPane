@@ -20,7 +20,7 @@ internal static class StartupRegistration
             return;
         }
 
-        var exe = Environment.ProcessPath ?? "";
+        var exe = AppPaths.ResolveExecutable(Environment.ProcessPath);
         key.SetValue(ValueName, ExecutablePath.Quote(exe));
     }
 }
@@ -35,7 +35,7 @@ internal static class Admin
 
     public static bool TryRestartAsAdmin()
     {
-        var exe = Environment.ProcessPath;
+        var exe = AppPaths.ResolveExecutable(Environment.ProcessPath);
         if (string.IsNullOrWhiteSpace(exe)) return false;
         try
         {

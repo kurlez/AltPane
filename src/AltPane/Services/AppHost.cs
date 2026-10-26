@@ -16,6 +16,7 @@ internal sealed class AppHost : IDisposable
     SettingsWindow? _settingsWindow;
     bool _recording;
     bool _disposed;
+    bool _migrated;
 
     public AppHost()
     {
@@ -23,6 +24,11 @@ internal sealed class AppHost : IDisposable
         if (loaded.RecoveredFromError)
             AppLog.Error("Settings were reset: " + loaded.Error);
         Settings = loaded.Settings;
+        _migrated = loaded.Migrated;
+        AppLog.Verbose = Settings.VerboseLog;
+        if (loaded.Migrated)
+            AppLog.Info($"Migrated settings to schema {Settings.Version}. Win+Tab capture is {(Settings.CaptureWinTab ? "on" : "off")}.");
+        AppLog.Info($"Win+Tab capture is {(Settings.CaptureWinTab ? "on" : "off")} (schema {Settings.Version}).");
         Localizer.Current.Apply(Settings.Language, CultureInfo.CurrentUICulture.Name);
         ThemeService.Apply(Settings.Theme);
         _presenter = new SwitcherPresenter(() => Settings);
@@ -46,6 +52,8 @@ internal sealed class AppHost : IDisposable
         _tray.Show();
         if (!Settings.OverridePaused && !_hotkeys.Install())
             _tray.Balloon(Localizer.Current["settings.hookFailed"]);
+        if (_migrated)
+            TrySave();
         if (!Settings.WelcomeShown)
         {
             _tray.Balloon(Localizer.Current["tray.welcome.body"], Localizer.Current["tray.welcome.title"]);
@@ -96,6 +104,19 @@ internal sealed class AppHost : IDisposable
         TrySave();
     }
 
+    public void OpenLogFolder()
+    {
+        try
+        {
+            Directory.CreateDirectory(AppLog.DirectoryPath);
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", AppLog.DirectoryPath) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error(ex);
+        }
+    }
+
     public void Exit()
     {
         Dispose();
@@ -121,6 +142,7 @@ internal sealed class AppHost : IDisposable
     {
         draft.WelcomeShown = Settings.WelcomeShown;
         Settings = draft;
+        AppLog.Verbose = Settings.VerboseLog;
         Localizer.Current.Apply(Settings.Language, CultureInfo.CurrentUICulture.Name);
         ThemeService.Apply(Settings.Theme);
         try

@@ -11,12 +11,6 @@
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <RootNamespace>AltPane</RootNamespace>
     <AssemblyName>AltPane</AssemblyName>
-    <Version>0.2.0</Version>
-    <AssemblyVersion>0.2.0.0</AssemblyVersion>
-    <FileVersion>0.2.0.0</FileVersion>
-    <Product>AltPane</Product>
-    <Company>AltPane</Company>
-    <Description>A modern Alt+Tab replacement for Windows.</Description>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <!-- WPF reads PerMonitorV2 from app.manifest. WinForms also flags that as WFAC010. -->
     <NoWarn>$(NoWarn);WFAC010</NoWarn>

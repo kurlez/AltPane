@@ -4,6 +4,13 @@ internal static class AppLog
 {
     static readonly object Gate = new();
 
+    public static bool Verbose { get; set; }
+
+    public static string DirectoryPath =>
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "AltPane");
+
+    public static string LogFilePath => Path.Combine(DirectoryPath, "altpane.log");
+
     public static void Info(string message) => Write("INFO", message);
     public static void Error(string message) => Write("ERROR", message);
     public static void Error(Exception exception) => Write("ERROR", exception.ToString());
@@ -12,9 +19,9 @@ internal static class AppLog
     {
         try
         {
-            var directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "AltPane");
+            var directory = DirectoryPath;
             Directory.CreateDirectory(directory);
-            var path = Path.Combine(directory, "altpane.log");
+            var path = LogFilePath;
             lock (Gate)
             {
                 var info = new FileInfo(path);

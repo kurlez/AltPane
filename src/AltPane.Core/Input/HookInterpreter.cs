@@ -22,15 +22,17 @@ public enum HookCommand
     Page,
     SpaceAction,
     ReleaseHold,
-    AdminLaunch
+    AdminLaunch,
+    ClearQuery
 }
 
-public readonly record struct HookResult(HookCommand Command, int Delta, bool LatchGesture, bool ClearAwaitingRelease)
+public readonly record struct HookResult(HookCommand Command, int Delta, bool LatchGesture, bool ClearAwaitingRelease, int MoveChoice = -1)
 {
     public static HookResult Pass() => new(HookCommand.Pass, 0, false, false);
     public static HookResult Swallow(bool clearAwaiting = false) => new(HookCommand.Swallow, 0, false, clearAwaiting);
     public static HookResult Cycle(int delta, bool latch) => new(HookCommand.Cycle, delta, latch, false);
-    public static HookResult Commit() => new(HookCommand.Commit, 0, false, false);
+    /// <param name="moveChoice">-1 follows the setting, 0 stays put, 1 forces a move onto the switcher's monitor.</param>
+    public static HookResult Commit(int moveChoice = -1) => new(HookCommand.Commit, 0, false, false, moveChoice);
     public static HookResult Cancel() => new(HookCommand.Cancel, 0, false, false);
     public static HookResult Type() => new(HookCommand.Type, 0, false, false);
     public static HookResult Backspace() => new(HookCommand.Backspace, 0, false, false);
@@ -46,6 +48,7 @@ public readonly record struct HookResult(HookCommand Command, int Delta, bool La
     public static HookResult Space() => new(HookCommand.SpaceAction, 0, false, false);
     public static HookResult ReleaseHold() => new(HookCommand.ReleaseHold, 0, false, false);
     public static HookResult AdminLaunch() => new(HookCommand.AdminLaunch, 0, false, false);
+    public static HookResult ClearQuery() => new(HookCommand.ClearQuery, 0, false, false);
 }
 
 public readonly record struct HookInput
@@ -66,6 +69,8 @@ public readonly record struct HookInput
     public bool QuickTapSwitches { get; init; }
     /// <summary>The switcher window is already on screen. A hidden session is the quick-tap window.</summary>
     public bool SwitcherShown { get; init; }
+    /// <summary>The search box has an IME composition. Esc belongs to the IME.</summary>
+    public bool ImeComposing { get; init; }
     public int VirtualKey { get; init; }
     public bool IsKeyDown { get; init; }
     public bool IsRepeat { get; init; }
@@ -135,9 +140,17 @@ public static class HookInterpreter
 
         switch (input.VirtualKey)
         {
-            case VirtualKeys.Escape: return HookResult.Cancel();
+            case VirtualKeys.Escape:
+                return EscAction.Decide(input.ImeComposing, input.HasSearchQuery) switch
+                {
+                    EscDecision.PassToIme => HookResult.Pass(),
+                    EscDecision.ClearQuery => HookResult.ClearQuery(),
+                    _ => HookResult.Cancel()
+                };
             case VirtualKeys.Return when input.Modifiers.Ctrl && !input.Modifiers.Win:
                 return HookResult.AdminLaunch();
+            case VirtualKeys.Return when input.Modifiers.Shift && !input.Modifiers.Ctrl && !input.Modifiers.Win:
+                return HookResult.Commit(moveChoice: 0);
             case VirtualKeys.Return: return HookResult.Commit();
             case VirtualKeys.Space when !input.HasSearchQuery: return HookResult.Space();
             case VirtualKeys.Space: return HookResult.Type();

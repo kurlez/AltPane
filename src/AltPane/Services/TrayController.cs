@@ -47,6 +47,7 @@ internal sealed class TrayController : IDisposable
         startup.Click += (_, _) => _host.ToggleStartup();
         _menu.Items.Add(startup);
         _menu.Items.Add(new WinForms.ToolStripSeparator());
+        Add(loc["tray.log"], () => _host.OpenLogFolder());
         Add(loc["tray.exit"], () => _host.Exit());
     }
 

@@ -3,6 +3,7 @@ using AltPane.Core.Actions;
 using AltPane.Core.Apps;
 using AltPane.Core.Input;
 using AltPane.Core.Load;
+using AltPane.Core.Layout;
 using AltPane.Core.Localization;
 using AltPane.Core.Models;
 using AltPane.Core.Preview;
@@ -60,12 +61,16 @@ internal sealed class SwitcherPresenter
         _window.AdminLaunchRequested += LaunchAdmin;
         _window.OpenLocationRequested += RevealSelected;
         _window.CommitRequested += () => Hotkeys?.RequestCommit();
+        _window.CommitInPlaceRequested += () => Hotkeys?.RequestCommit(moveChoice: 0);
+        _window.ForceMoveRequested += () => Hotkeys?.RequestCommit(moveChoice: 1);
+        _window.ClearQueryRequested += () => Hotkeys?.RequestClearQuery();
         _window.CancelRequested += () => Hotkeys?.RequestCancel();
         _window.SearchRequested += () => Hotkeys?.RequestSearchMode();
         _window.QueryEdited += text =>
         {
             _session?.SetQuery(text);
             Hotkeys?.SyncQueryLength(text?.Length ?? 0);
+            SyncSearch();
             Refresh(updateThumb: true);
         };
         _window.NavigateRequested += Nudge;
@@ -100,6 +105,7 @@ internal sealed class SwitcherPresenter
     public HotkeyService? Hotkeys { get; set; }
     public bool PendingShow { get; private set; }
     public bool IsSwitcherVisible => _window.IsVisible;
+    public bool IsImeComposing => _window.IsImeComposing;
 
     public void UseApps(AppIndexService apps)
     {
@@ -122,11 +128,25 @@ internal sealed class SwitcherPresenter
                 break;
             case UiOp.AppendQuery append:
                 _session?.AppendQuery(append.Text);
+                SyncSearch();
                 if (_window.IsVisible) Refresh(updateThumb: true);
                 break;
             case UiOp.Backspace:
                 _session?.Backspace();
+                SyncSearch();
                 if (_window.IsVisible) Refresh(updateThumb: true);
+                break;
+            case UiOp.ClearQuery:
+                if (_session?.ClearQuery() == true)
+                {
+                    Hotkeys?.SyncQueryLength(0);
+                    SyncSearch();
+                    if (_window.IsVisible)
+                    {
+                        Refresh(updateThumb: true);
+                        if (_searchMode) _window.FocusSearch();
+                    }
+                }
                 break;
             case UiOp.Home:
                 _session?.SelectFirst();
@@ -140,8 +160,8 @@ internal sealed class SwitcherPresenter
                 _session?.Page(page.Direction);
                 if (_window.IsVisible) Refresh(updateThumb: true);
                 break;
-            case UiOp.Commit:
-                Commit();
+            case UiOp.Commit commit:
+                Commit(commit.MoveToMonitor);
                 break;
             case UiOp.Cancel:
                 Cancel();
@@ -211,13 +231,18 @@ internal sealed class SwitcherPresenter
         return selected;
     }
 
-    public void ActivateEntry(WindowEntry entry)
+    public void ActivateEntry(WindowEntry entry) => ActivateEntry(entry, null);
+
+    void ActivateEntry(WindowEntry entry, bool? moveOverride)
     {
         if (!NativeMethods.IsWindow((nint)entry.Handle))
         {
             Notify?.Invoke(Localizer.Current["activate.missing"]);
             return;
         }
+        if (WantsMove(moveOverride) && _window.TryGetHostMonitor(out var host)
+            && !WindowMover.TryMoveTo((nint)entry.Handle, host, MonitorUtil.All()))
+            AppLog.Info($"Could not move 0x{entry.Handle:X} onto the switcher's display. Activating it where it is.");
         if (!WindowActions.TryActivate((nint)entry.Handle))
             Notify?.Invoke(Localizer.Current["activate.failed"]);
     }
@@ -283,15 +308,19 @@ internal sealed class SwitcherPresenter
             return;
         if (appHit.SwitchHandle != 0)
         {
-            Commit();
+            Commit(null);
             return;
         }
         var app = appHit.App;
+        var host = HostForLaunch(null);
         DismissSwitcher(keepBorrowed: false);
         if (!AppLauncher.TryLaunch(app, admin: true, out var error) && error is not null)
             Notify?.Invoke(Localizer.Current.Format(error, app.Name));
         else
+        {
             _apps?.Remember(app.Id);
+            if (host is { } bounds) WatchLaunch(app, bounds);
+        }
     }
 
     void RevealSelected()
@@ -314,14 +343,14 @@ internal sealed class SwitcherPresenter
         if (_session is null) return;
         var settings = _settings();
         _session.SetCatalog(
-            _apps?.Visible,
+            _apps?.ForQuery(_session.Query),
             _apps?.UsageSnapshot(),
             settings.ExcludedApps,
             settings.LaunchApps,
             resetClock ? DateTime.UtcNow : null);
     }
 
-    void Commit()
+    void Commit(bool? moveOverride)
     {
         var hit = _session?.SelectedApp;
         if (hit is { } appHit)
@@ -331,17 +360,21 @@ internal sealed class SwitcherPresenter
                 ? null
                 : _session?.All.FirstOrDefault(entry => entry.Handle == appHit.SwitchHandle);
             var keepBorrowed = window is not null && _preview.IsBorrowing && _preview.Handle == window.Handle;
+            var host = HostForLaunch(moveOverride);
             DismissSwitcher(keepBorrowed);
             if (window is not null)
             {
                 _apps?.Remember(app.Id);
-                ActivateEntry(window);
+                ActivateEntry(window, moveOverride);
                 return;
             }
             if (!AppLauncher.TryLaunch(app, admin: false, out var error) && error is not null)
                 Notify?.Invoke(Localizer.Current.Format(error, app.Name));
             else
+            {
                 _apps?.Remember(app.Id);
+                if (host is { } bounds) WatchLaunch(app, bounds);
+            }
             return;
         }
 
@@ -358,7 +391,64 @@ internal sealed class SwitcherPresenter
             if (_window.IsVisible) _window.HideSwitcher();
         });
         if (selected is null) return;
-        ActivateEntry(selected);
+        ActivateEntry(selected, moveOverride);
+    }
+
+    bool WantsMove(bool? moveOverride) => moveOverride ?? _settings().MoveToSwitcherMonitor;
+
+    DisplayBounds? HostForLaunch(bool? moveOverride)
+    {
+        if (!WantsMove(moveOverride)) return null;
+        return _window.TryGetHostMonitor(out var host) ? host : null;
+    }
+
+    void SyncSearch() => _apps?.ScheduleSearch(_session?.Query);
+
+    void WatchLaunch(AppEntry app, DisplayBounds host)
+    {
+        if (string.IsNullOrWhiteSpace(app.ProcessName)) return;
+        var seen = new HashSet<long>();
+        try
+        {
+            foreach (var entry in WindowEnumerator.Enumerate(_settings()))
+                seen.Add(entry.Handle);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error(ex);
+            return;
+        }
+        var name = app.ProcessName;
+        var ticks = 0;
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
+        timer.Tick += (_, _) =>
+        {
+            if (++ticks > 15)
+            {
+                timer.Stop();
+                return;
+            }
+            try
+            {
+                foreach (var entry in WindowEnumerator.Enumerate(_settings()))
+                {
+                    if (!seen.Add(entry.Handle)) continue;
+                    if (!string.Equals(entry.ProcessName, name, StringComparison.OrdinalIgnoreCase)
+                        && !string.Equals(entry.DisplayProcessName, name, StringComparison.OrdinalIgnoreCase)
+                        && !string.Equals(entry.KillProcessName, name, StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    WindowMover.TryMoveTo((nint)entry.Handle, host, MonitorUtil.All());
+                    timer.Stop();
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                AppLog.Error(ex);
+                timer.Stop();
+            }
+        };
+        timer.Start();
     }
 
     void Cancel()

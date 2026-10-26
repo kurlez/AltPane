@@ -72,11 +72,14 @@ internal sealed class HotkeyService : IDisposable
     public void RequestSearchMode() => Enqueue(state =>
         GestureTransitions.Apply(state, HookResult.EnterSearch(), null, PhysicallyDown(state.LatchedTrigger), ModifierKeys.None));
 
-    public void RequestCommit() => Enqueue(state =>
-        GestureTransitions.Apply(state, HookResult.Commit(), null, false, ModifierKeys.None));
+    public void RequestCommit(int moveChoice = -1) => Enqueue(state =>
+        GestureTransitions.Apply(state, HookResult.Commit(moveChoice), null, false, ModifierKeys.None));
 
     public void RequestCancel() => Enqueue(state =>
         GestureTransitions.Apply(state, HookResult.Cancel(), null, PhysicallyDown(state.LatchedTrigger), ModifierKeys.None));
+
+    public void RequestClearQuery() => Enqueue(state =>
+        GestureTransitions.Apply(state, HookResult.ClearQuery(), null, PhysicallyDown(state.LatchedTrigger), ModifierKeys.None));
 
     void Enqueue(Func<GestureSnapshot, TransitionResult> transition)
     {
@@ -130,8 +133,16 @@ internal sealed class HotkeyService : IDisposable
             mods,
             settings.StickySwitcher,
             settings.QuickTapSwitches,
-            _presenter.IsSwitcherVisible);
+            _presenter.IsSwitcherVisible) with
+        {
+            ImeComposing = _presenter.IsImeComposing
+        };
         var result = HookInterpreter.Interpret(input);
+        if (AppLog.Verbose && vk is VirtualKeys.Tab or VirtualKeys.LWin or VirtualKeys.RWin)
+        {
+            AppLog.Info(
+                $"hook vk=0x{vk:X2} {(isDown ? "down" : "up")} repeat={repeat} win={mods.Win} alt={mods.Alt} ctrl={mods.Ctrl} shift={mods.Shift} capture={settings.CaptureWinTab} -> {result.Command}");
+        }
         var kind = HotkeyLogic.Match(hotkey, settings.CaptureWinTab, vk, mods);
         var consumedWinChord = isDown && !repeat && kind == ChordKind.WinTab && result.Command == HookCommand.Cycle;
         var win = WinChordGuard.OnKey(_win, vk, isDown, consumedWinChord);

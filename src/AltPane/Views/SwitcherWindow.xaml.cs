@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
@@ -59,53 +60,84 @@ internal sealed class SwitcherRow : INotifyPropertyChanged
 
     public void ApplyLoad(bool show, in TaskLoad load)
     {
-        ShowLoad = show;
+        string text;
+        double bar;
+        int heat;
         if (!show)
         {
-            LoadText = "";
-            BarWidth = 0;
-            Heat = 0;
+            text = "";
+            bar = 0;
+            heat = 0;
         }
         else if (load.ProcessCount <= 0)
         {
-            LoadText = "—";
-            BarWidth = 0;
-            Heat = 0;
+            text = "—";
+            bar = 0;
+            heat = 0;
         }
         else
         {
-            LoadText = LoadFormat.Row(load);
+            text = LoadFormat.Row(load);
             var cpu = load.CpuPercent ?? 0;
-            BarWidth = Math.Clamp(cpu, 0, 100) / 100.0 * 40.0;
-            Heat = (int)LoadHeatMap.Classify(load.CpuPercent, load.WorkingSetBytes);
+            bar = Math.Clamp(cpu, 0, 100) / 100.0 * 40.0;
+            heat = (int)LoadHeatMap.Classify(load.CpuPercent, load.WorkingSetBytes);
         }
-        _baseTip = show && load.ProcessCount > 0
+        var tip = show && load.ProcessCount > 0
             ? $"{Title}\n{Subtitle}  ·  pid {Entry?.KillProcessId}\n{LoadFormat.Cpu(load.CpuPercent)}  ·  {LoadFormat.Bytes(load.WorkingSetBytes)}  ·  {LoadFormat.Bytes(load.PrivateBytes)}"
             : $"{Title}\n{Subtitle}";
-        PublishTip();
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LoadText)));
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(BarWidth)));
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Heat)));
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ShowLoad)));
+        if (ShowLoad != show)
+        {
+            ShowLoad = show;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ShowLoad)));
+        }
+        if (LoadText != text)
+        {
+            LoadText = text;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LoadText)));
+        }
+        if (Math.Abs(BarWidth - bar) > 0.01)
+        {
+            BarWidth = bar;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(BarWidth)));
+        }
+        if (Heat != heat)
+        {
+            Heat = heat;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Heat)));
+        }
+        if (_baseTip != tip)
+        {
+            _baseTip = tip;
+            PublishTip();
+        }
     }
 
     public void ApplyMonitor(bool show, WindowEntry entry)
     {
         var visible = show && entry.MonitorNumber > 0;
-        MonitorLabel = visible ? entry.MonitorNumber.ToString() : "";
-        if (visible)
+        var label = visible ? entry.MonitorNumber.ToString() : "";
+        var tip = visible
+            ? MonitorChrome.Format(entry.MonitorNumber, entry.MonitorWidth, entry.MonitorHeight, entry.MonitorPrimary, entry.MonitorFriendlyName)
+            : "";
+        if (MonitorLabel == label && _monitorTip == tip) return;
+        var labelChanged = MonitorLabel != label;
+        MonitorLabel = label;
+        _monitorTip = tip;
+        if (labelChanged)
         {
-            MonitorBrush = MonitorChrome.Brush(entry.MonitorNumber, 0xFF);
-            MonitorTint = MonitorChrome.Brush(entry.MonitorNumber, 0x28);
-            _monitorTip = MonitorChrome.Format(entry.MonitorNumber, entry.MonitorWidth, entry.MonitorHeight, entry.MonitorPrimary, entry.MonitorFriendlyName);
-        }
-        else
-        {
-            MonitorBrush = System.Windows.Media.Brushes.Transparent;
-            MonitorTint = System.Windows.Media.Brushes.Transparent;
-            _monitorTip = "";
+            if (visible)
+            {
+                MonitorBrush = MonitorChrome.Brush(entry.MonitorNumber, 0xFF);
+                MonitorTint = MonitorChrome.Brush(entry.MonitorNumber, 0x28);
+            }
+            else
+            {
+                MonitorBrush = System.Windows.Media.Brushes.Transparent;
+                MonitorTint = System.Windows.Media.Brushes.Transparent;
+            }
         }
         PublishTip();
+        if (!labelChanged) return;
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(MonitorLabel)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(MonitorBrush)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(MonitorTint)));
@@ -160,7 +192,7 @@ public sealed class SwitcherViewState
 
 public partial class SwitcherWindow : Window
 {
-    readonly List<SwitcherRow> _rows = new();
+    readonly ObservableCollection<SwitcherRow> _rows = new();
     readonly ContextMenu _menu;
     readonly MenuItem _menuClose;
     readonly MenuItem _menuKill;
@@ -172,6 +204,8 @@ public partial class SwitcherWindow : Window
     readonly MenuItem _menuLaunch;
     readonly MenuItem _menuAdmin;
     readonly MenuItem _menuLocation;
+    readonly MenuItem _menuMove;
+    readonly MenuItem _menuStay;
     bool _menuForApp;
     Point _lastScreen = new(double.NaN, double.NaN);
     int _renderedSelection = -2;
@@ -198,6 +232,8 @@ public partial class SwitcherWindow : Window
         _menuLaunch = new MenuItem();
         _menuAdmin = new MenuItem();
         _menuLocation = new MenuItem();
+        _menuMove = new MenuItem();
+        _menuStay = new MenuItem();
         _menuClose.Click += (_, _) => CloseRequested?.Invoke();
         _menuLaunch.Click += (_, _) => CommitRequested?.Invoke();
         _menuAdmin.Click += (_, _) => AdminLaunchRequested?.Invoke();
@@ -208,8 +244,11 @@ public partial class SwitcherWindow : Window
         _menuMin.Click += (_, _) => MinimizeRequested?.Invoke();
         _menuMax.Click += (_, _) => MaximizeRequested?.Invoke();
         _menuRestore.Click += (_, _) => RestoreRequested?.Invoke();
-        _menu = new ContextMenu { Items = { _menuLaunch, _menuAdmin, _menuLocation, _menuClose, _menuKill, _menuKillTree, _menuPreview, new Separator(), _menuMin, _menuMax, _menuRestore } };
+        _menu = new ContextMenu { Items = { _menuLaunch, _menuAdmin, _menuLocation, _menuMove, _menuStay, _menuClose, _menuKill, _menuKillTree, _menuPreview, new Separator(), _menuMin, _menuMax, _menuRestore } };
+        _menuMove.Click += (_, _) => ForceMoveRequested?.Invoke();
+        _menuStay.Click += (_, _) => CommitInPlaceRequested?.Invoke();
         _menu.Opened += (_, _) => LocalizeMenu();
+        WindowList.ItemsSource = _rows;
         WindowList.ContextMenu = _menu;
         TextCompositionManager.AddTextInputStartHandler(SearchBox, (_, _) => _composing = true);
         TextCompositionManager.AddTextInputHandler(SearchBox, (_, _) => _composing = false);
@@ -247,7 +286,11 @@ public partial class SwitcherWindow : Window
     public event Action? AdminLaunchRequested;
     public event Action? OpenLocationRequested;
     public event Action? CommitRequested;
+    public event Action? CommitInPlaceRequested;
+    public event Action? ForceMoveRequested;
+    public event Action? ClearQueryRequested;
     public event Action? CancelRequested;
+    public bool IsImeComposing => _composing;
     public event Action? SearchRequested;
     public event Action<string>? QueryEdited;
     public event Action<int>? NavigateRequested;
@@ -301,34 +344,7 @@ public partial class SwitcherWindow : Window
         ListColumn.Width = state.ShowPreview ? new GridLength(0.42, GridUnitType.Star) : new GridLength(1, GridUnitType.Star);
         PreviewRoot.Visibility = state.ShowPreview ? Visibility.Visible : Visibility.Collapsed;
 
-        if (!SameRows(state))
-        {
-            _rows.Clear();
-            foreach (var entry in state.Filtered)
-            {
-                state.Icons.TryGetValue(entry.Handle, out var icon);
-                var row = new SwitcherRow(entry, icon ?? IconLoader.Letter(entry.Title));
-                row.ApplyLoad(state.ShowLoad, default);
-                row.ApplyMonitor(state.ShowMonitorBadges, entry);
-                _rows.Add(row);
-            }
-            for (var i = 0; i < state.Apps.Count; i++)
-            {
-                var hit = state.Apps[i];
-                state.AppIcons.TryGetValue(hit.App.Id, out var icon);
-                var subtitle = hit.SwitchHandle != 0
-                    ? state.SwitchSubtitle
-                    : string.IsNullOrWhiteSpace(hit.App.ProcessName) ? hit.App.Name : hit.App.ProcessName;
-                _rows.Add(new SwitcherRow(
-                    hit,
-                    icon ?? IconLoader.Letter(hit.App.Name),
-                    i == 0 ? state.LaunchSection : "",
-                    hit.SwitchHandle != 0 ? state.OpenBadge : "",
-                    subtitle));
-            }
-            WindowList.ItemsSource = null;
-            WindowList.ItemsSource = _rows;
-        }
+        SyncRows(state);
 
         for (var i = 0; i < _rows.Count && i < state.Filtered.Count; i++)
         {
@@ -546,12 +562,19 @@ public partial class SwitcherWindow : Window
                 AdminLaunchRequested?.Invoke();
                 e.Handled = true;
                 break;
+            case Key.Enter when mods.HasFlag(WpfMods.Shift):
+                CommitInPlaceRequested?.Invoke();
+                e.Handled = true;
+                break;
             case Key.Enter:
                 CommitRequested?.Invoke();
                 e.Handled = true;
                 break;
             case Key.Escape:
-                CancelRequested?.Invoke();
+                if (EscAction.Decide(imeComposing: false, hasQuery: !string.IsNullOrEmpty(SearchBox.Text)) == EscDecision.ClearQuery)
+                    ClearQueryRequested?.Invoke();
+                else
+                    CancelRequested?.Invoke();
                 e.Handled = true;
                 break;
             case Key.Up:
@@ -660,6 +683,20 @@ public partial class SwitcherWindow : Window
         _hints.Show(plans, monitors, MoveToMonitor, colorCode: _showBadges && monitors.Count >= 2);
     }
 
+    public bool TryGetHostMonitor(out DisplayBounds monitor)
+    {
+        monitor = default;
+        var monitors = MonitorUtil.All();
+        if (monitors.Count == 0 || Handle == 0) return false;
+        if (!NativeMethods.GetWindowRect(Handle, out var rect)) return false;
+        var width = Math.Max(1, rect.Right - rect.Left);
+        var height = Math.Max(1, rect.Bottom - rect.Top);
+        var host = OtherMonitorHints.HostIndex(monitors, rect.Left, rect.Top, width, height);
+        if (host < 0 || host >= monitors.Count) return false;
+        monitor = monitors[host];
+        return true;
+    }
+
     public int HostMonitorNumber()
     {
         var monitors = MonitorUtil.All();
@@ -762,6 +799,8 @@ public partial class SwitcherWindow : Window
         _menuLaunch.Header = loc[switching ? "launch.switch" : "launch.open"];
         _menuAdmin.Header = loc["launch.admin"];
         _menuLocation.Header = loc["launch.location"];
+        _menuMove.Header = loc["menu.moveHere"];
+        _menuStay.Header = loc["menu.stay"];
         var app = _menuForApp ? Visibility.Visible : Visibility.Collapsed;
         var window = _menuForApp ? Visibility.Collapsed : Visibility.Visible;
         _menuLaunch.Visibility = app;
@@ -776,20 +815,150 @@ public partial class SwitcherWindow : Window
         _menuRestore.Visibility = window;
     }
 
-    bool SameRows(SwitcherViewState state)
+    void SyncRows(SwitcherViewState state)
     {
-        if (_rows.Count != state.Filtered.Count + state.Apps.Count) return false;
-        for (var i = 0; i < state.Filtered.Count; i++)
+        var windowCount = WindowRowCount();
+        if (!SameWindowOrder(state, windowCount))
+        {
+            if (SharesRelativeOrder(state, windowCount))
+                EditWindowRows(state, windowCount);
+            else
+                ReplaceWindowRows(state);
+        }
+
+        SyncAppRows(state, WindowRowCount());
+    }
+
+    int WindowRowCount()
+    {
+        var count = 0;
+        while (count < _rows.Count && !_rows[count].IsApp)
+            count++;
+        return count;
+    }
+
+    bool SameWindowOrder(SwitcherViewState state, int windowCount)
+    {
+        if (windowCount != state.Filtered.Count) return false;
+        for (var i = 0; i < windowCount; i++)
         {
             if (_rows[i].Entry?.Handle != state.Filtered[i].Handle) return false;
         }
-        for (var i = 0; i < state.Apps.Count; i++)
+        return true;
+    }
+
+    bool SharesRelativeOrder(SwitcherViewState state, int windowCount)
+    {
+        var want = new HashSet<long>();
+        foreach (var entry in state.Filtered)
+            want.Add(entry.Handle);
+        var current = new HashSet<long>();
+        var kept = new List<long>();
+        for (var i = 0; i < windowCount; i++)
         {
-            var row = _rows[state.Filtered.Count + i];
-            if (!string.Equals(row.AppId, state.Apps[i].App.Id, StringComparison.OrdinalIgnoreCase)) return false;
-            if ((row.Badge.Length > 0) != (state.Apps[i].SwitchHandle != 0)) return false;
+            var handle = _rows[i].Entry?.Handle ?? 0;
+            current.Add(handle);
+            if (want.Contains(handle)) kept.Add(handle);
+        }
+        var fromDesired = new List<long>();
+        foreach (var entry in state.Filtered)
+        {
+            if (current.Contains(entry.Handle)) fromDesired.Add(entry.Handle);
+        }
+        if (kept.Count != fromDesired.Count) return false;
+        for (var i = 0; i < kept.Count; i++)
+        {
+            if (kept[i] != fromDesired[i]) return false;
         }
         return true;
+    }
+
+    void EditWindowRows(SwitcherViewState state, int windowCount)
+    {
+        var wanted = new HashSet<long>(state.Filtered.Select(entry => entry.Handle));
+        var desired = 0;
+        var row = 0;
+        while (desired < state.Filtered.Count || row < windowCount)
+        {
+            var current = row < windowCount ? _rows[row].Entry?.Handle ?? 0 : 0;
+            var matches = row < windowCount
+                && desired < state.Filtered.Count
+                && current == state.Filtered[desired].Handle;
+            if (matches)
+            {
+                desired++;
+                row++;
+                continue;
+            }
+            if (row < windowCount && (desired >= state.Filtered.Count || !wanted.Contains(current)))
+            {
+                _rows.RemoveAt(row);
+                windowCount--;
+                continue;
+            }
+            InsertWindowRow(state, desired, row);
+            desired++;
+            row++;
+            windowCount++;
+        }
+    }
+
+    void ReplaceWindowRows(SwitcherViewState state)
+    {
+        var windowCount = WindowRowCount();
+        for (var i = windowCount - 1; i >= 0; i--)
+            _rows.RemoveAt(i);
+        for (var i = 0; i < state.Filtered.Count; i++)
+            InsertWindowRow(state, i, i);
+    }
+
+    void InsertWindowRow(SwitcherViewState state, int filteredIndex, int rowIndex)
+    {
+        var entry = state.Filtered[filteredIndex];
+        state.Icons.TryGetValue(entry.Handle, out var icon);
+        var row = new SwitcherRow(entry, icon ?? IconLoader.Letter(entry.Title));
+        row.ApplyLoad(state.ShowLoad, default);
+        row.ApplyMonitor(state.ShowMonitorBadges, entry);
+        _rows.Insert(rowIndex, row);
+    }
+
+    void SyncAppRows(SwitcherViewState state, int windowCount)
+    {
+        var same = _rows.Count - windowCount == state.Apps.Count;
+        if (same)
+        {
+            for (var i = 0; i < state.Apps.Count; i++)
+            {
+                var row = _rows[windowCount + i];
+                if (!string.Equals(row.AppId, state.Apps[i].App.Id, StringComparison.OrdinalIgnoreCase))
+                {
+                    same = false;
+                    break;
+                }
+                if ((row.Badge.Length > 0) != (state.Apps[i].SwitchHandle != 0))
+                {
+                    same = false;
+                    break;
+                }
+            }
+        }
+        if (same) return;
+        while (_rows.Count > windowCount)
+            _rows.RemoveAt(_rows.Count - 1);
+        for (var i = 0; i < state.Apps.Count; i++)
+        {
+            var hit = state.Apps[i];
+            state.AppIcons.TryGetValue(hit.App.Id, out var icon);
+            var subtitle = hit.SwitchHandle != 0
+                ? state.SwitchSubtitle
+                : string.IsNullOrWhiteSpace(hit.App.ProcessName) ? hit.App.Name : hit.App.ProcessName;
+            _rows.Add(new SwitcherRow(
+                hit,
+                icon ?? IconLoader.Letter(hit.App.Name),
+                i == 0 ? state.LaunchSection : "",
+                hit.SwitchHandle != 0 ? state.OpenBadge : "",
+                subtitle));
+        }
     }
 
     SwitcherRow? RowFrom(object sender)
