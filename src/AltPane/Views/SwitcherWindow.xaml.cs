@@ -443,6 +443,8 @@ public partial class SwitcherWindow : Window
         }
         if (reveal) Opacity = 1;
         Activate();
+        if (NativeMethods.GetForegroundWindow() != hwnd)
+            WindowActions.TryActivate(hwnd);
         _showHints = settings.ShowOtherMonitorHints;
         _showBadges = settings.ShowMonitorBadges;
         SyncHints(centered, allowRelocate: false);
@@ -520,8 +522,20 @@ public partial class SwitcherWindow : Window
     protected override void OnPreviewKeyDown(KeyEventArgs e)
     {
         base.OnPreviewKeyDown(e);
-        if (!_searchMode || _composing || e.ImeProcessedKey != Key.None) return;
+        // A composition belongs to the IME, including its Esc. Anything else is handled
+        // here, before a focused child (the search box, a button) can drop the key.
+        if (_composing) return;
         var key = e.Key == Key.System ? e.SystemKey : e.Key;
+        if (key == Key.Escape || e.ImeProcessedKey == Key.Escape)
+        {
+            if (EscAction.Decide(imeComposing: false, hasQuery: !string.IsNullOrEmpty(SearchBox.Text)) == EscDecision.ClearQuery)
+                ClearQueryRequested?.Invoke();
+            else
+                CancelRequested?.Invoke();
+            e.Handled = true;
+            return;
+        }
+        if (!_searchMode || e.ImeProcessedKey != Key.None) return;
         var mods = Keyboard.Modifiers;
         if (key is Key.LeftAlt or Key.RightAlt
             && !mods.HasFlag(WpfMods.Control)
@@ -568,13 +582,6 @@ public partial class SwitcherWindow : Window
                 break;
             case Key.Enter:
                 CommitRequested?.Invoke();
-                e.Handled = true;
-                break;
-            case Key.Escape:
-                if (EscAction.Decide(imeComposing: false, hasQuery: !string.IsNullOrEmpty(SearchBox.Text)) == EscDecision.ClearQuery)
-                    ClearQueryRequested?.Invoke();
-                else
-                    CancelRequested?.Invoke();
                 e.Handled = true;
                 break;
             case Key.Up:

@@ -138,10 +138,10 @@ internal sealed class HotkeyService : IDisposable
             ImeComposing = _presenter.IsImeComposing
         };
         var result = HookInterpreter.Interpret(input);
-        if (AppLog.Verbose && vk is VirtualKeys.Tab or VirtualKeys.LWin or VirtualKeys.RWin)
+        if (AppLog.Verbose && vk is VirtualKeys.Tab or VirtualKeys.LWin or VirtualKeys.RWin or VirtualKeys.Escape)
         {
             AppLog.Info(
-                $"hook vk=0x{vk:X2} {(isDown ? "down" : "up")} repeat={repeat} win={mods.Win} alt={mods.Alt} ctrl={mods.Ctrl} shift={mods.Shift} capture={settings.CaptureWinTab} -> {result.Command}");
+                $"hook vk=0x{vk:X2} {(isDown ? "down" : "up")} repeat={repeat} win={mods.Win} alt={mods.Alt} ctrl={mods.Ctrl} shift={mods.Shift} capture={settings.CaptureWinTab} open={input.SwitcherOpen} search={input.SearchMode} query={input.HasSearchQuery} ime={input.ImeComposing} -> {result.Command}");
         }
         var kind = HotkeyLogic.Match(hotkey, settings.CaptureWinTab, vk, mods);
         var consumedWinChord = isDown && !repeat && kind == ChordKind.WinTab && result.Command == HookCommand.Cycle;

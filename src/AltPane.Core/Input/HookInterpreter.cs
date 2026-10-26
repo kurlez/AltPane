@@ -105,6 +105,13 @@ public static class HookInterpreter
         if (!input.SwitcherOpen)
             return isHotkey ? HookResult.Cycle(direction, latch: true) : HookResult.Pass();
 
+        // Esc is owned by the switcher for the whole time it is visible, including key-up
+        // and auto-repeat, and including search mode. Passing it would deliver it to whichever
+        // window is foreground, which is often the previous app. An IME composition is the
+        // exception: that key (down, up, and repeat) has to reach the IME.
+        if (input.VirtualKey == VirtualKeys.Escape)
+            return InterpretEscape(input);
+
         if (input.SearchMode)
             return InterpretSearch(input, hotkey, isHotkey, direction);
 
@@ -140,13 +147,6 @@ public static class HookInterpreter
 
         switch (input.VirtualKey)
         {
-            case VirtualKeys.Escape:
-                return EscAction.Decide(input.ImeComposing, input.HasSearchQuery) switch
-                {
-                    EscDecision.PassToIme => HookResult.Pass(),
-                    EscDecision.ClearQuery => HookResult.ClearQuery(),
-                    _ => HookResult.Cancel()
-                };
             case VirtualKeys.Return when input.Modifiers.Ctrl && !input.Modifiers.Win:
                 return HookResult.AdminLaunch();
             case VirtualKeys.Return when input.Modifiers.Shift && !input.Modifiers.Ctrl && !input.Modifiers.Win:
@@ -218,13 +218,31 @@ public static class HookInterpreter
         if (input.VirtualKey == VirtualKeys.Return && input.Modifiers.Ctrl && !input.Modifiers.Win)
             return input.IsRepeat ? HookResult.Swallow() : HookResult.AdminLaunch();
 
-        // Letters, Enter, Esc, arrows, and Backspace pass through so the text box and IME receive them.
+        // Letters, Enter, arrows, and Backspace pass through so the text box and IME receive them.
+        // Esc is handled before this method, and is swallowed unless a composition is active.
         return HookResult.Pass();
+    }
+
+    /// <summary>
+    /// Esc is decided here and swallowed, for every focus state, whenever the switcher is open.
+    /// The only exception is an active IME composition, which must see the key.
+    /// </summary>
+    static HookResult InterpretEscape(in HookInput input)
+    {
+        if (input.ImeComposing)
+            return HookResult.Pass();
+        if (!input.IsKeyDown || input.IsRepeat)
+            return HookResult.Swallow();
+        return EscAction.Decide(imeComposing: false, input.HasSearchQuery) switch
+        {
+            EscDecision.ClearQuery => HookResult.ClearQuery(),
+            _ => HookResult.Cancel()
+        };
     }
 
     static bool IsNonRepeating(in HookInput input)
     {
-        if (input.VirtualKey is VirtualKeys.Escape or VirtualKeys.Return or VirtualKeys.Delete or VirtualKeys.Space)
+        if (input.VirtualKey is VirtualKeys.Return or VirtualKeys.Delete or VirtualKeys.Space)
             return true;
         if (!input.Modifiers.Ctrl) return false;
         return input.VirtualKey is VirtualKeys.W or VirtualKeys.M or VirtualKeys.R or VirtualKeys.F;

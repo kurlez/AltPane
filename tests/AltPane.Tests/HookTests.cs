@@ -212,7 +212,11 @@ public class HookInterpreterTests
         var enter = search with { VirtualKey = VirtualKeys.Return };
         Assert.Equal(HookCommand.Pass, HookInterpreter.Interpret(enter).Command);
         var esc = search with { VirtualKey = VirtualKeys.Escape };
-        Assert.Equal(HookCommand.Pass, HookInterpreter.Interpret(esc).Command);
+        Assert.Equal(HookCommand.Cancel, HookInterpreter.Interpret(esc).Command);
+        var escQuery = esc with { HasSearchQuery = true };
+        Assert.Equal(HookCommand.ClearQuery, HookInterpreter.Interpret(escQuery).Command);
+        var escIme = escQuery with { ImeComposing = true };
+        Assert.Equal(HookCommand.Pass, HookInterpreter.Interpret(escIme).Command);
         var tab = search with { VirtualKey = VirtualKeys.Tab, Modifiers = ModifierState.AltOnly };
         Assert.Equal(HookCommand.Cycle, HookInterpreter.Interpret(tab).Command);
         var close = search with { VirtualKey = VirtualKeys.W, Modifiers = new ModifierState(false, true, false, false) };

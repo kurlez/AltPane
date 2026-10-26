@@ -1,14 +1,14 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
 
 PackageIdentifier: kurlez.AltPane
-PackageVersion: 0.3.2
+PackageVersion: 0.3.3
 PackageLocale: en-US
 Publisher: kurlez
 PublisherUrl: https://github.com/kurlez
 PackageName: AltPane
 PackageUrl: https://github.com/kurlez/AltPane
 License: MIT
-LicenseUrl: https://github.com/kurlez/AltPane/blob/v0.3.2/LICENSE
+LicenseUrl: https://github.com/kurlez/AltPane/blob/v0.3.3/LICENSE
 Copyright: Copyright (c) 2026 Wenfeng Liu
 ShortDescription: A modern Alt+Tab replacement for Windows.
 Description: |-
@@ -20,6 +20,6 @@ Tags:
   - window-switcher
   - task-switcher
   - windows
-ReleaseNotesUrl: https://github.com/kurlez/AltPane/releases/tag/v0.3.2
+ReleaseNotesUrl: https://github.com/kurlez/AltPane/releases/tag/v0.3.3
 ManifestType: defaultLocale
 ManifestVersion: 1.6.0
