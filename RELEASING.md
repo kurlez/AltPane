@@ -21,15 +21,15 @@ The .NET 8 Desktop Runtime (x64) is required to run the framework-dependent zip:
 
 ## winget
 
-Manifests for 0.3.0 are in `packaging/winget/manifests/k/kurlez/AltPane/0.3.0/`.
+Manifests for 0.3.1 are in `packaging/winget/manifests/k/kurlez/AltPane/0.3.1/`.
 
-`InstallerSha256` is 64 zeros until the real CI asset exists. Copy the hash from `AltPane-0.3.0-win-x64.zip.sha256` on the GitHub Release. That file is the official zip. A locally packed `AltPane-v0.3.0-win-x64-fx.zip` is a different archive and will not match.
+`InstallerSha256` is 64 zeros until the real CI asset exists. Copy the hash from `AltPane-0.3.1-win-x64.zip.sha256` on the GitHub Release. That file is the official zip. A locally packed `AltPane-v0.3.1-win-x64-fx.zip` is a different archive and will not match.
 
 From a machine with [App Installer](https://learn.microsoft.com/windows/package-manager/winget/) (the `winget` client):
 
 ```powershell
-winget validate --manifest packaging/winget/manifests/k/kurlez/AltPane/0.3.0
-winget install --manifest packaging/winget/manifests/k/kurlez/AltPane/0.3.0
+winget validate --manifest packaging/winget/manifests/k/kurlez/AltPane/0.3.1
+winget install --manifest packaging/winget/manifests/k/kurlez/AltPane/0.3.1
 ```
 
 Validate after the placeholder hash is replaced. `winget install --manifest` downloads `InstallerUrl`, so the release asset has to be public first.

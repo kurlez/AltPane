@@ -97,11 +97,30 @@ public class SettingsMigrationTests
         var directory = Path.Combine(Path.GetTempPath(), "altpane-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         var real = Path.Combine(directory, "AltPane.exe");
-        var alias = Path.Combine(directory, "altpane.exe");
+        // A distinct name: on a case-insensitive volume, altpane.exe is the same file as AltPane.exe.
+        var alias = Path.Combine(directory, "altpane-alias.exe");
         File.WriteAllText(real, "exe");
-        File.CreateSymbolicLink(alias, real);
-        Assert.Equal(Path.GetFullPath(real), AppPaths.ResolveExecutable(alias));
-        Assert.Equal(Path.GetFullPath(real), AppPaths.ResolveExecutable(real));
         Assert.Equal("", AppPaths.ResolveExecutable("  "));
+        try
+        {
+            File.CreateSymbolicLink(alias, real);
+        }
+        catch (Exception ex) when (SymlinkNotPermitted(ex))
+        {
+            return;
+        }
+        var expected = Path.GetFullPath(real);
+        Assert.Equal(expected, AppPaths.ResolveExecutable(alias), ignoreCase: OperatingSystem.IsWindows());
+        Assert.Equal(expected, AppPaths.ResolveExecutable(real), ignoreCase: OperatingSystem.IsWindows());
+    }
+
+    static bool SymlinkNotPermitted(Exception ex)
+    {
+        if (ex is UnauthorizedAccessException or PlatformNotSupportedException) return true;
+        if (ex is not IOException) return false;
+        // ERROR_PRIVILEGE_NOT_HELD is 1314, surfaced as 0x80070522.
+        if (ex.HResult == unchecked((int)0x80070522)) return true;
+        return ex.Message.Contains("privilege", StringComparison.OrdinalIgnoreCase)
+            || ex.Message.Contains("not permitted", StringComparison.OrdinalIgnoreCase);
     }
 }
