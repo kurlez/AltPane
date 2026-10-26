@@ -260,6 +260,7 @@ public class LoadSortAndKillTests
         Assert.True(old.Settings.LaunchApps);
         Assert.True(old.Settings.CaptureWinTab);
         Assert.True(old.Settings.ShowOtherMonitorHints);
+        Assert.True(old.Settings.ShowMonitorBadges);
         Assert.True(old.Settings.IndexStartMenu);
         Assert.False(old.Settings.IndexPath);
         Assert.Equal(AppTheme.Dark, old.Settings.Theme);

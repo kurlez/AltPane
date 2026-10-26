@@ -33,6 +33,21 @@ internal struct MonitorInfoEx
     public string szDevice;
 }
 
+[StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+internal struct DisplayDevice
+{
+    public int cb;
+    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+    public string DeviceName;
+    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
+    public string DeviceString;
+    public int StateFlags;
+    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
+    public string DeviceID;
+    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
+    public string DeviceKey;
+}
+
 [StructLayout(LayoutKind.Sequential)]
 internal struct Margins
 {
@@ -53,7 +68,9 @@ internal static class NativeMethods
     public const int GwlExStyle = -20;
     public const int GclHIcon = -14;
     public const int GclHIconSm = -34;
+    public const uint MonitorDefaultToNull = 0;
     public const uint MonitorDefaultToNearest = 2;
+    public const int MonitorInfoPrimary = 1;
     public const int SwRestore = 9;
     public const int SwShow = 5;
     public const int SwMinimize = 6;
@@ -192,6 +209,12 @@ internal static class NativeMethods
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "GetMonitorInfoW")]
     public static extern bool GetMonitorInfoEx(nint hMonitor, ref MonitorInfoEx lpmi);
+
+    [DllImport("user32.dll")]
+    public static extern nint MonitorFromRect(ref NativeRect lprc, uint dwFlags);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern bool EnumDisplayDevices(string? lpDevice, uint iDevNum, ref DisplayDevice lpDisplayDevice, uint dwFlags);
 
     [DllImport("user32.dll")]
     public static extern nint MonitorFromPoint(NativePoint pt, uint dwFlags);

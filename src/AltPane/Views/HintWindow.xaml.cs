@@ -23,11 +23,26 @@ public partial class HintWindow : Window
 
     public Action? Clicked { get; set; }
 
-    public void Place(HintPlan plan, DisplayBounds monitor, string title, string move)
+    public void Place(HintPlan plan, DisplayBounds monitor, string title, string move, bool colorCode)
     {
         ArrowText.Text = OtherMonitorHints.Arrow(plan.Direction);
         TitleText.Text = title;
         MoveText.Text = move;
+        if (colorCode && plan.HostNumber > 0)
+        {
+            var ink = MonitorChrome.Brush(plan.HostNumber, 0xFF);
+            ArrowText.Foreground = ink;
+            HostNumberText.Text = plan.HostNumber.ToString();
+            HostNumberText.Foreground = ink;
+            HostChip.Background = MonitorChrome.Brush(plan.HostNumber, 0x28);
+            HostChip.BorderBrush = ink;
+            HostChip.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            ArrowText.ClearValue(System.Windows.Controls.TextBlock.ForegroundProperty);
+            HostChip.Visibility = Visibility.Collapsed;
+        }
         var scaleX = monitor.DpiX <= 0 ? 1d : monitor.DpiX / 96d;
         var scaleY = monitor.DpiY <= 0 ? 1d : monitor.DpiY / 96d;
         Width = plan.Width / scaleX;

@@ -12,8 +12,26 @@ public enum HintDirection
     DownRight
 }
 
-/// <summary>A monitor work area in physical pixels. <see cref="Number"/> is 1-based from left to right.</summary>
-public readonly record struct DisplayBounds(int X, int Y, int Width, int Height, int DpiX, int DpiY, int Number, string Name)
+/// <summary>
+/// A monitor in physical pixels. <see cref="X"/> and <see cref="Width"/> are the work area
+/// (hints stay off the taskbar). <see cref="ScreenX"/> is the full display, used to place windows.
+/// <see cref="Number"/> is the Windows GDI display index when those numbers are unique, otherwise left to right.
+/// </summary>
+public readonly record struct DisplayBounds(
+    int X,
+    int Y,
+    int Width,
+    int Height,
+    int DpiX,
+    int DpiY,
+    int Number,
+    string Name,
+    bool Primary = false,
+    int ScreenX = 0,
+    int ScreenY = 0,
+    int ScreenWidth = 0,
+    int ScreenHeight = 0,
+    string FriendlyName = "")
 {
     public int CenterX => X + Width / 2;
     public int CenterY => Y + Height / 2;

@@ -74,6 +74,13 @@ internal sealed class SwitcherPresenter
         _window.KillRequested += () => KillSelected(null);
         _window.KillTreeRequested += () => KillSelected(true);
         _window.SortCycleRequested += CycleSort;
+        _window.MonitorFilterRequested += ToggleMonitorFilter;
+        _window.DisplaysChanged += OnDisplaysChanged;
+        _window.HostMonitorChanged += FollowHostMonitor;
+        _window.LabelsRequested += () =>
+        {
+            if (_window.IsVisible) Refresh(updateThumb: false);
+        };
         _window.PreviewRequested += PreviewSelected;
         _sampler.Updated += update => _window.Dispatcher.BeginInvoke(() => ApplyLoad(update));
         _window.MinimizeRequested += () => RunAction(static hwnd => WindowActions.Minimize(hwnd), iconic: true, zoomed: false);
@@ -552,6 +559,9 @@ internal sealed class SwitcherPresenter
     SwitcherViewState BuildState()
     {
         var settings = _settings();
+        var showBadges = settings.ShowMonitorBadges && MonitorUtil.All().Count >= 2;
+        if (!showBadges && _session is { MonitorFilter: > 0 })
+            _session.SetMonitorFilter(0);
         var filtered = _session?.Filtered ?? Array.Empty<WindowEntry>();
         var allCount = _session?.All.Count ?? 0;
         var loc = Localizer.Current;
@@ -560,7 +570,7 @@ internal sealed class SwitcherPresenter
             ? ""
             : appCount > 0
                 ? loc.Format("count.apps", filtered.Count, appCount)
-                : _session.Query.Length == 0
+                : _session.Query.Length == 0 && _session.MonitorFilter == 0
                     ? loc.Format("count.windows", filtered.Count)
                     : loc.Format("count.filtered", filtered.Count, allCount);
         var trigger = HotkeyLogic.TriggerDisplayName(HotkeyLogic.TriggerModifier(settings.Hotkey ?? HotkeyChord.AltTab()));
@@ -600,7 +610,10 @@ internal sealed class SwitcherPresenter
             AppIcons = _appIcons,
             LaunchSection = loc["launch.section"],
             OpenBadge = loc["launch.openBadge"],
-            SwitchSubtitle = loc["launch.switchSubtitle"]
+            SwitchSubtitle = loc["launch.switchSubtitle"],
+            ShowMonitorBadges = showBadges,
+            MonitorFilterOn = _session?.MonitorFilter > 0,
+            MonitorFilterText = loc["monitor.only"]
         };
     }
 
@@ -609,7 +622,48 @@ internal sealed class SwitcherPresenter
         var apps = _session?.AppHits.Count ?? 0;
         if (filteredCount + apps > 0) return "";
         if (_session is null || (allCount == 0 && _session.Query.Length == 0)) return loc["list.empty"];
+        if (_session.MonitorFilter > 0 && _session.Query.Length == 0) return loc["list.monitorEmpty"];
         return loc[settings.LaunchApps ? "list.nomatchApps" : "list.nomatch"];
+    }
+
+    void ToggleMonitorFilter()
+    {
+        if (_session is null || !_settings().ShowMonitorBadges) return;
+        if (_session.MonitorFilter > 0)
+        {
+            _session.SetMonitorFilter(0);
+        }
+        else
+        {
+            var number = _window.HostMonitorNumber();
+            if (number <= 0 || MonitorUtil.All().Count < 2) return;
+            _session.SetMonitorFilter(number);
+        }
+        if (_window.IsVisible) Refresh(updateThumb: true);
+    }
+
+    void FollowHostMonitor()
+    {
+        if (_session is null || _session.MonitorFilter == 0) return;
+        var number = _window.HostMonitorNumber();
+        if (number > 0) _session.SetMonitorFilter(number);
+        if (_window.IsVisible) Refresh(updateThumb: true);
+    }
+
+    void OnDisplaysChanged()
+    {
+        if (_session is null) return;
+        var live = MonitorUtil.Live();
+        foreach (var entry in _session.All)
+            MonitorLocator.CopyTo(entry, MonitorLocator.Locate((nint)entry.Handle, live));
+        if (!_settings().ShowMonitorBadges || live.Count < 2)
+            _session.SetMonitorFilter(0);
+        else if (_session.MonitorFilter > 0)
+        {
+            var number = _window.HostMonitorNumber();
+            if (number > 0) _session.SetMonitorFilter(number);
+        }
+        if (_window.IsVisible) Refresh(updateThumb: false);
     }
 
     void QueueIcons()

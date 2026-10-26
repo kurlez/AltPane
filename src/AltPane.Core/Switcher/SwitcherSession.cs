@@ -19,6 +19,7 @@ public sealed class SwitcherSession
     DateTime _usageUtc = DateTime.UnixEpoch;
     string _query = "";
     LoadSortMode _sort = LoadSortMode.Recent;
+    int _monitorFilter;
 
     public SwitcherSession(IEnumerable<WindowEntry> windows)
     {
@@ -119,6 +120,16 @@ public sealed class SwitcherSession
         Recompute(resetSelection: true);
     }
 
+    public int MonitorFilter => _monitorFilter;
+
+    public void SetMonitorFilter(int number)
+    {
+        if (number < 0) number = 0;
+        if (number == _monitorFilter) return;
+        _monitorFilter = number;
+        Recompute(resetSelection: false);
+    }
+
     public LoadSortMode SortMode => _sort;
     public TaskLoad LoadFor(long handle) => _loads.TryGetValue(handle, out var load) ? load : default;
 
@@ -201,6 +212,15 @@ public sealed class SwitcherSession
                 e => e.OriginalIndex,
                 e => LoadFor(e.Handle).ProcessCount > 0 ? LoadFor(e.Handle).CpuPercent : null,
                 e => LoadFor(e.Handle).WorkingSetBytes);
+        }
+        if (_monitorFilter > 0)
+        {
+            var kept = new List<WindowEntry>(_filtered.Count);
+            foreach (var entry in _filtered)
+            {
+                if (entry.MonitorNumber == _monitorFilter) kept.Add(entry);
+            }
+            _filtered = kept;
         }
         _apps = _launchEnabled && _query.Length > 0
             ? AppCatalog.Rank(_catalog, _query, _usage, _all, _filtered, _excludedApps, _usageUtc)

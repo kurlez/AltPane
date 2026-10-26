@@ -42,6 +42,17 @@ internal static class WindowEnumerator
             AppLog.Error(ex);
         }
 
+        IReadOnlyList<LiveMonitor> monitors;
+        try
+        {
+            monitors = MonitorUtil.Live();
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error(ex);
+            monitors = Array.Empty<LiveMonitor>();
+        }
+
         var found = new List<WindowEntry>();
         var callback = new EnumWindowsProc((hwnd, _) =>
         {
@@ -49,7 +60,7 @@ internal static class WindowEnumerator
             {
                 var candidate = ReadCandidate(hwnd, desktops);
                 if (!WindowFilter.ShouldInclude(candidate, context)) return true;
-                found.Add(ToEntry(candidate, found.Count));
+                found.Add(ToEntry(candidate, found.Count, monitors));
             }
             catch (Exception ex)
             {
@@ -95,7 +106,7 @@ internal static class WindowEnumerator
         };
     }
 
-    static WindowEntry ToEntry(WindowCandidate candidate, int index)
+    static WindowEntry ToEntry(WindowCandidate candidate, int index, IReadOnlyList<LiveMonitor> monitors)
     {
         var iconPath = "";
         string? hostedName = null;
@@ -120,6 +131,7 @@ internal static class WindowEnumerator
             iconPath = QueryProcessPath(candidate.ProcessId);
 
         var hwnd = (nint)candidate.Handle;
+        var hit = MonitorLocator.Locate(hwnd, monitors);
         return new WindowEntry
         {
             Handle = candidate.Handle,
@@ -135,7 +147,12 @@ internal static class WindowEnumerator
             IconPath = iconPath,
             IsIconic = NativeMethods.IsIconic(hwnd),
             IsZoomed = NativeMethods.IsZoomed(hwnd),
-            OriginalIndex = index
+            OriginalIndex = index,
+            MonitorNumber = hit.Number,
+            MonitorWidth = hit.Width,
+            MonitorHeight = hit.Height,
+            MonitorPrimary = hit.Primary,
+            MonitorFriendlyName = hit.FriendlyName ?? ""
         };
     }
 

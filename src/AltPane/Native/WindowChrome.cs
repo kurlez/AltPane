@@ -8,6 +8,8 @@ namespace AltPane;
 
 internal readonly record struct MonitorWorkArea(int X, int Y, int Width, int Height, uint DpiX, uint DpiY);
 
+internal readonly record struct LiveMonitor(nint Handle, DisplayBounds Bounds);
+
 internal static class MonitorUtil
 {
     public static MonitorWorkArea GetWorkArea(SwitcherPlacement placement, nint activeWindow)
@@ -49,7 +51,15 @@ internal static class MonitorUtil
 
     public static IReadOnlyList<DisplayBounds> All()
     {
-        var found = new List<DisplayBounds>();
+        var live = Live();
+        var bounds = new DisplayBounds[live.Count];
+        for (var i = 0; i < live.Count; i++) bounds[i] = live[i].Bounds;
+        return bounds;
+    }
+
+    public static IReadOnlyList<LiveMonitor> Live()
+    {
+        var found = new List<LiveMonitor>();
         NativeMethods.MonitorEnumProc callback = (monitor, _, _, _) =>
         {
             var info = new MonitorInfoEx { cbSize = Marshal.SizeOf<MonitorInfoEx>() };
@@ -69,11 +79,12 @@ internal static class MonitorUtil
                 // GetDpiForMonitor is missing on very old builds.
             }
 
-            var name = info.szDevice ?? "";
+            var rawName = info.szDevice ?? "";
+            var name = rawName;
             const string prefix = @"\\.\";
             if (name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
                 name = name[prefix.Length..];
-            found.Add(new DisplayBounds(
+            found.Add(new LiveMonitor(monitor, new DisplayBounds(
                 info.rcWork.Left,
                 info.rcWork.Top,
                 Math.Max(1, info.rcWork.Right - info.rcWork.Left),
@@ -81,12 +92,47 @@ internal static class MonitorUtil
                 dpiX,
                 dpiY,
                 0,
-                name));
+                name,
+                Primary: (info.dwFlags & NativeMethods.MonitorInfoPrimary) != 0,
+                ScreenX: info.rcMonitor.Left,
+                ScreenY: info.rcMonitor.Top,
+                ScreenWidth: Math.Max(0, info.rcMonitor.Right - info.rcMonitor.Left),
+                ScreenHeight: Math.Max(0, info.rcMonitor.Bottom - info.rcMonitor.Top),
+                FriendlyName: ReadFriendlyName(rawName))));
             return true;
         };
         NativeMethods.EnumDisplayMonitors(0, 0, callback, 0);
         GC.KeepAlive(callback);
-        return OtherMonitorHints.NumberLeftToRight(found);
+        found.Sort(static (a, b) => MonitorLayout.Compare(a.Bounds, b.Bounds));
+        var bounds = new List<DisplayBounds>(found.Count);
+        foreach (var item in found) bounds.Add(item.Bounds);
+        MonitorLayout.AssignNumbers(bounds);
+        for (var i = 0; i < found.Count; i++)
+            found[i] = found[i] with { Bounds = bounds[i] };
+        return found;
+    }
+
+    static string ReadFriendlyName(string deviceName)
+    {
+        if (string.IsNullOrWhiteSpace(deviceName)) return "";
+        var full = deviceName.StartsWith(@"\\.\", StringComparison.OrdinalIgnoreCase)
+            ? deviceName
+            : @"\\.\" + deviceName;
+        try
+        {
+            for (uint i = 0; i < 8; i++)
+            {
+                var device = new DisplayDevice { cb = Marshal.SizeOf<DisplayDevice>() };
+                if (!NativeMethods.EnumDisplayDevices(full, i, ref device, 0)) break;
+                if (!string.IsNullOrWhiteSpace(device.DeviceString))
+                    return device.DeviceString.Trim();
+            }
+        }
+        catch
+        {
+            // EnumDisplayDevices is absent on very old builds. The number still shows.
+        }
+        return "";
     }
 }
 

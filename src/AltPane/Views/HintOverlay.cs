@@ -30,7 +30,7 @@ internal sealed class HintOverlay : IDisposable
         return false;
     }
 
-    public void Show(IReadOnlyList<HintPlan> plans, IReadOnlyList<DisplayBounds> monitors, Action<int> moveTo)
+    public void Show(IReadOnlyList<HintPlan> plans, IReadOnlyList<DisplayBounds> monitors, Action<int> moveTo, bool colorCode)
     {
         if (_disposed) return;
         var loc = Localizer.Current;
@@ -45,7 +45,7 @@ internal sealed class HintOverlay : IDisposable
                 : loc["hint.other"];
             var target = plan.HintMonitorIndex;
             window.Clicked = () => moveTo(target);
-            window.Place(plan, monitors[plan.HintMonitorIndex], title, move);
+            window.Place(plan, monitors[plan.HintMonitorIndex], title, move, colorCode);
         }
 
         for (var i = plans.Count; i < _windows.Count; i++)

@@ -89,6 +89,12 @@ public sealed class WindowEntry
     public bool IsIconic { get; set; }
     public bool IsZoomed { get; set; }
     public int OriginalIndex { get; init; }
+    /// <summary>1-based display number. Zero when the window could not be placed on a monitor.</summary>
+    public int MonitorNumber { get; set; }
+    public int MonitorWidth { get; set; }
+    public int MonitorHeight { get; set; }
+    public bool MonitorPrimary { get; set; }
+    public string MonitorFriendlyName { get; set; } = "";
 }
 
 public sealed class HotkeyChord
@@ -115,6 +121,8 @@ public sealed class AppSettings
     public SwitcherPlacement Placement { get; set; } = SwitcherPlacement.MouseCursor;
     /// <summary>When true (the default), other monitors point at the one showing the switcher.</summary>
     public bool ShowOtherMonitorHints { get; set; } = true;
+    /// <summary>When true (the default), each row shows its display number while more than one monitor is connected.</summary>
+    public bool ShowMonitorBadges { get; set; } = true;
     public AppLanguage Language { get; set; } = AppLanguage.System;
     public List<string> ExcludedProcesses { get; set; } = new();
     public bool StartWithWindows { get; set; }
@@ -153,6 +161,7 @@ public sealed class AppSettings
         Size = SwitcherSize.Comfortable,
         Placement = SwitcherPlacement.MouseCursor,
         ShowOtherMonitorHints = true,
+        ShowMonitorBadges = true,
         Theme = AppTheme.System,
         Language = AppLanguage.System,
         ExcludedProcesses = new List<string>(),

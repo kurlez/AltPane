@@ -51,6 +51,11 @@ internal sealed class SwitcherRow : INotifyPropertyChanged
     public int Heat { get; private set; }
     public bool ShowLoad { get; private set; }
     public string ToolTipText { get; private set; } = "";
+    public string MonitorLabel { get; private set; } = "";
+    public System.Windows.Media.Brush MonitorBrush { get; private set; } = System.Windows.Media.Brushes.Transparent;
+    public System.Windows.Media.Brush MonitorTint { get; private set; } = System.Windows.Media.Brushes.Transparent;
+    string _baseTip = "";
+    string _monitorTip = "";
 
     public void ApplyLoad(bool show, in TaskLoad load)
     {
@@ -74,13 +79,43 @@ internal sealed class SwitcherRow : INotifyPropertyChanged
             BarWidth = Math.Clamp(cpu, 0, 100) / 100.0 * 40.0;
             Heat = (int)LoadHeatMap.Classify(load.CpuPercent, load.WorkingSetBytes);
         }
-        ToolTipText = show && load.ProcessCount > 0
+        _baseTip = show && load.ProcessCount > 0
             ? $"{Title}\n{Subtitle}  ·  pid {Entry?.KillProcessId}\n{LoadFormat.Cpu(load.CpuPercent)}  ·  {LoadFormat.Bytes(load.WorkingSetBytes)}  ·  {LoadFormat.Bytes(load.PrivateBytes)}"
             : $"{Title}\n{Subtitle}";
+        PublishTip();
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LoadText)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(BarWidth)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Heat)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ShowLoad)));
+    }
+
+    public void ApplyMonitor(bool show, WindowEntry entry)
+    {
+        var visible = show && entry.MonitorNumber > 0;
+        MonitorLabel = visible ? entry.MonitorNumber.ToString() : "";
+        if (visible)
+        {
+            MonitorBrush = MonitorChrome.Brush(entry.MonitorNumber, 0xFF);
+            MonitorTint = MonitorChrome.Brush(entry.MonitorNumber, 0x28);
+            _monitorTip = MonitorChrome.Format(entry.MonitorNumber, entry.MonitorWidth, entry.MonitorHeight, entry.MonitorPrimary, entry.MonitorFriendlyName);
+        }
+        else
+        {
+            MonitorBrush = System.Windows.Media.Brushes.Transparent;
+            MonitorTint = System.Windows.Media.Brushes.Transparent;
+            _monitorTip = "";
+        }
+        PublishTip();
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(MonitorLabel)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(MonitorBrush)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(MonitorTint)));
+    }
+
+    void PublishTip()
+    {
+        ToolTipText = string.IsNullOrEmpty(_monitorTip)
+            ? _baseTip
+            : string.IsNullOrEmpty(_baseTip) ? _monitorTip : _baseTip + "\n" + _monitorTip;
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ToolTipText)));
     }
 
@@ -118,6 +153,9 @@ public sealed class SwitcherViewState
     public string LaunchSection { get; init; } = "";
     public string OpenBadge { get; init; } = "";
     public string SwitchSubtitle { get; init; } = "";
+    public bool ShowMonitorBadges { get; init; }
+    public bool MonitorFilterOn { get; init; }
+    public string MonitorFilterText { get; init; } = "";
 }
 
 public partial class SwitcherWindow : Window
@@ -145,6 +183,7 @@ public partial class SwitcherWindow : Window
     DateTime _suppressCancelUntil;
     readonly HintOverlay _hints = new();
     bool _showHints = true;
+    bool _showBadges = true;
 
     public SwitcherWindow()
     {
@@ -189,11 +228,14 @@ public partial class SwitcherWindow : Window
         Localizer.Current.LanguageChanged += (_, _) =>
         {
             ApplyStaticText();
-            if (IsVisible) SyncHints();
+            if (!IsVisible) return;
+            SyncHints();
+            LabelsRequested?.Invoke();
         };
         _hints.DisplayChanged += () =>
         {
             if (IsVisible) SyncHints(allowRelocate: true);
+            DisplaysChanged?.Invoke();
         };
     }
 
@@ -214,6 +256,10 @@ public partial class SwitcherWindow : Window
     public event Action? KillRequested;
     public event Action? KillTreeRequested;
     public event Action? SortCycleRequested;
+    public event Action? MonitorFilterRequested;
+    public event Action? DisplaysChanged;
+    public event Action? HostMonitorChanged;
+    public event Action? LabelsRequested;
     public event Action? PreviewRequested;
     public event Action? MinimizeRequested;
     public event Action? MaximizeRequested;
@@ -239,6 +285,14 @@ public partial class SwitcherWindow : Window
         SystemText.Visibility = state.ShowLoad ? Visibility.Visible : Visibility.Collapsed;
         SortButton.Visibility = state.ShowLoad ? Visibility.Visible : Visibility.Collapsed;
         SortButton.Content = state.SortText;
+        DisplayFilterButton.Visibility = state.ShowMonitorBadges ? Visibility.Visible : Visibility.Collapsed;
+        DisplayFilterButton.Content = state.MonitorFilterText;
+        DisplayFilterButton.Background = state.MonitorFilterOn
+            ? BrushOf("SelectedBrush")
+            : BrushOf("ButtonBgBrush");
+        DisplayFilterButton.BorderBrush = state.MonitorFilterOn
+            ? BrushOf("AccentBrush")
+            : BrushOf("ButtonBorderBrush");
         StatusText.Text = state.Status ?? "";
         EmptyText.Text = state.EmptyText;
         EmptyText.Visibility = string.IsNullOrEmpty(state.EmptyText) ? Visibility.Collapsed : Visibility.Visible;
@@ -255,6 +309,7 @@ public partial class SwitcherWindow : Window
                 state.Icons.TryGetValue(entry.Handle, out var icon);
                 var row = new SwitcherRow(entry, icon ?? IconLoader.Letter(entry.Title));
                 row.ApplyLoad(state.ShowLoad, default);
+                row.ApplyMonitor(state.ShowMonitorBadges, entry);
                 _rows.Add(row);
             }
             for (var i = 0; i < state.Apps.Count; i++)
@@ -283,6 +338,7 @@ public partial class SwitcherWindow : Window
                 row.Icon = icon;
             var load = state.Loads.TryGetValue(entry.Handle, out var found) ? found : default;
             row.ApplyLoad(state.ShowLoad, load);
+            row.ApplyMonitor(state.ShowMonitorBadges, entry);
         }
         for (var i = 0; i < state.Apps.Count; i++)
         {
@@ -313,6 +369,11 @@ public partial class SwitcherWindow : Window
             : selectedApp is { } app
                 ? (app.SwitchHandle != 0 ? state.SwitchSubtitle : app.App.ProcessName)
                 : "";
+        var monitorLine = selected is not null && state.ShowMonitorBadges
+            ? MonitorChrome.Format(selected.MonitorNumber, selected.MonitorWidth, selected.MonitorHeight, selected.MonitorPrimary, selected.MonitorFriendlyName)
+            : "";
+        PreviewMonitor.Text = monitorLine;
+        PreviewMonitor.Visibility = string.IsNullOrEmpty(monitorLine) ? Visibility.Collapsed : Visibility.Visible;
         var enabled = selected is not null;
         MinButton.IsEnabled = enabled;
         MaxButton.IsEnabled = enabled;
@@ -367,6 +428,7 @@ public partial class SwitcherWindow : Window
         if (reveal) Opacity = 1;
         Activate();
         _showHints = settings.ShowOtherMonitorHints;
+        _showBadges = settings.ShowMonitorBadges;
         SyncHints(centered, allowRelocate: false);
     }
 
@@ -534,6 +596,10 @@ public partial class SwitcherWindow : Window
                 CloseRequested?.Invoke();
                 e.Handled = true;
                 break;
+            case Key.D when mods.HasFlag(WpfMods.Control) && mods.HasFlag(WpfMods.Shift) && !mods.HasFlag(WpfMods.Alt):
+                MonitorFilterRequested?.Invoke();
+                e.Handled = true;
+                break;
         }
     }
 
@@ -591,7 +657,18 @@ public partial class SwitcherWindow : Window
         }
 
         var plans = OtherMonitorHints.Plan(monitors, host);
-        _hints.Show(plans, monitors, MoveToMonitor);
+        _hints.Show(plans, monitors, MoveToMonitor, colorCode: _showBadges && monitors.Count >= 2);
+    }
+
+    public int HostMonitorNumber()
+    {
+        var monitors = MonitorUtil.All();
+        if (monitors.Count == 0 || Handle == 0) return 0;
+        if (!NativeMethods.GetWindowRect(Handle, out var rect)) return 0;
+        var width = Math.Max(1, rect.Right - rect.Left);
+        var height = Math.Max(1, rect.Bottom - rect.Top);
+        var host = OtherMonitorHints.HostIndex(monitors, rect.Left, rect.Top, width, height);
+        return host >= 0 && host < monitors.Count ? monitors[host].Number : 0;
     }
 
     void MoveToMonitor(int index)
@@ -624,6 +701,7 @@ public partial class SwitcherWindow : Window
             Activate();
         if (_searchMode) FocusSearch();
         SyncHints(centered, allowRelocate: false);
+        HostMonitorChanged?.Invoke();
     }
 
     protected override void OnClosing(CancelEventArgs e)
@@ -658,10 +736,17 @@ public partial class SwitcherWindow : Window
         RestoreButton.Content = loc["action.restore"];
         CloseButton.Content = loc["action.close"];
         KillButton.Content = loc["action.kill"];
+        DisplayFilterButton.Content = loc["monitor.only"];
+        DisplayFilterButton.ToolTip = loc["monitor.onlyTip"];
         LocalizeMenu();
     }
 
     void Sort_Click(object sender, RoutedEventArgs e) => SortCycleRequested?.Invoke();
+
+    void DisplayFilter_Click(object sender, RoutedEventArgs e) => MonitorFilterRequested?.Invoke();
+
+    System.Windows.Media.Brush BrushOf(string key) =>
+        TryFindResource(key) as System.Windows.Media.Brush ?? System.Windows.Media.Brushes.Transparent;
 
     void LocalizeMenu()
     {
