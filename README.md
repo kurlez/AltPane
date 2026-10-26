@@ -44,7 +44,11 @@ If the hotkey itself includes Shift, Shift does not reverse direction. Use the a
 
 ## Run
 
-The published build is a self-contained 64-bit executable. Copy `AltPane.exe` to a Windows 10 or Windows 11 x64 machine and start it. No separate .NET install is required. The first launch unpacks native libraries and is slower than later launches.
+Two win-x64 builds are published.
+
+The smaller one is framework-dependent. Install the .NET 8 Desktop Runtime (x64) first, then run `AltPane.exe`. Download it from [dotnet.microsoft.com/download/dotnet/8.0](https://dotnet.microsoft.com/download/dotnet/8.0) (Desktop Runtime, Windows x64) or the direct installer: <https://aka.ms/dotnet/8.0/windowsdesktop-runtime-win-x64.exe>.
+
+The self-contained build includes the runtime. Copy `AltPane.exe` to a Windows 10 or Windows 11 x64 machine and start it. No separate .NET install is required. The first launch unpacks native libraries and is slower than later launches.
 
 Windows SmartScreen may warn because the executable is unsigned. Choose “More info”, then “Run anyway”, if you trust the binary you built.
 
@@ -65,7 +69,13 @@ dotnet test tests/AltPane.Tests/AltPane.Tests.csproj -c Release
 dotnet publish src/AltPane/AltPane.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o publish
 ```
 
-`publish\AltPane.exe` is the app. `build.ps1` runs the same two commands.
+`publish\AltPane.exe` is the self-contained app. `build.ps1` runs the same two commands.
+
+Framework-dependent single file (requires the .NET 8 Desktop Runtime linked above):
+
+```powershell
+dotnet publish src/AltPane/AltPane.csproj -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -o publish-fx
+```
 
 The WPF project sets `EnableWindowsTargeting`, so the same publish command also works on Linux when the Windows desktop targeting pack can be downloaded. The UI cannot be executed there.
 
@@ -118,4 +128,4 @@ AltPane 是一个 Windows 桌面窗口切换器。运行期间它会用低级键
 
 按住 Alt 时直接打字适合英文和进程名。中文输入请按 Ctrl+F 或点击搜索框，再用 Enter 确认。普通权限无法切换到以管理员运行的窗口，需要在设置中“以管理员身份重新启动”。
 
-发布包是自包含的 `AltPane.exe`（win-x64）。首次启动会解压本机库，会稍慢。文件未签名，SmartScreen 可能提示，确认来源后选择仍要运行。
+较小的发布包依赖本机已安装的 .NET 8 桌面运行时（x64）：<https://dotnet.microsoft.com/download/dotnet/8.0> ，安装包直链 <https://aka.ms/dotnet/8.0/windowsdesktop-runtime-win-x64.exe>。自包含的 `AltPane.exe` 不需要另外安装运行时；首次启动会解压本机库，会稍慢。文件未签名，SmartScreen 可能提示，确认来源后选择仍要运行。
