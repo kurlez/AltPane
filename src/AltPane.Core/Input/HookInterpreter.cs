@@ -110,13 +110,16 @@ public static class HookInterpreter
                 : HotkeyLogic.TriggerModifier(hotkey);
             if (input.GestureLatched && HotkeyLogic.IsTriggerModifierKey(input.VirtualKey, trigger))
             {
-                // Classic mode activates on release. Sticky mode keeps the switcher up so the
-                // search box can take real focus (IME included). A quick tap that is released
-                // before the window is drawn can still activate when that option is on.
-                if (!input.StickySwitcher)
-                    return HookResult.Commit();
-                if (input.QuickTapSwitches && !input.SwitcherShown && !input.HasSearchQuery)
-                    return HookResult.Commit();
+                // Win+Tab always stays open. A Win key-up must not activate, or Task View's
+                // replacement would disappear before Enter. Alt and the custom hotkey still
+                // follow the sticky and quick-tap settings.
+                if (trigger != ModifierKeys.Win)
+                {
+                    if (!input.StickySwitcher)
+                        return HookResult.Commit();
+                    if (input.QuickTapSwitches && !input.SwitcherShown && !input.HasSearchQuery)
+                        return HookResult.Commit();
+                }
                 return HookResult.ReleaseHold();
             }
             if (HotkeyLogic.IsModifierKey(input.VirtualKey))

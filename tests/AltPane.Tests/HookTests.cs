@@ -67,6 +67,37 @@ public class HookInterpreterTests
         Assert.Equal(1, result.Delta);
         var reverse = Key(VirtualKeys.Tab, true, new ModifierState(false, false, true, true)) with { CaptureWinTab = true };
         Assert.Equal(-1, HookInterpreter.Interpret(reverse).Delta);
+        var other = Key(VirtualKeys.E, true, win) with { CaptureWinTab = true };
+        Assert.Equal(HookCommand.Pass, HookInterpreter.Interpret(other).Command);
+    }
+
+    [Fact]
+    public void Win_tab_stays_open_even_when_classic_mode_would_commit()
+    {
+        var win = new ModifierState(false, false, false, true);
+        var down = Key(VirtualKeys.Tab, true, win) with { CaptureWinTab = true };
+        var opened = GestureTransitions.Apply(GestureSnapshot.Idle, HookInterpreter.Interpret(down), null, true, ModifierKeys.Win);
+        Assert.Equal(ModifierKeys.Win, opened.Next.LatchedTrigger);
+        Assert.IsType<UiOp.Open>(opened.Op);
+
+        var up = opened.Next.ToHookInput(
+            HotkeyChord.AltTab(), true, false, false, VirtualKeys.LWin, false, false, ModifierState.None,
+            stickySwitcher: false, quickTapSwitches: true, switcherShown: false);
+        var released = HookInterpreter.Interpret(up);
+        Assert.Equal(HookCommand.ReleaseHold, released.Command);
+        var after = GestureTransitions.Apply(opened.Next, released, null, false, ModifierKeys.Win);
+        Assert.IsType<UiOp.ReleaseHold>(after.Op);
+        Assert.Equal(ModifierKeys.Win, ((UiOp.ReleaseHold)after.Op!).Trigger);
+        Assert.True(after.Next.SearchMode);
+        Assert.False(after.Next.GestureLatched);
+        Assert.Equal(ModifierKeys.None, after.Next.LatchedTrigger);
+
+        var again = after.Next.ToHookInput(
+            HotkeyChord.AltTab(), true, false, false, VirtualKeys.Tab, true, false, win);
+        Assert.Equal(HookCommand.Cycle, HookInterpreter.Interpret(again).Command);
+        var plainTab = after.Next.ToHookInput(
+            HotkeyChord.AltTab(), true, false, false, VirtualKeys.Tab, true, false, ModifierState.None);
+        Assert.Equal(HookCommand.Pass, HookInterpreter.Interpret(plainTab).Command);
     }
 
     [Fact]
@@ -188,6 +219,84 @@ public class HookInterpreterTests
         Assert.Equal(HookCommand.CloseWindow, HookInterpreter.Interpret(close).Command);
         var del = search with { VirtualKey = VirtualKeys.Delete, Modifiers = ModifierState.None };
         Assert.Equal(HookCommand.Pass, HookInterpreter.Interpret(del).Command);
+    }
+}
+
+public class WinChordGuardTests
+{
+    [Fact]
+    public void Swallowed_win_tab_injects_one_dummy_then_requires_a_win_up()
+    {
+        var down = WinChordGuard.OnKey(WinGuardState.Idle, VirtualKeys.LWin, true, false);
+        Assert.Equal(WinGuardPhase.Down, down.Next.Phase);
+        Assert.False(down.InjectDummy);
+        Assert.False(down.ReleaseWin);
+
+        var tab = WinChordGuard.OnKey(down.Next, VirtualKeys.Tab, true, consumedChord: true);
+        Assert.True(tab.InjectDummy);
+        Assert.Equal(WinGuardPhase.DummySent, tab.Next.Phase);
+        Assert.Equal(WinChordGuard.DummyVirtualKey, 0xE8);
+
+        var repeat = WinChordGuard.OnKey(tab.Next, VirtualKeys.Tab, true, consumedChord: true);
+        Assert.False(repeat.InjectDummy);
+        Assert.Equal(tab.Next, repeat.Next);
+
+        var up = WinChordGuard.OnKey(tab.Next, VirtualKeys.LWin, false, false);
+        Assert.True(up.ReleaseWin);
+        Assert.False(up.InjectDummy);
+        Assert.Equal(WinGuardState.Idle, up.Next);
+    }
+
+    [Fact]
+    public void Plain_win_and_win_shortcuts_do_not_inject()
+    {
+        var down = WinChordGuard.OnKey(WinGuardState.Idle, VirtualKeys.LWin, true, false);
+        var e = WinChordGuard.OnKey(down.Next, VirtualKeys.E, true, consumedChord: false);
+        Assert.False(e.InjectDummy);
+        Assert.Equal(WinGuardPhase.Down, e.Next.Phase);
+        var shift = WinChordGuard.OnKey(e.Next, VirtualKeys.LShift, true, false);
+        var s = WinChordGuard.OnKey(shift.Next, VirtualKeys.S, true, false);
+        var up = WinChordGuard.OnKey(s.Next, VirtualKeys.LWin, false, false);
+        Assert.False(up.InjectDummy);
+        Assert.False(up.ReleaseWin);
+        Assert.Equal(WinGuardState.Idle, up.Next);
+
+        var tap = WinChordGuard.OnKey(WinGuardState.Idle, VirtualKeys.RWin, true, false);
+        var lone = WinChordGuard.OnKey(tap.Next, VirtualKeys.RWin, false, false);
+        Assert.False(lone.InjectDummy);
+        Assert.False(lone.ReleaseWin);
+    }
+
+    [Fact]
+    public void Releasing_one_win_key_keeps_the_other_armed()
+    {
+        var left = WinChordGuard.OnKey(WinGuardState.Idle, VirtualKeys.LWin, true, false);
+        var right = WinChordGuard.OnKey(left.Next, VirtualKeys.RWin, true, false);
+        var tab = WinChordGuard.OnKey(right.Next, VirtualKeys.Tab, true, true);
+        var one = WinChordGuard.OnKey(tab.Next, VirtualKeys.LWin, false, false);
+        Assert.False(one.ReleaseWin);
+        Assert.True(one.Next.RightDown);
+        Assert.Equal(WinGuardPhase.DummySent, one.Next.Phase);
+        var both = WinChordGuard.OnKey(one.Next, VirtualKeys.RWin, false, false);
+        Assert.True(both.ReleaseWin);
+        Assert.Equal(WinGuardState.Idle, both.Next);
+    }
+
+    [Fact]
+    public void Win_shift_tab_is_the_reverse_cycle()
+    {
+        var input = new HookInput
+        {
+            Hotkey = HotkeyChord.AltTab(),
+            CaptureWinTab = true,
+            VirtualKey = VirtualKeys.Tab,
+            IsKeyDown = true,
+            Modifiers = new ModifierState(false, false, true, true)
+        };
+        var result = HookInterpreter.Interpret(input);
+        Assert.Equal(HookCommand.Cycle, result.Command);
+        Assert.Equal(-1, result.Delta);
+        Assert.True(result.LatchGesture);
     }
 }
 

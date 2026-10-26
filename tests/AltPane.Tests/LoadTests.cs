@@ -258,6 +258,7 @@ public class LoadSortAndKillTests
         Assert.True(old.Settings.StickySwitcher);
         Assert.False(old.Settings.QuickTapSwitches);
         Assert.True(old.Settings.LaunchApps);
+        Assert.True(old.Settings.CaptureWinTab);
         Assert.True(old.Settings.IndexStartMenu);
         Assert.False(old.Settings.IndexPath);
         Assert.Equal(AppTheme.Dark, old.Settings.Theme);

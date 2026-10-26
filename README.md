@@ -9,7 +9,7 @@ This is an independent project. It is not affiliated with NTWind or the commerci
 ## Features
 
 - Low-level keyboard hook overrides Alt+Tab and Alt+Shift+Tab. By default, releasing the trigger key leaves the switcher open (sticky mode). Enter or a click activates the selected window. Esc, or a click outside the switcher, cancels and restores the previous foreground window. Classic release-to-switch is a setting.
-- The hotkey is configurable. An optional setting also tries to take over Win+Tab.
+- The hotkey is configurable. Win+Tab opens AltPane as well, unless that setting is turned off.
 - The switcher lists visible top-level windows in Z-order, with icon, title, and process name. Tool windows, cloaked UWP ghosts, owned popups, and a small shell-class denylist are filtered out. ApplicationFrameHost windows use the hosted CoreWindow for the real process name, icon, and “end task” target.
 - Live preview uses `DwmRegisterThumbnail`.
 - Type-to-search filters by window title or process name (substring, acronym, and pinyin). After the trigger key is released, the search box takes keyboard focus, so an IME can compose without Ctrl+F.
@@ -26,8 +26,9 @@ This is an independent project. It is not affiliated with NTWind or the commerci
 
 | Action | Gesture |
 | --- | --- |
-| Open and move to the previous window | Alt+Tab (or your hotkey) |
-| Open and move the other way | Alt+Shift+Tab, when Shift is not part of the hotkey |
+| Open and move to the previous window | Alt+Tab (or your hotkey). Win+Tab does this too, and is on by default |
+| Open and move the other way | Alt+Shift+Tab, when Shift is not part of the hotkey. Win+Shift+Tab reverses a Win+Tab session |
+| Win+Tab | Opens the switcher and leaves it open after both keys are released. Enter switches, Esc cancels. Tab or Win+Tab cycles. Task View does not open. A Windows key on its own still opens Start. Win+E, Win+D, and Win+Shift+S are unchanged |
 | Activate the selection | Enter, or click a row. Space does this when the window is not minimized and the search box is empty. In classic mode (Settings), releasing the trigger modifier also activates |
 | Launch an app | Type part of its name, move to the Launch row, and press Enter. If that app already has a window, Enter switches to it instead |
 | Run as administrator | Ctrl+Enter on a Launch row, or the context menu. Store apps cannot be elevated. Cancelling the UAC prompt does not count as a launch |
@@ -104,7 +105,7 @@ The hook procedure only classifies the key and queues a small operation. Enumera
 dotnet test tests/AltPane.Tests/AltPane.Tests.csproj -c Release
 ```
 
-Covered without a Windows desktop session: inclusion rules (visibility, tool windows, cloak, owner, empty title, exclusion list, ApplicationFrameHost), search ranking, pinyin and acronym matching, app ranking against launch frequency, shell-link (`.lnk`) parsing, session movement across windows and launch rows, hook interpretation (including sticky release, search mode, Ctrl+Enter, and the activation chord), settings JSON round-trip and corrupt-file recovery, kill-process policy, hotkey formatting, localization fallback, layout math, the opaque window-frame colors (no full-window glass margin), and the 48-byte DWM thumbnail property / 40-byte `INPUT` layouts.
+Covered without a Windows desktop session: inclusion rules (visibility, tool windows, cloak, owner, empty title, exclusion list, ApplicationFrameHost), search ranking, pinyin and acronym matching, app ranking against launch frequency, shell-link (`.lnk`) parsing, session movement across windows and launch rows, hook interpretation (including sticky release, Win+Tab staying open, search mode, Ctrl+Enter, and the activation chord), the Win-key suppression state machine, settings JSON round-trip and corrupt-file recovery, kill-process policy, hotkey formatting, localization fallback, layout math, the opaque window-frame colors (no full-window glass margin), and the 48-byte DWM thumbnail property / 40-byte `INPUT` layouts.
 
 Pinyin readings come from [mozillazg/pinyin-data](https://github.com/mozillazg/pinyin-data) (`pinyin.txt`, MIT). The compact table is `src/AltPane.Core/Search/pinyin.bin`. `ü` is stored as `v`, and a query may use `u` or `v` (`nu` and `nv` both match 女). Polyphonic characters keep their readings (乐 is `le` and `yue`).
 
@@ -112,7 +113,7 @@ Not covered here: the real hook, DWM thumbnails, tray icon, monitor placement, a
 
 ## Known limitations
 
-- Win+Tab capture is best-effort. Task View or the Start menu can still appear, because the shell handles that chord outside a normal keystroke.
+- Win+Tab is taken by the low-level hook: Tab is not delivered, and an unassigned key (VK_E8) is injected while Win is still down so the later Win key-up does not open Start. Both Win keys are then released, so the Windows key is not left stuck. A low-level hook in a process that is not elevated does not see keystrokes while an elevated window is in front. Win+Tab then falls through to Task View until AltPane is restarted as administrator.
 - Exclusive fullscreen, DRM, and some elevated windows produce a blank thumbnail. Minimized windows have no DWM thumbnail until they are restored for preview. Some apps ignore a no-activate restore or animate back to the taskbar; AltPane then puts the saved placement back and shows a failure message. Snapshot capture uses `PrintWindow` and is blank for many GPU-rendered windows.
 - Switching to an elevated window, closing it, or thumbnailing it can fail with UIPI unless AltPane is running as administrator.
 - “Other virtual desktops” is approximate. The shell cloak bit and `IVirtualDesktopManager` are used when available. The application cloak bit (UWP ghost windows) is always hidden.
@@ -133,12 +134,12 @@ Not covered here: the real hook, DWM thumbnails, tray icon, monitor placement, a
 7. Change hotkey, theme, language, size, preview, placement, and exclusions. Restart and confirm `%APPDATA%\AltPane\settings.json` was applied. Toggle start with Windows and check the HKCU Run key.
 8. Launch a second copy and confirm it focuses Settings on the first instance.
 9. Move the cursor to another monitor and another DPI scale. Confirm the switcher opens there and is sharp.
-10. Optional: enable Win+Tab capture and note whether Task View still appears. Restart as administrator and switch to an elevated window such as Task Manager.
+10. Win+Tab opens AltPane, not Task View, and releasing Win does not open Start or leave Win stuck. The switcher stays open; Tab cycles; Win+Shift+Tab reverses; Enter switches; Esc cancels. A Windows key alone still opens Start. Win+E, Win+D, and Win+Shift+S still work. Turn the setting off and confirm Task View is back. With an elevated window in front, such as Task Manager, Win+Tab reaches AltPane only after Restart as administrator.
 11. In light and dark themes, at 100%, 125%, 150%, and 200% scaling, the switcher and Settings have a solid fill and a thin edge. Windows 11 corners are rounded; Windows 10 corners are square. There is no black band in the corners or along the frame, and the shadow is soft. A window whose shape differs from the preview pane is centered; the bars around it are the pane color.
 
 ## 中文说明
 
-AltPane 是一个 Windows 桌面窗口切换器。运行期间它会用低级键盘钩子接管 Alt+Tab（以及 Alt+Shift+Tab），系统自带的切换界面不会出现。默认松开触发键后切换器保持打开，Enter 或单击才切换到所选窗口，Esc 或点击外部取消。设置里可以改回松开即切换。
+AltPane 是一个 Windows 桌面窗口切换器。运行期间它会用低级键盘钩子接管 Alt+Tab（以及 Alt+Shift+Tab），系统自带的切换界面不会出现。Win+Tab 默认也会打开 AltPane，而不是任务视图；松开 Win 不会弹出开始菜单，也不会让 Windows 键卡住。单独按 Windows 键仍打开开始菜单，Win+E、Win+D、Win+Shift+S 保持原样。默认松开触发键后切换器保持打开，Enter 或单击才切换到所选窗口，Esc 或点击外部取消。设置里可以改回松开即切换，也可以关闭 Win+Tab 接管。当前窗口以管理员身份运行时，需要同样以管理员身份启动 AltPane，钩子才能看到这个组合键。
 
 界面默认跟随系统语言：中文系统使用简体中文，也可在设置里改为 English。设置保存在 `%APPDATA%\AltPane\settings.json`。托盘图标可以打开切换器、设置、暂停接管、开机启动和退出。程序崩溃、暂停或结束后会卸下钩子，原生 Alt+Tab 恢复可用。
 

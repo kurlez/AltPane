@@ -21,13 +21,17 @@ public static class VirtualKeys
     public const int Menu = 0x12;
     public const int LWin = 0x5B;
     public const int RWin = 0x5C;
+    /// <summary>Unassigned. Injected while Win is down so a swallowed chord is not a lone Win tap.</summary>
+    public const int Unused = WinChordGuard.DummyVirtualKey;
     public const int LShift = 0xA0;
     public const int RShift = 0xA1;
     public const int LControl = 0xA2;
     public const int RControl = 0xA3;
     public const int LMenu = 0xA4;
     public const int RMenu = 0xA5;
+    public const int E = 0x45;
     public const int F = 0x46;
+    public const int S = 0x53;
     public const int W = 0x57;
     public const int M = 0x4D;
     public const int R = 0x52;

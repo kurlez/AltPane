@@ -63,10 +63,28 @@ internal static class ModifierRelease
             _ => 0
         };
         if (vk == 0) return;
-        // Ctrl held across the trigger key-up suppresses the menu bar / Start menu.
+        // A swallowed Win chord still has Win logically down. An unassigned key
+        // while it is down keeps Start from treating the following key-up as a tap.
+        // Both Win keys are released so a right-Win chord cannot stay stuck.
+        if (trigger == ModifierKeys.Win)
+            MarkWinChordUsed();
         Tap(VirtualKeys.Control, up: false);
-        Tap(vk, up: true);
+        if (trigger == ModifierKeys.Win)
+        {
+            Tap(VirtualKeys.LWin, up: true);
+            Tap(VirtualKeys.RWin, up: true);
+        }
+        else
+        {
+            Tap(vk, up: true);
+        }
         Tap(VirtualKeys.Control, up: true);
+    }
+
+    public static void MarkWinChordUsed()
+    {
+        Tap(VirtualKeys.Unused, up: false);
+        Tap(VirtualKeys.Unused, up: true);
     }
 
     static void Tap(int vk, bool up)

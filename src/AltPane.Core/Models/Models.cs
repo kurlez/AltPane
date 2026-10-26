@@ -107,7 +107,8 @@ public sealed class AppSettings
 {
     public int Version { get; set; } = 1;
     public HotkeyChord? Hotkey { get; set; } = HotkeyChord.AltTab();
-    public bool CaptureWinTab { get; set; }
+    /// <summary>When true (the default), Win+Tab opens AltPane instead of Task View.</summary>
+    public bool CaptureWinTab { get; set; } = true;
     public AppTheme Theme { get; set; } = AppTheme.System;
     public SwitcherSize Size { get; set; } = SwitcherSize.Comfortable;
     public bool ShowPreview { get; set; } = true;
@@ -158,6 +159,7 @@ public sealed class AppSettings
         ConfirmEndTask = true,
         EndTaskKillsTree = true,
         StickySwitcher = true,
+        CaptureWinTab = true,
         LaunchApps = true,
         IndexStartMenu = true,
         IndexStoreApps = true,

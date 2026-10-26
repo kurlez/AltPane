@@ -16,6 +16,7 @@ internal sealed class HotkeyService : IDisposable
     readonly Queue<UiOp> _ops = new();
     readonly HashSet<int> _pressed = new();
     GestureSnapshot _snap = GestureSnapshot.Idle;
+    WinGuardState _win = WinGuardState.Idle;
     nint _hook;
     int _injectDepth;
     bool _drainQueued;
@@ -55,6 +56,7 @@ internal sealed class HotkeyService : IDisposable
             AppLog.Info("Keyboard hook removed.");
         _hook = 0;
         _pressed.Clear();
+        _win = WinGuardState.Idle;
     }
 
     public void Dispose() => Uninstall();
@@ -130,6 +132,12 @@ internal sealed class HotkeyService : IDisposable
             settings.QuickTapSwitches,
             _presenter.IsSwitcherVisible);
         var result = HookInterpreter.Interpret(input);
+        var kind = HotkeyLogic.Match(hotkey, settings.CaptureWinTab, vk, mods);
+        var consumedWinChord = isDown && !repeat && kind == ChordKind.WinTab && result.Command == HookCommand.Cycle;
+        var win = WinChordGuard.OnKey(_win, vk, isDown, consumedWinChord);
+        _win = win.Next;
+        if (win.InjectDummy)
+            WhileInjecting(ModifierRelease.MarkWinChordUsed);
         if (result.Command == HookCommand.Pass)
             return NativeMethods.CallNextHookEx(_hook, nCode, wParam, lParam);
 
@@ -141,7 +149,6 @@ internal sealed class HotkeyService : IDisposable
                 return 1;
         }
 
-        var kind = HotkeyLogic.Match(hotkey, settings.CaptureWinTab, vk, mods);
         var activation = HotkeyLogic.TriggerFor(kind, hotkey);
         var stillDown = PhysicallyDown(before.LatchedTrigger != ModifierKeys.None ? before.LatchedTrigger : activation);
         lock (_gate)
