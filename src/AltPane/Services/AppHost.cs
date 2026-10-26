@@ -11,6 +11,7 @@ internal sealed class AppHost : IDisposable
     readonly string _settingsPath = SettingsStore.DefaultPath();
     readonly SwitcherPresenter _presenter;
     readonly HotkeyService _hotkeys;
+    readonly AppIndexService _apps;
     readonly TrayController _tray;
     SettingsWindow? _settingsWindow;
     bool _recording;
@@ -25,6 +26,8 @@ internal sealed class AppHost : IDisposable
         Localizer.Current.Apply(Settings.Language, CultureInfo.CurrentUICulture.Name);
         ThemeService.Apply(Settings.Theme);
         _presenter = new SwitcherPresenter(() => Settings);
+        _apps = new AppIndexService(() => Settings);
+        _presenter.UseApps(_apps);
         _hotkeys = new HotkeyService(_presenter, () => Settings, () => _recording, System.Windows.Application.Current.Dispatcher);
         _presenter.Hotkeys = _hotkeys;
         _presenter.Notify += message => _tray?.Balloon(message);
@@ -39,6 +42,7 @@ internal sealed class AppHost : IDisposable
 
     public void Start()
     {
+        _apps.Start();
         _tray.Show();
         if (!Settings.OverridePaused && !_hotkeys.Install())
             _tray.Balloon(Localizer.Current["settings.hookFailed"]);
@@ -107,6 +111,7 @@ internal sealed class AppHost : IDisposable
         try { SystemEvents.UserPreferenceChanged -= OnPreference; } catch { }
         try { _hotkeys.Uninstall(); } catch (Exception ex) { AppLog.Error(ex); }
         try { _presenter.ForceClose(); } catch { }
+        try { _apps.Dispose(); } catch { }
         try { _settingsWindow?.Close(); } catch { }
         try { _tray.Dispose(); } catch { }
         AppLog.Info("AltPane stopped.");
@@ -131,6 +136,7 @@ internal sealed class AppHost : IDisposable
         if (Settings.OverridePaused) _hotkeys.Uninstall();
         else if (!_hotkeys.Install()) _tray.Balloon(Localizer.Current["settings.hookFailed"]);
         SettingsStore.Save(_settingsPath, Settings);
+        _apps.ApplySettings();
         _tray.Rebuild();
     }
 

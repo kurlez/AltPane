@@ -51,6 +51,26 @@ internal static class IconLoader
         return null;
     }
 
+    public static ImageSource? TryGetFileIcon(string? path, int index)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return null;
+        var extracted = nint.Zero;
+        try
+        {
+            var count = NativeMethods.PrivateExtractIcons(path, index, 64, 64, out extracted, out _, 1, 0);
+            if (count > 0 && extracted != 0)
+                return FromOwnedIcon(extracted);
+            if (extracted != 0)
+                NativeMethods.DestroyIcon(extracted);
+        }
+        catch (Exception ex)
+        {
+            if (extracted != 0) NativeMethods.DestroyIcon(extracted);
+            AppLog.Error(ex);
+        }
+        return null;
+    }
+
     public static ImageSource Letter(string title)
     {
         var glyph = string.IsNullOrWhiteSpace(title) ? "?" : StringInfo.GetNextTextElement(title.Trim());

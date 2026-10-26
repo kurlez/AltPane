@@ -63,6 +63,18 @@
           <CheckBox x:Name="StartupBox" Margin="0,0,0,6"/>
           <CheckBox x:Name="PauseBox" Margin="0,0,0,14"/>
 
+          <CheckBox x:Name="LaunchBox" Margin="0,0,0,2"/>
+          <TextBlock x:Name="LaunchNote" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="22,0,0,8"/>
+          <CheckBox x:Name="IndexStartBox" Margin="22,0,0,4"/>
+          <CheckBox x:Name="IndexStoreBox" Margin="22,0,0,4"/>
+          <CheckBox x:Name="IndexDesktopBox" Margin="22,0,0,4"/>
+          <CheckBox x:Name="IndexPathBox" Margin="22,0,0,2"/>
+          <TextBlock x:Name="IndexPathNote" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="44,0,0,10"/>
+          <TextBlock x:Name="ExcludedAppsLabel" FontWeight="SemiBold" Margin="22,0,0,6"/>
+          <TextBlock x:Name="ExcludedAppsHint" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="22,0,0,6"/>
+          <TextBox x:Name="ExcludedAppsBox" AcceptsReturn="True" Height="72" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
+                   FontFamily="Cascadia Mono, Consolas, Segoe UI" Padding="8" Margin="22,0,0,14"/>
+
           <TextBlock x:Name="ExclusionLabel" FontWeight="SemiBold" Margin="0,0,0,6"/>
           <TextBlock x:Name="ExclusionHint" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,6"/>
           <TextBox x:Name="ExclusionBox" AcceptsReturn="True" Height="96" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"

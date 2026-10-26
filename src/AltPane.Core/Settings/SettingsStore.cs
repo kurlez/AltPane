@@ -68,6 +68,21 @@ public static class SettingsStore
         if (!Enum.IsDefined(settings.Language)) settings.Language = AppLanguage.System;
         if (!Enum.IsDefined(settings.SortMode)) settings.SortMode = LoadSortMode.Recent;
         settings.ExcludedProcesses = ProcessNames.NormalizeList(settings.ExcludedProcesses);
+        settings.ExcludedApps = NormalizeNames(settings.ExcludedApps);
+    }
+
+    static List<string> NormalizeNames(List<string>? items)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var result = new List<string>();
+        if (items is null) return result;
+        foreach (var raw in items)
+        {
+            var token = raw.Trim();
+            if (token.Length == 0) continue;
+            if (seen.Add(token)) result.Add(token);
+        }
+        return result;
     }
 
     static void TryBackup(string path)

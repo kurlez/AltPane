@@ -133,6 +133,14 @@ public sealed class AppSettings
     /// Turn this on to activate that tap immediately. Ignored when <see cref="StickySwitcher"/> is false.
     /// </summary>
     public bool QuickTapSwitches { get; set; }
+    /// <summary>When true (the default), a search with no matching window also offers installed apps.</summary>
+    public bool LaunchApps { get; set; } = true;
+    public bool IndexStartMenu { get; set; } = true;
+    public bool IndexStoreApps { get; set; } = true;
+    public bool IndexDesktop { get; set; } = true;
+    /// <summary>Executables on PATH. Off by default because system directories are noisy.</summary>
+    public bool IndexPath { get; set; }
+    public List<string> ExcludedApps { get; set; } = new();
 
     public static AppSettings CreateDefault() => new()
     {
@@ -144,10 +152,15 @@ public sealed class AppSettings
         Theme = AppTheme.System,
         Language = AppLanguage.System,
         ExcludedProcesses = new List<string>(),
+        ExcludedApps = new List<string>(),
         ShowLoad = true,
         SortMode = LoadSortMode.Recent,
         ConfirmEndTask = true,
         EndTaskKillsTree = true,
-        StickySwitcher = true
+        StickySwitcher = true,
+        LaunchApps = true,
+        IndexStartMenu = true,
+        IndexStoreApps = true,
+        IndexDesktop = true
     };
 }

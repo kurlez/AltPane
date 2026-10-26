@@ -134,7 +134,13 @@
                     <Image Source="{Binding Icon}" Width="22" Height="22" RenderOptions.BitmapScalingMode="HighQuality"/>
                   </Border>
                   <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="8,0,8,0">
-                    <TextBlock Text="{Binding Title}" FontSize="14" Foreground="{DynamicResource TextPrimaryBrush}" TextTrimming="CharacterEllipsis"/>
+                    <TextBlock x:Name="SectionText" Text="{Binding Section}" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource AccentBrush}" Margin="0,2,0,2"/>
+                    <DockPanel>
+                      <Border x:Name="BadgeBorder" DockPanel.Dock="Right" Margin="8,0,0,0" Padding="6,1" CornerRadius="6" Background="{DynamicResource SurfaceBrush}" VerticalAlignment="Center">
+                        <TextBlock x:Name="BadgeText" Text="{Binding Badge}" FontSize="11" Foreground="{DynamicResource AccentBrush}"/>
+                      </Border>
+                      <TextBlock Text="{Binding Title}" FontSize="14" Foreground="{DynamicResource TextPrimaryBrush}" TextTrimming="CharacterEllipsis"/>
+                    </DockPanel>
                     <TextBlock Text="{Binding Subtitle}" FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}" TextTrimming="CharacterEllipsis" Margin="0,1,0,0"/>
                     <DockPanel x:Name="LoadLine" Margin="0,3,0,0">
                       <Border x:Name="LoadBar" DockPanel.Dock="Left" Width="{Binding BarWidth}" Height="3" Margin="0,0,6,0" VerticalAlignment="Center" CornerRadius="1" Background="{DynamicResource LoadCalmBrush}"/>
@@ -143,6 +149,15 @@
                   </StackPanel>
                 </Grid>
                 <DataTemplate.Triggers>
+                  <DataTrigger Binding="{Binding Section}" Value="">
+                    <Setter TargetName="SectionText" Property="Visibility" Value="Collapsed"/>
+                  </DataTrigger>
+                  <DataTrigger Binding="{Binding Badge}" Value="">
+                    <Setter TargetName="BadgeBorder" Property="Visibility" Value="Collapsed"/>
+                  </DataTrigger>
+                  <DataTrigger Binding="{Binding IsApp}" Value="True">
+                    <Setter TargetName="LoadLine" Property="Visibility" Value="Collapsed"/>
+                  </DataTrigger>
                   <DataTrigger Binding="{Binding ShowLoad}" Value="False">
                     <Setter TargetName="LoadLine" Property="Visibility" Value="Collapsed"/>
                   </DataTrigger>

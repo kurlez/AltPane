@@ -60,7 +60,13 @@ public partial class SettingsWindow : Window
         DesktopBox.IsChecked = _draft.IncludeOtherVirtualDesktops;
         StartupBox.IsChecked = _draft.StartWithWindows;
         PauseBox.IsChecked = _draft.OverridePaused;
+        LaunchBox.IsChecked = _draft.LaunchApps;
+        IndexStartBox.IsChecked = _draft.IndexStartMenu;
+        IndexStoreBox.IsChecked = _draft.IndexStoreApps;
+        IndexDesktopBox.IsChecked = _draft.IndexDesktop;
+        IndexPathBox.IsChecked = _draft.IndexPath;
         ExclusionBox.Text = string.Join(Environment.NewLine, _draft.ExcludedProcesses);
+        ExcludedAppsBox.Text = string.Join(Environment.NewLine, _draft.ExcludedApps);
         Select(ThemeBox, _draft.Theme);
         Select(LanguageBox, _draft.Language);
         Select(SizeBox, _draft.Size);
@@ -99,6 +105,15 @@ public partial class SettingsWindow : Window
         DesktopBox.Content = loc["settings.desktops"];
         StartupBox.Content = loc["settings.startup"];
         PauseBox.Content = loc["settings.pause"];
+        LaunchBox.Content = loc["settings.launch"];
+        LaunchNote.Text = loc["settings.launchNote"];
+        IndexStartBox.Content = loc["settings.indexStart"];
+        IndexStoreBox.Content = loc["settings.indexStore"];
+        IndexDesktopBox.Content = loc["settings.indexDesktop"];
+        IndexPathBox.Content = loc["settings.indexPath"];
+        IndexPathNote.Text = loc["settings.indexPathNote"];
+        ExcludedAppsLabel.Text = loc["settings.excludedApps"];
+        ExcludedAppsHint.Text = loc["settings.excludedAppsHint"];
         ExclusionLabel.Text = loc["settings.exclusions"];
         ExclusionHint.Text = loc["settings.exclusionsHint"];
         ShortcutTitle.Text = loc["settings.shortcuts"];
@@ -266,11 +281,19 @@ public partial class SettingsWindow : Window
         _draft.IncludeOtherVirtualDesktops = DesktopBox.IsChecked == true;
         _draft.StartWithWindows = StartupBox.IsChecked == true;
         _draft.OverridePaused = PauseBox.IsChecked == true;
+        _draft.LaunchApps = LaunchBox.IsChecked == true;
+        _draft.IndexStartMenu = IndexStartBox.IsChecked == true;
+        _draft.IndexStoreApps = IndexStoreBox.IsChecked == true;
+        _draft.IndexDesktop = IndexDesktopBox.IsChecked == true;
+        _draft.IndexPath = IndexPathBox.IsChecked == true;
         _draft.Theme = Read(ThemeBox, _draft.Theme);
         _draft.Language = Read(LanguageBox, _draft.Language);
         _draft.Size = Read(SizeBox, _draft.Size);
         _draft.Placement = Read(PlacementBox, _draft.Placement);
         _draft.ExcludedProcesses = ExclusionBox.Text
+            .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+            .ToList();
+        _draft.ExcludedApps = ExcludedAppsBox.Text
             .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
             .ToList();
         _draft.WelcomeShown = _original.WelcomeShown;
@@ -343,7 +366,13 @@ public partial class SettingsWindow : Window
         ShowLoad = source.ShowLoad,
         SortMode = source.SortMode,
         ConfirmEndTask = source.ConfirmEndTask,
-        EndTaskKillsTree = source.EndTaskKillsTree
+        EndTaskKillsTree = source.EndTaskKillsTree,
+        LaunchApps = source.LaunchApps,
+        IndexStartMenu = source.IndexStartMenu,
+        IndexStoreApps = source.IndexStoreApps,
+        IndexDesktop = source.IndexDesktop,
+        IndexPath = source.IndexPath,
+        ExcludedApps = new List<string>(source.ExcludedApps ?? new List<string>())
     };
 
     sealed class Choice<T>

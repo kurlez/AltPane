@@ -13,6 +13,7 @@ public abstract record UiOp
     public sealed record EnterSearch(ModifierKeys Trigger) : UiOp;
     /// <summary>Trigger was released in sticky mode. The switcher stays open and takes the keyboard.</summary>
     public sealed record ReleaseHold(ModifierKeys Trigger) : UiOp;
+    public sealed record AdminLaunch : UiOp;
     public sealed record CloseWindow : UiOp;
     public sealed record KillProcess : UiOp;
     public sealed record Minimize : UiOp;
@@ -155,6 +156,8 @@ public static class GestureTransitions
                 return state.SwitcherOpen ? new(state, new UiOp.Page(result.Delta)) : new(state, null);
             case HookCommand.SpaceAction:
                 return state.SwitcherOpen ? new(state, new UiOp.SpaceAction()) : new(state, null);
+            case HookCommand.AdminLaunch:
+                return state.SwitcherOpen ? new(state, new UiOp.AdminLaunch()) : new(state, null);
             default:
                 return new(state, null);
         }

@@ -21,7 +21,8 @@ public enum HookCommand
     End,
     Page,
     SpaceAction,
-    ReleaseHold
+    ReleaseHold,
+    AdminLaunch
 }
 
 public readonly record struct HookResult(HookCommand Command, int Delta, bool LatchGesture, bool ClearAwaitingRelease)
@@ -44,6 +45,7 @@ public readonly record struct HookResult(HookCommand Command, int Delta, bool La
     public static HookResult Page(int direction) => new(HookCommand.Page, direction < 0 ? -1 : 1, false, false);
     public static HookResult Space() => new(HookCommand.SpaceAction, 0, false, false);
     public static HookResult ReleaseHold() => new(HookCommand.ReleaseHold, 0, false, false);
+    public static HookResult AdminLaunch() => new(HookCommand.AdminLaunch, 0, false, false);
 }
 
 public readonly record struct HookInput
@@ -131,6 +133,8 @@ public static class HookInterpreter
         switch (input.VirtualKey)
         {
             case VirtualKeys.Escape: return HookResult.Cancel();
+            case VirtualKeys.Return when input.Modifiers.Ctrl && !input.Modifiers.Win:
+                return HookResult.AdminLaunch();
             case VirtualKeys.Return: return HookResult.Commit();
             case VirtualKeys.Space when !input.HasSearchQuery: return HookResult.Space();
             case VirtualKeys.Space: return HookResult.Type();
@@ -195,6 +199,8 @@ public static class HookInterpreter
 
         if (!input.IsRepeat && input.VirtualKey == VirtualKeys.Delete && input.Modifiers.Shift && !input.Modifiers.Ctrl)
             return HookResult.Kill();
+        if (input.VirtualKey == VirtualKeys.Return && input.Modifiers.Ctrl && !input.Modifiers.Win)
+            return input.IsRepeat ? HookResult.Swallow() : HookResult.AdminLaunch();
 
         // Letters, Enter, Esc, arrows, and Backspace pass through so the text box and IME receive them.
         return HookResult.Pass();

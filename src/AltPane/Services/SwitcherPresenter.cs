@@ -1,5 +1,6 @@
 using System.Windows.Threading;
 using AltPane.Core.Actions;
+using AltPane.Core.Apps;
 using AltPane.Core.Input;
 using AltPane.Core.Load;
 using AltPane.Core.Localization;
@@ -15,6 +16,8 @@ internal sealed class SwitcherPresenter
     readonly SwitcherWindow _window;
     readonly ThumbnailController _thumbs = new();
     readonly Dictionary<long, System.Windows.Media.ImageSource> _icons = new();
+    readonly Dictionary<string, System.Windows.Media.ImageSource> _appIcons = new(StringComparer.OrdinalIgnoreCase);
+    AppIndexService? _apps;
     readonly DispatcherTimer _statusTimer;
     readonly LoadSampler _sampler = new();
     readonly KillArm _arm = new();
@@ -44,6 +47,18 @@ internal sealed class SwitcherPresenter
             _session?.SelectHandle(handle);
             Hotkeys?.RequestCommit();
         };
+        _window.AppHovered += id =>
+        {
+            if (_session?.SelectApp(id) == true)
+                Refresh(updateThumb: true);
+        };
+        _window.AppInvoked += id =>
+        {
+            _session?.SelectApp(id);
+            Hotkeys?.RequestCommit();
+        };
+        _window.AdminLaunchRequested += LaunchAdmin;
+        _window.OpenLocationRequested += RevealSelected;
         _window.CommitRequested += () => Hotkeys?.RequestCommit();
         _window.CancelRequested += () => Hotkeys?.RequestCancel();
         _window.SearchRequested += () => Hotkeys?.RequestSearchMode();
@@ -78,6 +93,12 @@ internal sealed class SwitcherPresenter
     public HotkeyService? Hotkeys { get; set; }
     public bool PendingShow { get; private set; }
     public bool IsSwitcherVisible => _window.IsVisible;
+
+    public void UseApps(AppIndexService apps)
+    {
+        _apps = apps;
+        apps.Updated += () => _window.Dispatcher.BeginInvoke(ReloadApps);
+    }
     public event Action<string>? Notify;
     public event Action? PersistRequested;
 
@@ -145,6 +166,9 @@ internal sealed class SwitcherPresenter
                 break;
             case UiOp.SpaceAction:
                 OnSpace();
+                break;
+            case UiOp.AdminLaunch:
+                LaunchAdmin();
                 break;
             case UiOp.BringToFront:
                 if (_session is null) Build(0);
@@ -218,6 +242,7 @@ internal sealed class SwitcherPresenter
         if (_settings().ShowLoad)
             _session.SetSortMode(_settings().SortMode);
         if (delta != 0) _session.Move(delta);
+        ApplyCatalog(resetClock: true);
         _searchMode = false;
         _status = null;
         _arm.Clear();
@@ -229,8 +254,90 @@ internal sealed class SwitcherPresenter
         _iconGeneration++;
     }
 
+    void DismissSwitcher(bool keepBorrowed)
+    {
+        ApplyPreview(keepBorrowed ? _preview.Commit() : _preview.Cancel());
+        PendingShow = false;
+        _searchMode = false;
+        _session = null;
+        _thumbs.Clear();
+        _sampler.Stop();
+        _arm.Clear();
+        _window.RunGuarded(() =>
+        {
+            if (_window.IsVisible) _window.HideSwitcher();
+        });
+    }
+
+    void LaunchAdmin()
+    {
+        var hit = _session?.SelectedApp;
+        if (hit is not { } appHit)
+            return;
+        if (appHit.SwitchHandle != 0)
+        {
+            Commit();
+            return;
+        }
+        var app = appHit.App;
+        DismissSwitcher(keepBorrowed: false);
+        if (!AppLauncher.TryLaunch(app, admin: true, out var error) && error is not null)
+            Notify?.Invoke(Localizer.Current.Format(error, app.Name));
+        else
+            _apps?.Remember(app.Id);
+    }
+
+    void RevealSelected()
+    {
+        var hit = _session?.SelectedApp;
+        if (hit is not { } appHit) return;
+        if (!AppLauncher.TryReveal(appHit.App, out var error) && error is not null)
+            ShowStatus(Localizer.Current[error]);
+    }
+
+    void ReloadApps()
+    {
+        if (_session is null) return;
+        ApplyCatalog(resetClock: false);
+        if (_window.IsVisible) Refresh(updateThumb: false);
+    }
+
+    void ApplyCatalog(bool resetClock)
+    {
+        if (_session is null) return;
+        var settings = _settings();
+        _session.SetCatalog(
+            _apps?.Visible,
+            _apps?.UsageSnapshot(),
+            settings.ExcludedApps,
+            settings.LaunchApps,
+            resetClock ? DateTime.UtcNow : null);
+    }
+
     void Commit()
     {
+        var hit = _session?.SelectedApp;
+        if (hit is { } appHit)
+        {
+            var app = appHit.App;
+            var window = appHit.SwitchHandle == 0
+                ? null
+                : _session?.All.FirstOrDefault(entry => entry.Handle == appHit.SwitchHandle);
+            var keepBorrowed = window is not null && _preview.IsBorrowing && _preview.Handle == window.Handle;
+            DismissSwitcher(keepBorrowed);
+            if (window is not null)
+            {
+                _apps?.Remember(app.Id);
+                ActivateEntry(window);
+                return;
+            }
+            if (!AppLauncher.TryLaunch(app, admin: false, out var error) && error is not null)
+                Notify?.Invoke(Localizer.Current.Format(error, app.Name));
+            else
+                _apps?.Remember(app.Id);
+            return;
+        }
+
         var selected = _session?.Selected;
         ApplyPreview(_preview.Commit());
         PendingShow = false;
@@ -448,11 +555,14 @@ internal sealed class SwitcherPresenter
         var filtered = _session?.Filtered ?? Array.Empty<WindowEntry>();
         var allCount = _session?.All.Count ?? 0;
         var loc = Localizer.Current;
+        var appCount = _session?.AppHits.Count ?? 0;
         var count = _session is null
             ? ""
-            : _session.Query.Length == 0
-                ? loc.Format("count.windows", filtered.Count)
-                : loc.Format("count.filtered", filtered.Count, allCount);
+            : appCount > 0
+                ? loc.Format("count.apps", filtered.Count, appCount)
+                : _session.Query.Length == 0
+                    ? loc.Format("count.windows", filtered.Count)
+                    : loc.Format("count.filtered", filtered.Count, allCount);
         var trigger = HotkeyLogic.TriggerDisplayName(HotkeyLogic.TriggerModifier(settings.Hotkey ?? HotkeyChord.AltTab()));
         var hint = settings.StickySwitcher || _searchMode
             ? loc.Format("hint.sticky", trigger)
@@ -485,10 +595,21 @@ internal sealed class SwitcherPresenter
                 LoadSortMode.Memory => "sort.memory",
                 _ => "sort.recent"
             }],
-            EmptyText = _session is null || allCount == 0
-                ? loc["list.empty"]
-                : filtered.Count == 0 ? loc["list.nomatch"] : ""
+            EmptyText = EmptyMessage(loc, settings, filtered.Count, allCount),
+            Apps = _session?.AppHits ?? Array.Empty<AppHit>(),
+            AppIcons = _appIcons,
+            LaunchSection = loc["launch.section"],
+            OpenBadge = loc["launch.openBadge"],
+            SwitchSubtitle = loc["launch.switchSubtitle"]
         };
+    }
+
+    string EmptyMessage(Localizer loc, AppSettings settings, int filteredCount, int allCount)
+    {
+        var apps = _session?.AppHits.Count ?? 0;
+        if (filteredCount + apps > 0) return "";
+        if (_session is null || (allCount == 0 && _session.Query.Length == 0)) return loc["list.empty"];
+        return loc[settings.LaunchApps ? "list.nomatchApps" : "list.nomatch"];
     }
 
     void QueueIcons()
@@ -510,6 +631,13 @@ internal sealed class SwitcherPresenter
                     AppLog.Error(ex);
                 }
             }
+            foreach (var hit in _session.AppHits.ToList())
+            {
+                if (generation != _iconGeneration) return;
+                var path = string.IsNullOrWhiteSpace(hit.App.IconLocation) ? hit.App.ResolvedPath : hit.App.IconLocation;
+                var icon = IconLoader.TryGetFileIcon(path, hit.App.IconIndex) ?? IconLoader.TryGetFileIcon(hit.App.LaunchPath, 0);
+                if (icon is not null) _appIcons[hit.App.Id] = icon;
+            }
             if (_window.IsVisible) Refresh(updateThumb: false);
         }, DispatcherPriority.Background);
     }
@@ -517,6 +645,16 @@ internal sealed class SwitcherPresenter
     void UpdateThumb()
     {
         var settings = _settings();
+        if (_session?.SelectedApp is { } appHit)
+        {
+            _thumbs.Clear();
+            _window.ShowStillPreview(null, null);
+            var path = string.IsNullOrWhiteSpace(appHit.App.ResolvedPath) ? appHit.App.LaunchPath : appHit.App.ResolvedPath;
+            _window.SetPreviewMessage(appHit.SwitchHandle != 0
+                ? Localizer.Current["launch.switchSubtitle"]
+                : path);
+            return;
+        }
         FollowMinimizedPreview();
         var selected = _session?.Selected;
         if (!settings.ShowPreview || selected is null || !_window.IsVisible || selected.IsIconic)

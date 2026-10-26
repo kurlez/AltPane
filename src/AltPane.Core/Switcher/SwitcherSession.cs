@@ -1,3 +1,4 @@
+using AltPane.Core.Apps;
 using AltPane.Core.Load;
 using AltPane.Core.Models;
 using AltPane.Core.Search;
@@ -10,6 +11,12 @@ public sealed class SwitcherSession
     readonly List<WindowEntry> _all;
     readonly Dictionary<long, TaskLoad> _loads = new();
     List<WindowEntry> _filtered;
+    List<AppHit> _apps = new();
+    IReadOnlyList<AppEntry> _catalog = Array.Empty<AppEntry>();
+    IReadOnlyDictionary<string, LaunchMemory> _usage = new Dictionary<string, LaunchMemory>();
+    IReadOnlyList<string> _excludedApps = Array.Empty<string>();
+    bool _launchEnabled;
+    DateTime _usageUtc = DateTime.UnixEpoch;
     string _query = "";
     LoadSortMode _sort = LoadSortMode.Recent;
 
@@ -22,14 +29,24 @@ public sealed class SwitcherSession
 
     public IReadOnlyList<WindowEntry> All => _all;
     public IReadOnlyList<WindowEntry> Filtered => _filtered;
+    public IReadOnlyList<AppHit> AppHits => _apps;
+    public int ResultCount => _filtered.Count + _apps.Count;
     public string Query => _query;
     public int SelectedIndex { get; private set; }
     public WindowEntry? Selected =>
         SelectedIndex >= 0 && SelectedIndex < _filtered.Count ? _filtered[SelectedIndex] : null;
+    public AppHit? SelectedApp
+    {
+        get
+        {
+            var index = SelectedIndex - _filtered.Count;
+            return index >= 0 && index < _apps.Count ? _apps[index] : null;
+        }
+    }
 
     public void Move(int delta)
     {
-        var count = _filtered.Count;
+        var count = ResultCount;
         if (count == 0)
         {
             SelectedIndex = -1;
@@ -44,18 +61,18 @@ public sealed class SwitcherSession
 
     public void Page(int direction)
     {
-        if (_filtered.Count == 0)
+        if (ResultCount == 0)
         {
             SelectedIndex = -1;
             return;
         }
         if (SelectedIndex < 0) SelectedIndex = 0;
         var delta = direction < 0 ? -PageSize : PageSize;
-        SelectedIndex = Math.Clamp(SelectedIndex + delta, 0, _filtered.Count - 1);
+        SelectedIndex = Math.Clamp(SelectedIndex + delta, 0, ResultCount - 1);
     }
 
-    public void SelectFirst() => SelectedIndex = _filtered.Count > 0 ? 0 : -1;
-    public void SelectLast() => SelectedIndex = _filtered.Count > 0 ? _filtered.Count - 1 : -1;
+    public void SelectFirst() => SelectedIndex = ResultCount > 0 ? 0 : -1;
+    public void SelectLast() => SelectedIndex = ResultCount > 0 ? ResultCount - 1 : -1;
 
     public bool SelectHandle(long handle)
     {
@@ -63,6 +80,29 @@ public sealed class SwitcherSession
         if (index < 0) return false;
         SelectedIndex = index;
         return true;
+    }
+
+    public bool SelectApp(string id)
+    {
+        var index = _apps.FindIndex(hit => string.Equals(hit.App.Id, id, StringComparison.OrdinalIgnoreCase));
+        if (index < 0) return false;
+        SelectedIndex = _filtered.Count + index;
+        return true;
+    }
+
+    public void SetCatalog(
+        IReadOnlyList<AppEntry>? apps,
+        IReadOnlyDictionary<string, LaunchMemory>? usage,
+        IReadOnlyList<string>? exclusions,
+        bool enabled,
+        DateTime? utcNow = null)
+    {
+        _catalog = apps ?? Array.Empty<AppEntry>();
+        _usage = usage ?? new Dictionary<string, LaunchMemory>();
+        _excludedApps = exclusions ?? Array.Empty<string>();
+        _launchEnabled = enabled;
+        _usageUtc = utcNow ?? DateTime.UtcNow;
+        Recompute(resetSelection: false);
     }
 
     public void AppendQuery(string text)
@@ -112,13 +152,28 @@ public sealed class SwitcherSession
         var index = _all.FindIndex(w => w.Handle == handle);
         if (index < 0) return false;
         var selectedHandle = Selected?.Handle ?? 0;
+        var selectedApp = SelectedApp?.App.Id;
         var selectedWasRemoved = selectedHandle == handle;
         var oldSelected = SelectedIndex;
         _all.RemoveAt(index);
         Recompute(resetSelection: false);
-        if (_filtered.Count == 0)
+        if (!string.IsNullOrEmpty(selectedApp))
+        {
+            var keepApp = _apps.FindIndex(hit => string.Equals(hit.App.Id, selectedApp, StringComparison.OrdinalIgnoreCase));
+            if (keepApp >= 0)
+            {
+                SelectedIndex = _filtered.Count + keepApp;
+                return true;
+            }
+        }
+        if (ResultCount == 0)
         {
             SelectedIndex = -1;
+            return true;
+        }
+        if (_filtered.Count == 0)
+        {
+            SelectedIndex = 0;
             return true;
         }
         if (!selectedWasRemoved)
@@ -136,6 +191,7 @@ public sealed class SwitcherSession
     void Recompute(bool resetSelection)
     {
         var selectedHandle = Selected?.Handle ?? 0;
+        var selectedApp = SelectedApp?.App.Id;
         _filtered = SearchMatcher.Rank(_all, _query, e => e.Title, e => e.DisplayProcessName, e => e.OriginalIndex);
         if (_query.Length == 0 && _sort != LoadSortMode.Recent)
         {
@@ -146,7 +202,10 @@ public sealed class SwitcherSession
                 e => LoadFor(e.Handle).ProcessCount > 0 ? LoadFor(e.Handle).CpuPercent : null,
                 e => LoadFor(e.Handle).WorkingSetBytes);
         }
-        if (_filtered.Count == 0)
+        _apps = _launchEnabled && _query.Length > 0
+            ? AppCatalog.Rank(_catalog, _query, _usage, _all, _filtered, _excludedApps, _usageUtc)
+            : new List<AppHit>();
+        if (ResultCount == 0)
         {
             SelectedIndex = -1;
             return;
@@ -156,9 +215,25 @@ public sealed class SwitcherSession
             SelectedIndex = 0;
             return;
         }
-        var keep = selectedHandle == 0 ? -1 : _filtered.FindIndex(w => w.Handle == selectedHandle);
-        if (keep >= 0) SelectedIndex = keep;
-        else if (SelectedIndex >= _filtered.Count) SelectedIndex = _filtered.Count - 1;
+        if (selectedHandle != 0)
+        {
+            var keep = _filtered.FindIndex(w => w.Handle == selectedHandle);
+            if (keep >= 0)
+            {
+                SelectedIndex = keep;
+                return;
+            }
+        }
+        if (!string.IsNullOrEmpty(selectedApp))
+        {
+            var keepApp = _apps.FindIndex(hit => string.Equals(hit.App.Id, selectedApp, StringComparison.OrdinalIgnoreCase));
+            if (keepApp >= 0)
+            {
+                SelectedIndex = _filtered.Count + keepApp;
+                return;
+            }
+        }
+        if (SelectedIndex >= ResultCount) SelectedIndex = ResultCount - 1;
         else if (SelectedIndex < 0) SelectedIndex = 0;
     }
 }

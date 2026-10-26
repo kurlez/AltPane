@@ -98,8 +98,8 @@ public static class SearchMatcher
     {
         if (Contains(title, token)) return 0;
         if (Contains(process, token)) return 1;
-        if (token.Length >= 2 && (IsAcronym(title, token) || IsDenseSubsequence(title, token))) return 2;
-        if (token.Length >= 2 && (IsAcronym(process, token) || IsDenseSubsequence(process, token))) return 3;
+        if (token.Length >= 2 && (IsAcronym(title, token) || IsDenseSubsequence(title, token) || Pinyin.Matches(title, token))) return 2;
+        if (token.Length >= 2 && (IsAcronym(process, token) || IsDenseSubsequence(process, token) || Pinyin.Matches(process, token))) return 3;
         return NoMatch;
     }
 
