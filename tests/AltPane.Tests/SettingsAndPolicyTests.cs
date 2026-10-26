@@ -241,8 +241,8 @@ public class WindowFrameTests
     public void Frame_colors_are_opaque_and_follow_the_theme()
     {
         Assert.NotEqual(WindowFrame.BorderColor(true), WindowFrame.BorderColor(false));
-        Assert.Equal(0x009A8E8E, WindowFrame.BorderColor(true));
-        Assert.Equal(0x00786E6E, WindowFrame.BorderColor(false));
+        Assert.Equal(0x00FFC6B9, WindowFrame.BorderColor(true));
+        Assert.Equal(0x00AD3A1E, WindowFrame.BorderColor(false));
         Assert.Equal(0x00221C1B, WindowFrame.CaptionColor(true));
         Assert.Equal(0x00F8F7F7, WindowFrame.CaptionColor(false));
         Assert.StartsWith("#FF", WindowFrame.WindowBackgroundHex(true));
@@ -262,12 +262,16 @@ public class WindowFrameTests
 
         Assert.Contains(WindowFrame.WindowBackgroundHex(true), dark);
         Assert.Contains(WindowFrame.EdgeHex(true), dark);
+        Assert.Contains(WindowFrame.EdgeInnerHex(true), dark);
         Assert.Contains(WindowFrame.PreviewWellHex(true), dark);
         Assert.Contains(WindowFrame.WindowBackgroundHex(false), light);
         Assert.Contains(WindowFrame.EdgeHex(false), light);
+        Assert.Contains(WindowFrame.EdgeInnerHex(false), light);
         Assert.Contains(WindowFrame.PreviewWellHex(false), light);
         Assert.Contains("Background=\"{DynamicResource WindowBgBrush}\"", switcher);
         Assert.Contains("BorderBrush=\"{DynamicResource WindowEdgeBrush}\"", switcher);
+        Assert.Contains("BorderThickness=\"2\"", switcher);
+        Assert.Contains("BorderBrush=\"{DynamicResource WindowEdgeInnerBrush}\"", switcher);
         Assert.DoesNotContain("CornerRadius=\"14\"", switcher);
         Assert.Contains("BorderBrush=\"{DynamicResource WindowEdgeBrush}\"", settings);
     }

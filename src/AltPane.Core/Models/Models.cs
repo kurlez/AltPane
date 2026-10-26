@@ -48,7 +48,8 @@ public enum LoadSortMode
 {
     Recent,
     Cpu,
-    Memory
+    Memory,
+    Initial
 }
 
 /// <summary>
@@ -114,8 +115,9 @@ public sealed class AppSettings
     /// <summary>
     /// 1 is a v0.1.0 file (Win+Tab capture defaulted off). v0.2.0 still wrote 1, and is
     /// recognized by the presence of stickySwitcher. 3 is a file saved by v0.3.0.
+    /// 4 makes initial-letter order the window-list default.
     /// </summary>
-    public const int CurrentSchema = 3;
+    public const int CurrentSchema = 4;
 
     public int Version { get; set; } = CurrentSchema;
     public HotkeyChord? Hotkey { get; set; } = HotkeyChord.AltTab();
@@ -136,7 +138,7 @@ public sealed class AppSettings
     public bool IncludeOtherVirtualDesktops { get; set; }
     public bool WelcomeShown { get; set; }
     public bool ShowLoad { get; set; } = true;
-    public LoadSortMode SortMode { get; set; } = LoadSortMode.Recent;
+    public LoadSortMode SortMode { get; set; } = LoadSortMode.Initial;
     public bool ConfirmEndTask { get; set; } = true;
     public bool EndTaskKillsTree { get; set; } = true;
     public bool PreviewMinimized { get; set; }
@@ -181,7 +183,7 @@ public sealed class AppSettings
         ExcludedProcesses = new List<string>(),
         ExcludedApps = new List<string>(),
         ShowLoad = true,
-        SortMode = LoadSortMode.Recent,
+        SortMode = LoadSortMode.Initial,
         ConfirmEndTask = true,
         EndTaskKillsTree = true,
         StickySwitcher = true,

@@ -26,7 +26,10 @@ public static class WindowFrame
 
     public static string WindowBackgroundHex(bool dark) => dark ? "#FF1B1C22" : "#FFF7F7F8";
 
-    public static string EdgeHex(bool dark) => dark ? "#FF8E8E9A" : "#FF6E6E78";
+    public static string EdgeHex(bool dark) => dark ? "#FFB9C6FF" : "#FF1E3AAD";
+
+    /// <summary>Inner hairline. The opposite luminance of the accent, so the ring reads on light and dark desktops.</summary>
+    public static string EdgeInnerHex(bool dark) => dark ? "#FF101114" : "#FFFFFFFF";
 
     public static string PreviewWellHex(bool dark) => dark ? "#FF121318" : "#FFE6E7EC";
 

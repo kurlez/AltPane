@@ -33,7 +33,7 @@ public partial class SettingsWindow : Window
         Closed += (_, _) => ThemeService.Changed -= OnThemeChanged;
         MaxHeight = SystemParameters.WorkArea.Height * 0.92;
         var version = typeof(SettingsWindow).Assembly.GetName().Version;
-        VersionText.Text = "AltPane " + (version?.ToString(3) ?? "0.3.3");
+        VersionText.Text = "AltPane " + (version?.ToString(3) ?? "0.3.4");
         LoadDraft();
         Localizer.Current.LanguageChanged += (_, _) =>
         {
@@ -171,6 +171,7 @@ public partial class SettingsWindow : Window
         }, _draft.Placement);
         Fill(SortBox, new (LoadSortMode, string)[]
         {
+            (LoadSortMode.Initial, loc["settings.sort.initial"]),
             (LoadSortMode.Recent, loc["settings.sort.recent"]),
             (LoadSortMode.Cpu, loc["settings.sort.cpu"]),
             (LoadSortMode.Memory, loc["settings.sort.memory"])

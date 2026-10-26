@@ -322,7 +322,7 @@ public class AppSessionTests
     };
 
     [Fact]
-    public void No_window_match_selects_the_first_app_and_navigation_wraps_into_it()
+    public void No_window_match_selects_the_first_app_and_navigation_stops_at_the_ends()
     {
         var session = new SwitcherSession(new[]
         {
@@ -359,8 +359,9 @@ public class AppSessionTests
         Assert.Empty(session.AppHits);
         Assert.Equal("Current", session.Selected!.Title);
         session.SelectLast();
+        var last = session.SelectedIndex;
         session.Move(1);
-        Assert.Equal(0, session.SelectedIndex);
+        Assert.Equal(last, session.SelectedIndex);
 
         session.SetQuery("note");
         Assert.Equal("Notepad", session.Selected!.Title);
@@ -368,12 +369,15 @@ public class AppSessionTests
 
         session.SetCatalog(new[] { code }, null, null, enabled: true);
         session.SetQuery("c");
-        Assert.Equal("Current", session.Selected!.Title);
+        Assert.Equal("Current", Assert.Single(session.Filtered).Title);
         Assert.Single(session.AppHits);
+        Assert.Equal("Visual Studio Code", session.SelectedApp!.Value.App.Name);
+        session.Move(-1);
+        Assert.Equal("Current", session.Selected!.Title);
         session.Move(1);
         Assert.Equal("Visual Studio Code", session.SelectedApp!.Value.App.Name);
         session.Move(1);
-        Assert.Equal("Current", session.Selected!.Title);
+        Assert.Equal("Visual Studio Code", session.SelectedApp!.Value.App.Name);
     }
 
     [Fact]

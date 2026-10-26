@@ -231,6 +231,15 @@ internal static class NativeMethods
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool SetWindowPos(nint hWnd, nint hWndInsertAfter, int x, int y, int cx, int cy, uint uFlags);
 
+    [DllImport("user32.dll")]
+    public static extern bool RedrawWindow(nint hwnd, nint lprcUpdate, nint hrgnUpdate, uint flags);
+
+    public const uint RdwInvalidate = 0x0001;
+    public const uint RdwErase = 0x0004;
+    public const uint RdwAllChildren = 0x0080;
+    public const uint RdwUpdatenow = 0x0100;
+    public const uint RdwFrame = 0x0400;
+
     [DllImport("dwmapi.dll")]
     public static extern int DwmGetWindowAttribute(nint hwnd, int dwAttribute, out int pvAttribute, int cbAttribute);
 

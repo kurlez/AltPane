@@ -33,10 +33,13 @@
       </Setter>
     </Style>
   </Window.Resources>
-  <Border Background="{DynamicResource WindowBgBrush}"
-          BorderBrush="{DynamicResource WindowEdgeBrush}"
-          BorderThickness="1"
+  <Border BorderBrush="{DynamicResource WindowEdgeBrush}"
+          BorderThickness="2"
           SnapsToDevicePixels="True">
+    <Border Background="{DynamicResource WindowBgBrush}"
+            BorderBrush="{DynamicResource WindowEdgeInnerBrush}"
+            BorderThickness="1"
+            SnapsToDevicePixels="True">
     <Grid Margin="16">
       <Grid.RowDefinitions>
         <RowDefinition Height="Auto"/>
@@ -136,6 +139,11 @@
                   <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="8,0,8,0">
                     <TextBlock x:Name="SectionText" Text="{Binding Section}" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource AccentBrush}" Margin="0,2,0,2"/>
                     <DockPanel>
+                      <Border x:Name="IndexChip" DockPanel.Dock="Left" Margin="0,0,6,0" MinWidth="18" Padding="4,0" CornerRadius="4"
+                              Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1" VerticalAlignment="Center">
+                        <TextBlock Text="{Binding IndexLabel}" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource AccentBrush}"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                      </Border>
                       <Border x:Name="MonitorChip" DockPanel.Dock="Left" Margin="0,0,6,0" Padding="4,1" CornerRadius="6"
                               Background="{Binding MonitorTint}" BorderBrush="{Binding MonitorBrush}" BorderThickness="1" VerticalAlignment="Center">
                         <StackPanel Orientation="Horizontal">
@@ -158,6 +166,9 @@
                   </StackPanel>
                 </Grid>
                 <DataTemplate.Triggers>
+                  <DataTrigger Binding="{Binding IndexLabel}" Value="">
+                    <Setter TargetName="IndexChip" Property="Visibility" Value="Collapsed"/>
+                  </DataTrigger>
                   <DataTrigger Binding="{Binding Section}" Value="">
                     <Setter TargetName="SectionText" Property="Visibility" Value="Collapsed"/>
                   </DataTrigger>
@@ -234,5 +245,6 @@
         <TextBlock x:Name="HintText" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12"/>
       </DockPanel>
     </Grid>
+    </Border>
   </Border>
 </Window>

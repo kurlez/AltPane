@@ -15,7 +15,10 @@ public partial class HintWindow : Window
             var hwnd = new WindowInteropHelper(this).Handle;
             WindowChrome.ApplyNoActivate(hwnd, ThemeService.IsDark);
             if (PresentationSource.FromVisual(this) is HwndSource source)
+            {
                 source.AddHook(NoActivate);
+                source.AddHook(PreventBlackFrame);
+            }
         };
     }
 
@@ -75,5 +78,12 @@ public partial class HintWindow : Window
         if (msg != 0x0021) return 0;
         handled = true;
         return 3;
+    }
+
+    static nint PreventBlackFrame(nint hwnd, int msg, nint wParam, nint lParam, ref bool handled)
+    {
+        if (msg != 0x0086) return 0;
+        handled = true;
+        return 1;
     }
 }

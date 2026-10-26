@@ -10,7 +10,22 @@ namespace AltPane;
 
 internal static class IconLoader
 {
+    static readonly Dictionary<string, ImageSource> Hits = new(StringComparer.OrdinalIgnoreCase);
+    static readonly HashSet<string> Misses = new(StringComparer.OrdinalIgnoreCase);
+    static readonly Dictionary<string, ImageSource> Letters = new(StringComparer.Ordinal);
+
     public static ImageSource? TryGetIcon(WindowEntry entry)
+    {
+        var key = entry.KillProcessId + "|" + entry.IconPath;
+        if (Hits.TryGetValue(key, out var cached)) return cached;
+        if (Misses.Contains(key)) return null;
+        var found = LoadWindowIcon(entry);
+        if (found is null) Misses.Add(key);
+        else Hits[key] = found;
+        return found;
+    }
+
+    static ImageSource? LoadWindowIcon(WindowEntry entry)
     {
         var hwnd = (nint)entry.Handle;
         foreach (var large in new[] { NativeMethods.IconBig, NativeMethods.IconSmall2 })
@@ -54,12 +69,20 @@ internal static class IconLoader
     public static ImageSource? TryGetFileIcon(string? path, int index)
     {
         if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return null;
+        var key = path + "\n" + index;
+        if (Hits.TryGetValue(key, out var cached)) return cached;
+        if (Misses.Contains(key)) return null;
         var extracted = nint.Zero;
         try
         {
             var count = NativeMethods.PrivateExtractIcons(path, index, 64, 64, out extracted, out _, 1, 0);
             if (count > 0 && extracted != 0)
-                return FromOwnedIcon(extracted);
+            {
+                var source = FromOwnedIcon(extracted);
+                if (source is null) Misses.Add(key);
+                else Hits[key] = source;
+                return source;
+            }
             if (extracted != 0)
                 NativeMethods.DestroyIcon(extracted);
         }
@@ -68,12 +91,14 @@ internal static class IconLoader
             if (extracted != 0) NativeMethods.DestroyIcon(extracted);
             AppLog.Error(ex);
         }
+        Misses.Add(key);
         return null;
     }
 
     public static ImageSource Letter(string title)
     {
         var glyph = string.IsNullOrWhiteSpace(title) ? "?" : StringInfo.GetNextTextElement(title.Trim());
+        if (Letters.TryGetValue(glyph, out var cached)) return cached;
         var visual = new DrawingVisual();
         using (var dc = visual.RenderOpen())
         {
@@ -97,6 +122,7 @@ internal static class IconLoader
         var bitmap = new RenderTargetBitmap(64, 64, 96, 96, PixelFormats.Pbgra32);
         bitmap.Render(visual);
         bitmap.Freeze();
+        Letters[glyph] = bitmap;
         return bitmap;
     }
 

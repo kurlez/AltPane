@@ -258,12 +258,22 @@ internal sealed class ThumbnailController
     nint _thumb;
     nint _source;
 
-    public void Clear()
+    public nint Clear()
     {
-        if (_thumb == 0) return;
-        NativeMethods.DwmUnregisterThumbnail(_thumb);
-        _thumb = 0;
+        var source = _source;
+        if (_thumb != 0)
+        {
+            var hidden = new DwmThumbnailProperties
+            {
+                dwFlags = DwmThumbnailFlags.Visible,
+                fVisible = 0
+            };
+            NativeMethods.DwmUpdateThumbnailProperties(_thumb, ref hidden);
+            NativeMethods.DwmUnregisterThumbnail(_thumb);
+            _thumb = 0;
+        }
         _source = 0;
+        return source;
     }
 
     public int Show(nint destination, nint source, RectangleMath.RectI bounds)

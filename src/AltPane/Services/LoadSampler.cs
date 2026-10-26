@@ -31,7 +31,7 @@ internal sealed class LoadSampler : IDisposable
             _roots = roots.Where(pid => pid > 0).Distinct().ToArray();
         if (_timer is not null) return;
         var generation = Volatile.Read(ref _generation);
-        _timer = new Timer(_ => Tick(generation), null, 350, 800);
+        _timer = new Timer(_ => Tick(generation), null, 1200, 1200);
         ThreadPool.QueueUserWorkItem(_ => Tick(generation));
     }
 

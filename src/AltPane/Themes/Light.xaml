@@ -2,7 +2,8 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
   <SolidColorBrush x:Key="WindowBgBrush" Color="#FFF7F7F8"/>
   <SolidColorBrush x:Key="SettingsBgBrush" Color="#FFF7F7F8"/>
-  <SolidColorBrush x:Key="WindowEdgeBrush" Color="#FF6E6E78"/>
+  <SolidColorBrush x:Key="WindowEdgeBrush" Color="#FF1E3AAD"/>
+  <SolidColorBrush x:Key="WindowEdgeInnerBrush" Color="#FFFFFFFF"/>
   <SolidColorBrush x:Key="SurfaceBrush" Color="#FFFFFFFF"/>
   <SolidColorBrush x:Key="StrokeBrush" Color="#14000000"/>
   <SolidColorBrush x:Key="TextPrimaryBrush" Color="#FF18181B"/>

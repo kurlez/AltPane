@@ -78,7 +78,7 @@ public static class SettingsStore
         if (!Enum.IsDefined(settings.Size)) settings.Size = SwitcherSize.Comfortable;
         if (!Enum.IsDefined(settings.Placement)) settings.Placement = SwitcherPlacement.MouseCursor;
         if (!Enum.IsDefined(settings.Language)) settings.Language = AppLanguage.System;
-        if (!Enum.IsDefined(settings.SortMode)) settings.SortMode = LoadSortMode.Recent;
+        if (!Enum.IsDefined(settings.SortMode)) settings.SortMode = LoadSortMode.Initial;
         settings.ExcludedProcesses = ProcessNames.NormalizeList(settings.ExcludedProcesses);
         settings.ExcludedApps = NormalizeNames(settings.ExcludedApps);
         settings.EverythingExcludedPaths = NormalizeNames(settings.EverythingExcludedPaths);

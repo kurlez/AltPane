@@ -187,7 +187,8 @@ public class LoadSortAndKillTests
         Assert.Equal(2, session.Filtered[0].Handle);
         Assert.Equal(1, session.Selected?.Handle);
         session.SetQuery("c");
-        Assert.Equal(3, session.Selected?.Handle);
+        Assert.Equal(1, session.Selected?.Handle);
+        Assert.Contains(session.Filtered, window => window.Handle == 3);
     }
 
     [Fact]
@@ -252,7 +253,7 @@ public class LoadSortAndKillTests
         File.WriteAllText(legacy, """{ "theme": "Dark" }""");
         var old = SettingsStore.Load(legacy);
         Assert.True(old.Settings.ShowLoad);
-        Assert.Equal(LoadSortMode.Recent, old.Settings.SortMode);
+        Assert.Equal(LoadSortMode.Initial, old.Settings.SortMode);
         Assert.True(old.Settings.ConfirmEndTask);
         Assert.True(old.Settings.EndTaskKillsTree);
         Assert.True(old.Settings.StickySwitcher);

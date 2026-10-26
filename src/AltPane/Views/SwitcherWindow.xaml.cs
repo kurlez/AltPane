@@ -21,15 +21,16 @@ internal sealed class SwitcherRow : INotifyPropertyChanged
 {
     ImageSource _icon;
 
-    public SwitcherRow(WindowEntry entry, ImageSource icon)
+    public SwitcherRow(WindowEntry entry, ImageSource icon, string index)
     {
         Entry = entry;
         _icon = icon;
         Title = entry.Title;
         Subtitle = string.IsNullOrWhiteSpace(entry.DisplayProcessName) ? entry.ProcessName : entry.DisplayProcessName;
+        IndexLabel = index;
     }
 
-    public SwitcherRow(AppHit hit, ImageSource icon, string section, string badge, string subtitle)
+    public SwitcherRow(AppHit hit, ImageSource icon, string section, string badge, string subtitle, string index)
     {
         AppHit = hit;
         _icon = icon;
@@ -37,6 +38,7 @@ internal sealed class SwitcherRow : INotifyPropertyChanged
         Subtitle = subtitle;
         Section = section;
         Badge = badge;
+        IndexLabel = index;
     }
 
     public WindowEntry? Entry { get; }
@@ -47,6 +49,14 @@ internal sealed class SwitcherRow : INotifyPropertyChanged
     public string Subtitle { get; }
     public string Section { get; } = "";
     public string Badge { get; } = "";
+    public string IndexLabel { get; private set; } = "";
+
+    public void SetIndex(string index)
+    {
+        if (IndexLabel == index) return;
+        IndexLabel = index ?? "";
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IndexLabel)));
+    }
     public string LoadText { get; private set; } = "";
     public double BarWidth { get; private set; }
     public int Heat { get; private set; }
@@ -181,6 +191,8 @@ public sealed class SwitcherViewState
     public string SystemText { get; init; } = "";
     public string SortText { get; init; } = "";
     public IReadOnlyList<AppHit> Apps { get; init; } = Array.Empty<AppHit>();
+    public IReadOnlyDictionary<long, string> Indexes { get; init; } = new Dictionary<long, string>();
+    public IReadOnlyList<string> AppIndexes { get; init; } = Array.Empty<string>();
     public IReadOnlyDictionary<string, ImageSource> AppIcons { get; init; } = new Dictionary<string, ImageSource>();
     public string LaunchSection { get; init; } = "";
     public string OpenBadge { get; init; } = "";
@@ -213,6 +225,8 @@ public partial class SwitcherWindow : Window
     bool _composing;
     bool _searchMode;
     bool _guard;
+    int _holdingActivation;
+    nint _previousForeground;
     DateTime _shownAt;
     DateTime _suppressCancelUntil;
     readonly HintOverlay _hints = new();
@@ -257,6 +271,8 @@ public partial class SwitcherWindow : Window
             var hwnd = new WindowInteropHelper(this).Handle;
             WindowChrome.ApplyToolWindow(hwnd);
             WindowChrome.ApplyBackdrop(hwnd, ThemeService.IsDark);
+            if (PresentationSource.FromVisual(this) is HwndSource source)
+                source.AddHook(PreventBlackFrame);
         };
         ThemeService.Changed += dark => Dispatcher.BeginInvoke(() =>
         {
@@ -290,6 +306,8 @@ public partial class SwitcherWindow : Window
     public event Action? ForceMoveRequested;
     public event Action? ClearQueryRequested;
     public event Action? CancelRequested;
+    /// <summary>Runs on the UI thread before the switcher hides, so thumbnails can be released first.</summary>
+    public event Action? Releasing;
     public bool IsImeComposing => _composing;
     public event Action? SearchRequested;
     public event Action<string>? QueryEdited;
@@ -350,6 +368,8 @@ public partial class SwitcherWindow : Window
         {
             var row = _rows[i];
             if (row.Entry is not { } entry) continue;
+            if (state.Indexes.TryGetValue(entry.Handle, out var index))
+                row.SetIndex(index);
             if (state.Icons.TryGetValue(entry.Handle, out var icon) && !ReferenceEquals(icon, row.Icon))
                 row.Icon = icon;
             var load = state.Loads.TryGetValue(entry.Handle, out var found) ? found : default;
@@ -417,6 +437,17 @@ public partial class SwitcherWindow : Window
     public void SuppressCancel(int milliseconds) =>
         _suppressCancelUntil = DateTime.UtcNow.AddMilliseconds(Math.Max(0, milliseconds));
 
+    /// <summary>
+    /// Ignore the deactivate that our own Activate / SetForegroundWindow raises.
+    /// A later click on another window still closes the switcher.
+    /// </summary>
+    public void HoldActivation() => _holdingActivation++;
+
+    public void ReleaseActivation()
+    {
+        if (_holdingActivation > 0) _holdingActivation--;
+    }
+
     public void ShowFor(AppSettings settings, nint activeWindow)
     {
         _shownAt = DateTime.UtcNow;
@@ -442,9 +473,18 @@ public partial class SwitcherWindow : Window
             Top = origin.Y;
         }
         if (reveal) Opacity = 1;
-        Activate();
-        if (NativeMethods.GetForegroundWindow() != hwnd)
-            WindowActions.TryActivate(hwnd);
+        _previousForeground = NativeMethods.GetForegroundWindow();
+        HoldActivation();
+        try
+        {
+            Activate();
+            if (NativeMethods.GetForegroundWindow() != hwnd)
+                WindowActions.TryActivate(hwnd);
+        }
+        finally
+        {
+            ReleaseActivation();
+        }
         _showHints = settings.ShowOtherMonitorHints;
         _showBadges = settings.ShowMonitorBadges;
         SyncHints(centered, allowRelocate: false);
@@ -487,19 +527,33 @@ public partial class SwitcherWindow : Window
     /// </summary>
     public void ClaimKeyboard()
     {
-        SuppressCancel(600);
         var hwnd = Handle;
-        if (hwnd != 0)
-            WindowActions.TryActivate(hwnd);
-        FocusSearch();
+        HoldActivation();
+        try
+        {
+            if (hwnd != 0)
+                WindowActions.TryActivate(hwnd);
+            FocusSearch();
+        }
+        finally
+        {
+            ReleaseActivation();
+        }
         Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() =>
         {
             if (!IsVisible || !_searchMode) return;
-            SuppressCancel(400);
-            var current = Handle;
-            if (current != 0 && NativeMethods.GetForegroundWindow() != current)
-                WindowActions.TryActivate(current);
-            FocusSearch();
+            HoldActivation();
+            try
+            {
+                var current = Handle;
+                if (current != 0 && NativeMethods.GetForegroundWindow() != current)
+                    WindowActions.TryActivate(current);
+                FocusSearch();
+            }
+            finally
+            {
+                ReleaseActivation();
+            }
         }));
     }
 
@@ -637,10 +691,28 @@ public partial class SwitcherWindow : Window
     {
         base.OnDeactivated(e);
         if (_guard || !IsVisible) return;
-        if (_hints.IsOurWindow(NativeMethods.GetForegroundWindow())) return;
-        if (DateTime.UtcNow < _suppressCancelUntil) return;
-        if ((DateTime.UtcNow - _shownAt).TotalMilliseconds < 250) return;
+        var foreground = NativeMethods.GetForegroundWindow();
+        var age = (int)(DateTime.UtcNow - _shownAt).TotalMilliseconds;
+        if (!SwitcherCleanup.ShouldDismiss(
+                (long)foreground,
+                (long)Handle,
+                _hints.IsOurWindow(foreground),
+                _holdingActivation > 0,
+                (long)_previousForeground,
+                age))
+            return;
+        Releasing?.Invoke();
         CancelRequested?.Invoke();
+    }
+
+    /// <summary>
+    /// A borderless window's default non-client paint fills the client black when it deactivates.
+    /// </summary>
+    static nint PreventBlackFrame(nint hwnd, int msg, nint wParam, nint lParam, ref bool handled)
+    {
+        if (msg != 0x0086) return 0;
+        handled = true;
+        return 1;
     }
 
     protected override void OnClosed(EventArgs e)
@@ -724,7 +796,7 @@ public partial class SwitcherWindow : Window
 
     void MoveToMonitor(DisplayBounds monitor)
     {
-        SuppressCancel(400);
+        HoldActivation();
         var scaleX = monitor.DpiX <= 0 ? 1d : monitor.DpiX / 96d;
         var scaleY = monitor.DpiY <= 0 ? 1d : monitor.DpiY / 96d;
         var physicalW = Math.Max(1, (int)Math.Round(Width * scaleX));
@@ -741,9 +813,16 @@ public partial class SwitcherWindow : Window
             Left = origin.X;
             Top = origin.Y;
         }
-        if (NativeMethods.GetForegroundWindow() != hwnd)
-            Activate();
-        if (_searchMode) FocusSearch();
+        try
+        {
+            if (NativeMethods.GetForegroundWindow() != hwnd)
+                Activate();
+            if (_searchMode) FocusSearch();
+        }
+        finally
+        {
+            ReleaseActivation();
+        }
         SyncHints(centered, allowRelocate: false);
         HostMonitorChanged?.Invoke();
     }
@@ -753,6 +832,7 @@ public partial class SwitcherWindow : Window
         if (!_guard)
         {
             e.Cancel = true;
+            Releasing?.Invoke();
             CancelRequested?.Invoke();
             return;
         }
@@ -923,7 +1003,8 @@ public partial class SwitcherWindow : Window
     {
         var entry = state.Filtered[filteredIndex];
         state.Icons.TryGetValue(entry.Handle, out var icon);
-        var row = new SwitcherRow(entry, icon ?? IconLoader.Letter(entry.Title));
+        state.Indexes.TryGetValue(entry.Handle, out var index);
+        var row = new SwitcherRow(entry, icon ?? IconLoader.Letter(entry.Title), index ?? "");
         row.ApplyLoad(state.ShowLoad, default);
         row.ApplyMonitor(state.ShowMonitorBadges, entry);
         _rows.Insert(rowIndex, row);
@@ -947,6 +1028,12 @@ public partial class SwitcherWindow : Window
                     same = false;
                     break;
                 }
+                var wantIndex = i < state.AppIndexes.Count ? state.AppIndexes[i] : "";
+                if (!string.Equals(row.IndexLabel, wantIndex, StringComparison.Ordinal))
+                {
+                    same = false;
+                    break;
+                }
             }
         }
         if (same) return;
@@ -964,7 +1051,8 @@ public partial class SwitcherWindow : Window
                 icon ?? IconLoader.Letter(hit.App.Name),
                 i == 0 ? state.LaunchSection : "",
                 hit.SwitchHandle != 0 ? state.OpenBadge : "",
-                subtitle));
+                subtitle,
+                i < state.AppIndexes.Count ? state.AppIndexes[i] : ""));
         }
     }
 

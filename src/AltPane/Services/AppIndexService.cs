@@ -85,7 +85,7 @@ internal sealed class AppIndexService : IDisposable
         var settings = _settings();
         if (text.Length == 0 || !settings.LaunchApps || !settings.UseEverything) return;
         _search ??= new Timer(RunSearch, null, Timeout.Infinite, Timeout.Infinite);
-        _search.Change(40, Timeout.Infinite);
+        _search.Change(120, Timeout.Infinite);
     }
 
     public IReadOnlyDictionary<string, LaunchMemory> UsageSnapshot()
@@ -107,7 +107,7 @@ internal sealed class AppIndexService : IDisposable
                 FullScan();
                 NoteBuiltInIndex();
                 BindWatchers();
-                _periodic = new Timer(_ => FullScan(), null, TimeSpan.FromMinutes(10), TimeSpan.FromMinutes(10));
+                _periodic = new Timer(_ => FullScan(), null, TimeSpan.FromMinutes(30), TimeSpan.FromMinutes(30));
             }
             catch (Exception ex)
             {
@@ -126,6 +126,16 @@ internal sealed class AppIndexService : IDisposable
         if (!changed) return;
         BindWatchers();
         ThreadPool.QueueUserWorkItem(_ => FullScan());
+    }
+
+    public void CancelSearch()
+    {
+        Interlocked.Increment(ref _searchGeneration);
+        lock (_gate)
+        {
+            _extra = Array.Empty<AppEntry>();
+        }
+        _search?.Change(Timeout.Infinite, Timeout.Infinite);
     }
 
     public void Remember(string id)

@@ -102,22 +102,25 @@ public class SwitcherSessionTests
     }
 
     [Fact]
-    public void Reverse_cycle_wraps_to_the_last_window()
+    public void Reverse_cycle_stops_on_the_first_window()
     {
         var session = Sample();
         session.Move(-1);
-        Assert.Equal("Visual Studio Code", session.Selected!.Title);
-        session.Move(1);
         Assert.Equal("Current", session.Selected!.Title);
+        session.Move(1);
+        Assert.Equal("Notepad", session.Selected!.Title);
     }
 
     [Fact]
-    public void Forward_wraps()
+    public void Forward_stops_on_the_last_window()
     {
         var session = Sample();
         session.SelectLast();
+        var last = session.SelectedIndex;
         session.Move(1);
-        Assert.Equal(0, session.SelectedIndex);
+        Assert.Equal(last, session.SelectedIndex);
+        session.Move(4);
+        Assert.Equal(last, session.SelectedIndex);
     }
 
     [Fact]

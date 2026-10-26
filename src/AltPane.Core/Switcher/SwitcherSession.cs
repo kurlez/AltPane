@@ -12,6 +12,8 @@ public sealed class SwitcherSession
     readonly Dictionary<long, TaskLoad> _loads = new();
     List<WindowEntry> _filtered;
     readonly List<long> _frozen = new();
+    readonly Dictionary<long, string> _index = new();
+    int _nextIndex;
     List<AppHit> _apps = new();
     IReadOnlyList<AppEntry> _catalog = Array.Empty<AppEntry>();
     IReadOnlyDictionary<string, LaunchMemory> _usage = new Dictionary<string, LaunchMemory>();
@@ -21,6 +23,10 @@ public sealed class SwitcherSession
     string _query = "";
     long _queryAnchor;
     LoadSortMode _sort = LoadSortMode.Recent;
+
+    public IReadOnlyDictionary<long, string> Indexes => _index;
+    public string IndexForHandle(long handle) => _index.TryGetValue(handle, out var code) ? code : "";
+    public string IndexForApp(int index) => RowIndex.Code(_nextIndex + Math.Max(0, index));
     int _monitorFilter;
 
     public SwitcherSession(IEnumerable<WindowEntry> windows)
@@ -59,8 +65,8 @@ public sealed class SwitcherSession
         }
         if (SelectedIndex < 0) SelectedIndex = 0;
         var next = SelectedIndex + delta;
-        next %= count;
-        if (next < 0) next += count;
+        if (next < 0) next = 0;
+        else if (next >= count) next = count - 1;
         SelectedIndex = next;
     }
 
@@ -156,7 +162,7 @@ public sealed class SwitcherSession
 
     public void SetSortMode(LoadSortMode mode)
     {
-        if (!Enum.IsDefined(mode)) mode = LoadSortMode.Recent;
+        if (!Enum.IsDefined(mode)) mode = LoadSortMode.Initial;
         if (mode == _sort) return;
         _sort = mode;
         CaptureOrder();
@@ -183,6 +189,7 @@ public sealed class SwitcherSession
         if (entry is null || _all.Any(window => window.Handle == entry.Handle)) return false;
         _all.Add(entry);
         _frozen.Add(entry.Handle);
+        _index[entry.Handle] = RowIndex.Code(_nextIndex++);
         Recompute(resetSelection: false);
         return true;
     }
@@ -207,6 +214,7 @@ public sealed class SwitcherSession
         var oldSelected = SelectedIndex;
         _all.RemoveAt(index);
         _frozen.Remove(handle);
+        _index.Remove(handle);
         Recompute(resetSelection: false);
         if (!string.IsNullOrEmpty(selectedApp))
         {
@@ -247,15 +255,22 @@ public sealed class SwitcherSession
 
     void CaptureOrder()
     {
-        var ordered = LoadSorter.Sort(
-            _all,
-            _sort,
-            entry => entry.OriginalIndex,
-            entry => LoadFor(entry.Handle).ProcessCount > 0 ? LoadFor(entry.Handle).CpuPercent : null,
-            entry => LoadFor(entry.Handle).WorkingSetBytes);
+        var ordered = _sort == LoadSortMode.Initial
+            ? InitialOrder.Sort(_all)
+            : LoadSorter.Sort(
+                _all,
+                _sort,
+                entry => entry.OriginalIndex,
+                entry => LoadFor(entry.Handle).ProcessCount > 0 ? LoadFor(entry.Handle).CpuPercent : null,
+                entry => LoadFor(entry.Handle).WorkingSetBytes);
         _frozen.Clear();
+        _index.Clear();
+        _nextIndex = 0;
         foreach (var entry in ordered)
+        {
             _frozen.Add(entry.Handle);
+            _index[entry.Handle] = RowIndex.Code(_nextIndex++);
+        }
     }
 
     void Recompute(bool resetSelection)
@@ -273,6 +288,11 @@ public sealed class SwitcherSession
             if (_monitorFilter > 0 && entry.MonitorNumber != _monitorFilter) continue;
             filtered.Add(entry);
         }
+        var token = _query.Trim();
+        var singleToken = token.Length > 0 && token.IndexOf(' ') < 0;
+        long jumpHandle = 0;
+        if (singleToken)
+            jumpHandle = IncludeExactIndex(filtered, byHandle, token);
         _filtered = filtered;
         _apps = _launchEnabled && _query.Length > 0
             ? AppCatalog.Rank(_catalog, _query, _usage, _all, _filtered, _excludedApps, _usageUtc)
@@ -284,6 +304,21 @@ public sealed class SwitcherSession
         }
         if (resetSelection)
         {
+            if (jumpHandle != 0)
+            {
+                var jumped = _filtered.FindIndex(window => window.Handle == jumpHandle);
+                SelectedIndex = jumped >= 0 ? jumped : 0;
+                return;
+            }
+            if (singleToken)
+            {
+                for (var i = 0; i < _apps.Count; i++)
+                {
+                    if (!RowIndex.Matches(token, IndexForApp(i))) continue;
+                    SelectedIndex = _filtered.Count + i;
+                    return;
+                }
+            }
             SelectedIndex = 0;
             return;
         }
@@ -307,5 +342,26 @@ public sealed class SwitcherSession
         }
         if (SelectedIndex >= ResultCount) SelectedIndex = ResultCount - 1;
         else if (SelectedIndex < 0) SelectedIndex = 0;
+    }
+
+    long IncludeExactIndex(List<WindowEntry> filtered, Dictionary<long, WindowEntry> byHandle, string token)
+    {
+        foreach (var pair in _index)
+        {
+            if (!RowIndex.Matches(token, pair.Value)) continue;
+            if (!byHandle.TryGetValue(pair.Key, out var entry)) return 0;
+            if (_monitorFilter > 0 && entry.MonitorNumber != _monitorFilter) return 0;
+            if (filtered.Exists(window => window.Handle == pair.Key)) return pair.Key;
+            var frozenPos = _frozen.IndexOf(pair.Key);
+            var at = 0;
+            for (var i = 0; i < filtered.Count; i++)
+            {
+                var otherPos = _frozen.IndexOf(filtered[i].Handle);
+                if (otherPos >= 0 && otherPos < frozenPos) at = i + 1;
+            }
+            filtered.Insert(at, entry);
+            return pair.Key;
+        }
+        return 0;
     }
 }

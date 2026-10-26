@@ -26,6 +26,8 @@ internal sealed class SwitcherPresenter
     readonly Dictionary<long, System.Windows.Media.ImageSource> _stills = new();
     int _captureGeneration;
     long _giveUpHandle;
+    int _displayCount = -1;
+    DispatcherTimer? _prune;
     SwitcherSession? _session;
     nint _restore;
     string? _status;
@@ -65,6 +67,7 @@ internal sealed class SwitcherPresenter
         _window.ForceMoveRequested += () => Hotkeys?.RequestCommit(moveChoice: 1);
         _window.ClearQueryRequested += () => Hotkeys?.RequestClearQuery();
         _window.CancelRequested += () => Hotkeys?.RequestCancel();
+        _window.Releasing += () => ReleaseLiveSurface(activateBorrowed: false);
         _window.SearchRequested += () => Hotkeys?.RequestSearchMode();
         _window.QueryEdited += text =>
         {
@@ -221,12 +224,10 @@ internal sealed class SwitcherPresenter
     public WindowEntry? TakeForQuickCommit()
     {
         var selected = _session?.Selected;
-        ApplyPreview(_preview.Cancel());
+        ReleaseLiveSurface(activateBorrowed: true);
         PendingShow = false;
         _searchMode = false;
         _session = null;
-        _thumbs.Clear();
-        _sampler.Stop();
         _arm.Clear();
         return selected;
     }
@@ -249,15 +250,14 @@ internal sealed class SwitcherPresenter
 
     public void ForceClose()
     {
-        ApplyPreview(_preview.Cancel());
-        _sampler.Stop();
-        _thumbs.Clear();
+        ReleaseLiveSurface(activateBorrowed: false);
         _window.ForceClose();
     }
 
     void Build(int delta)
     {
-        ApplyPreview(_preview.Cancel());
+        var clock = AppLog.Verbose ? System.Diagnostics.Stopwatch.StartNew() : null;
+        ReleaseLiveSurface(activateBorrowed: false);
         _restore = NativeMethods.GetForegroundWindow();
         List<WindowEntry> entries;
         try
@@ -271,24 +271,60 @@ internal sealed class SwitcherPresenter
         }
 
         _session = new SwitcherSession(entries);
-        if (_settings().ShowLoad)
-            _session.SetSortMode(_settings().SortMode);
+        _session.SetSortMode(_settings().SortMode);
         if (delta != 0) _session.Move(delta);
         ApplyCatalog(resetClock: true);
         _searchMode = false;
         _status = null;
         _arm.Clear();
         _statusSticky = false;
-        _icons.Clear();
+        var live = new HashSet<long>(entries.Count);
         foreach (var entry in entries)
-            _icons[entry.Handle] = IconLoader.Letter(entry.Title);
+        {
+            live.Add(entry.Handle);
+            if (!_icons.ContainsKey(entry.Handle))
+                _icons[entry.Handle] = IconLoader.Letter(entry.Title);
+        }
+        if (_icons.Count != live.Count)
+        {
+            var stale = new List<long>();
+            foreach (var handle in _icons.Keys)
+            {
+                if (!live.Contains(handle)) stale.Add(handle);
+            }
+            foreach (var handle in stale) _icons.Remove(handle);
+        }
+        _displayCount = -1;
         PendingShow = true;
         _iconGeneration++;
+        if (clock is not null)
+            AppLog.Info($"open enumerated {entries.Count} windows in {clock.ElapsedMilliseconds} ms");
+    }
+
+    void RedrawThumbnailSource()
+    {
+        var source = _thumbs.Clear();
+        if (source == 0) return;
+        NativeMethods.RedrawWindow(
+            source,
+            0,
+            0,
+            NativeMethods.RdwInvalidate | NativeMethods.RdwErase | NativeMethods.RdwAllChildren | NativeMethods.RdwUpdatenow | NativeMethods.RdwFrame);
+    }
+
+    void ReleaseLiveSurface(bool activateBorrowed)
+    {
+        RedrawThumbnailSource();
+        ApplyPreview(activateBorrowed ? _preview.Commit() : _preview.Cancel());
+        _sampler.Stop();
+        _apps?.CancelSearch();
+        _prune?.Stop();
+        _captureGeneration++;
     }
 
     void DismissSwitcher(bool keepBorrowed)
     {
-        ApplyPreview(keepBorrowed ? _preview.Commit() : _preview.Cancel());
+        ReleaseLiveSurface(keepBorrowed);
         PendingShow = false;
         _searchMode = false;
         _session = null;
@@ -379,12 +415,10 @@ internal sealed class SwitcherPresenter
         }
 
         var selected = _session?.Selected;
-        ApplyPreview(_preview.Commit());
+        ReleaseLiveSurface(activateBorrowed: true);
         PendingShow = false;
         _searchMode = false;
         _session = null;
-        _thumbs.Clear();
-        _sampler.Stop();
         _arm.Clear();
         _window.RunGuarded(() =>
         {
@@ -453,14 +487,12 @@ internal sealed class SwitcherPresenter
 
     void Cancel()
     {
-        ApplyPreview(_preview.Cancel());
+        ReleaseLiveSurface(activateBorrowed: false);
         var restore = _restore;
         var wasVisible = _window.IsVisible;
         PendingShow = false;
         _searchMode = false;
         _session = null;
-        _thumbs.Clear();
-        _sampler.Stop();
         _arm.Clear();
         _window.RunGuarded(() =>
         {
@@ -486,6 +518,7 @@ internal sealed class SwitcherPresenter
         var session = _session;
         var selected = session?.Selected;
         if (session is null || selected is null) return;
+        RedrawThumbnailSource();
         ReturnBorrowed(selected.Handle);
         var hwnd = (nint)selected.Handle;
         if (!NativeMethods.IsWindow(hwnd))
@@ -503,6 +536,7 @@ internal sealed class SwitcherPresenter
     {
         var selected = _session?.Selected;
         if (selected is null) return;
+        RedrawThumbnailSource();
         ReturnBorrowed(selected.Handle);
         var includeTree = forceTree ?? _settings().EndTaskKillsTree;
         var decision = ProcessActionPolicy.Evaluate(selected.KillProcessName, selected.KillProcessId);
@@ -556,11 +590,12 @@ internal sealed class SwitcherPresenter
         var settings = _settings();
         settings.SortMode = settings.SortMode switch
         {
+            LoadSortMode.Initial => LoadSortMode.Recent,
             LoadSortMode.Recent => LoadSortMode.Cpu,
             LoadSortMode.Cpu => LoadSortMode.Memory,
-            _ => LoadSortMode.Recent
+            _ => LoadSortMode.Initial
         };
-        _session?.SetSortMode(settings.ShowLoad ? settings.SortMode : LoadSortMode.Recent);
+        _session?.SetSortMode(settings.SortMode);
         try { PersistRequested?.Invoke(); }
         catch (Exception ex) { AppLog.Error(ex); }
         if (_window.IsVisible) Refresh(updateThumb: false);
@@ -617,17 +652,18 @@ internal sealed class SwitcherPresenter
 
     void SchedulePrune(long handle)
     {
-        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(280) };
-        timer.Tick += (_, _) =>
+        _prune?.Stop();
+        _prune = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(280) };
+        _prune.Tick += (_, _) =>
         {
-            timer.Stop();
+            _prune.Stop();
             if (_session is null) return;
             if (!NativeMethods.IsWindow((nint)handle))
                 _session.RemoveHandle(handle);
             if (_window.IsVisible) Refresh(updateThumb: true);
             SyncSampler();
         };
-        timer.Start();
+        _prune.Start();
     }
 
     void ShowStatus(string text, bool sticky = false)
@@ -649,7 +685,8 @@ internal sealed class SwitcherPresenter
     SwitcherViewState BuildState()
     {
         var settings = _settings();
-        var showBadges = settings.ShowMonitorBadges && MonitorUtil.All().Count >= 2;
+        if (_displayCount < 0) _displayCount = MonitorUtil.All().Count;
+        var showBadges = settings.ShowMonitorBadges && _displayCount >= 2;
         if (!showBadges && _session is { MonitorFilter: > 0 })
             _session.SetMonitorFilter(0);
         var filtered = _session?.Filtered ?? Array.Empty<WindowEntry>();
@@ -691,10 +728,13 @@ internal sealed class SwitcherPresenter
             SystemText = systemText,
             SortText = loc[settings.SortMode switch
             {
+                LoadSortMode.Initial => "sort.initial",
                 LoadSortMode.Cpu => "sort.cpu",
                 LoadSortMode.Memory => "sort.memory",
                 _ => "sort.recent"
             }],
+            Indexes = _session?.Indexes ?? new Dictionary<long, string>(),
+            AppIndexes = AppIndexLabels(appCount),
             EmptyText = EmptyMessage(loc, settings, filtered.Count, allCount),
             Apps = _session?.AppHits ?? Array.Empty<AppHit>(),
             AppIcons = _appIcons,
@@ -742,10 +782,20 @@ internal sealed class SwitcherPresenter
         if (_window.IsVisible) Refresh(updateThumb: true);
     }
 
+    string[] AppIndexLabels(int count)
+    {
+        if (count <= 0 || _session is null) return Array.Empty<string>();
+        var labels = new string[count];
+        for (var i = 0; i < count; i++)
+            labels[i] = _session.IndexForApp(i);
+        return labels;
+    }
+
     void OnDisplaysChanged()
     {
         if (_session is null) return;
         var live = MonitorUtil.Live();
+        _displayCount = live.Count;
         foreach (var entry in _session.All)
             MonitorLocator.CopyTo(entry, MonitorLocator.Locate((nint)entry.Handle, live));
         if (!_settings().ShowMonitorBadges || live.Count < 2)
@@ -897,14 +947,29 @@ internal sealed class SwitcherPresenter
     {
         if (step.ReturnHandle != 0 && step.ReturnPlacement is { } back)
         {
-            WindowPlacementStore.TryApply((nint)step.ReturnHandle, back);
-            MarkIconic(step.ReturnHandle, true);
+            _window.HoldActivation();
+            try
+            {
+                WindowPlacementStore.TryApply((nint)step.ReturnHandle, back);
+                MarkIconic(step.ReturnHandle, true);
+            }
+            finally
+            {
+                _window.ReleaseActivation();
+            }
         }
         if (step.ReleaseHandle != 0 && step.ReleasePlacement is { } forward)
         {
-            _window.SuppressCancel(600);
-            WindowPlacementStore.TryApply((nint)step.ReleaseHandle, forward);
-            MarkIconic(step.ReleaseHandle, false);
+            _window.HoldActivation();
+            try
+            {
+                WindowPlacementStore.TryApply((nint)step.ReleaseHandle, forward);
+                MarkIconic(step.ReleaseHandle, false);
+            }
+            finally
+            {
+                _window.ReleaseActivation();
+            }
         }
         if (step.BorrowHandle != 0)
             BeginBorrow(step.BorrowHandle, manualBorrow);
@@ -925,9 +990,16 @@ internal sealed class SwitcherPresenter
             original,
             NativeMethods.GetSystemMetrics(NativeMethods.SmXVirtualScreen),
             NativeMethods.GetSystemMetrics(NativeMethods.SmYVirtualScreen));
-        _window.SuppressCancel(700);
         var applied = false;
-        _window.RunGuarded(() => applied = WindowPlacementStore.TryApply(hwnd, off));
+        _window.HoldActivation();
+        try
+        {
+            _window.RunGuarded(() => applied = WindowPlacementStore.TryApply(hwnd, off));
+        }
+        finally
+        {
+            _window.ReleaseActivation();
+        }
         if (!applied)
         {
             _giveUpHandle = handle;
@@ -948,7 +1020,9 @@ internal sealed class SwitcherPresenter
         {
             timer.Stop();
             if (!_preview.IsBorrowing || _preview.Handle != handle) return;
-            _window.SuppressCancel(400);
+            _window.HoldActivation();
+            try
+            {
             if (NativeMethods.IsWindow(hwnd) && !NativeMethods.IsIconic(hwnd))
             {
                 MarkIconic(handle, false);
@@ -963,6 +1037,11 @@ internal sealed class SwitcherPresenter
             MarkIconic(handle, true);
             ShowStatus(Localizer.Current["preview.restoreFailed"]);
             if (_window.IsVisible) UpdateThumb();
+            }
+            finally
+            {
+                _window.ReleaseActivation();
+            }
         };
         timer.Start();
     }

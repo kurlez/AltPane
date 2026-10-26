@@ -37,6 +37,12 @@ public static class SettingsMigration
             changed = true;
         }
 
+        if (stored < 4)
+        {
+            settings.SortMode = LoadSortMode.Initial;
+            changed = true;
+        }
+
         if (stored < AppSettings.CurrentSchema)
             changed = true;
         return changed;
