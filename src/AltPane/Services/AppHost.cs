@@ -28,6 +28,7 @@ internal sealed class AppHost : IDisposable
         _hotkeys = new HotkeyService(_presenter, () => Settings, () => _recording, System.Windows.Application.Current.Dispatcher);
         _presenter.Hotkeys = _hotkeys;
         _presenter.Notify += message => _tray?.Balloon(message);
+        _presenter.PersistRequested += TrySave;
         _tray = new TrayController(this);
         Localizer.Current.LanguageChanged += (_, _) => _tray.Rebuild();
         SystemEvents.UserPreferenceChanged += OnPreference;

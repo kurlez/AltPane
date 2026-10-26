@@ -70,6 +70,23 @@ internal static class WindowActions
     public static void Restore(nint hwnd) =>
         NativeMethods.PostMessage(hwnd, NativeMethods.WmSysCommand, NativeMethods.ScRestore, 0);
 
+    public static KillAttempt KillAll(IReadOnlyList<int> processIds)
+    {
+        if (processIds.Count == 0) return KillAttempt.Failed;
+        var root = processIds[^1];
+        var rootResult = KillAttempt.Failed;
+        var childEnded = false;
+        foreach (var pid in processIds)
+        {
+            var result = Kill(pid);
+            if (pid == root) rootResult = result;
+            else if (result == KillAttempt.Success) childEnded = true;
+        }
+        if (rootResult == KillAttempt.Success) return KillAttempt.Success;
+        if (rootResult == KillAttempt.AccessDenied) return KillAttempt.AccessDenied;
+        return childEnded ? KillAttempt.Success : rootResult;
+    }
+
     public static KillAttempt Kill(int processId)
     {
         if (processId <= 4) return KillAttempt.Failed;

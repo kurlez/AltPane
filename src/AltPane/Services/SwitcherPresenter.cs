@@ -1,6 +1,7 @@
 using System.Windows.Threading;
 using AltPane.Core.Actions;
 using AltPane.Core.Input;
+using AltPane.Core.Load;
 using AltPane.Core.Localization;
 using AltPane.Core.Models;
 using AltPane.Core.Switcher;
@@ -14,11 +15,15 @@ internal sealed class SwitcherPresenter
     readonly ThumbnailController _thumbs = new();
     readonly Dictionary<long, System.Windows.Media.ImageSource> _icons = new();
     readonly DispatcherTimer _statusTimer;
+    readonly LoadSampler _sampler = new();
+    readonly KillArm _arm = new();
     SwitcherSession? _session;
     nint _restore;
     string? _status;
     int _iconGeneration;
     bool _searchMode;
+    bool _statusSticky;
+    SystemLoad _system;
 
     public SwitcherPresenter(Func<AppSettings> settings)
     {
@@ -45,7 +50,10 @@ internal sealed class SwitcherPresenter
         };
         _window.NavigateRequested += Nudge;
         _window.CloseRequested += CloseSelected;
-        _window.KillRequested += KillSelected;
+        _window.KillRequested += () => KillSelected(null);
+        _window.KillTreeRequested += () => KillSelected(true);
+        _window.SortCycleRequested += CycleSort;
+        _sampler.Updated += update => _window.Dispatcher.BeginInvoke(() => ApplyLoad(update));
         _window.MinimizeRequested += () => RunAction(static hwnd => WindowActions.Minimize(hwnd), iconic: true, zoomed: false);
         _window.MaximizeRequested += () => RunAction(static hwnd => WindowActions.Maximize(hwnd), iconic: false, zoomed: true);
         _window.RestoreRequested += () => RunAction(static hwnd => WindowActions.Restore(hwnd), iconic: false, zoomed: false);
@@ -54,6 +62,7 @@ internal sealed class SwitcherPresenter
         _statusTimer.Tick += (_, _) =>
         {
             _statusTimer.Stop();
+            if (_statusSticky) return;
             _status = null;
             if (_window.IsVisible) Refresh(updateThumb: false);
         };
@@ -62,6 +71,7 @@ internal sealed class SwitcherPresenter
     public HotkeyService? Hotkeys { get; set; }
     public bool PendingShow { get; private set; }
     public event Action<string>? Notify;
+    public event Action? PersistRequested;
 
     public void Apply(UiOp op)
     {
@@ -113,7 +123,7 @@ internal sealed class SwitcherPresenter
                 CloseSelected();
                 break;
             case UiOp.KillProcess:
-                KillSelected();
+                KillSelected(null);
                 break;
             case UiOp.Minimize:
                 RunAction(static hwnd => WindowActions.Minimize(hwnd), iconic: true, zoomed: false);
@@ -142,6 +152,7 @@ internal sealed class SwitcherPresenter
         if (snap.SearchMode) _window.FocusSearch();
         QueueIcons();
         UpdateThumb();
+        SyncSampler();
     }
 
     public WindowEntry? TakeForQuickCommit()
@@ -151,6 +162,8 @@ internal sealed class SwitcherPresenter
         _searchMode = false;
         _session = null;
         _thumbs.Clear();
+        _sampler.Stop();
+        _arm.Clear();
         return selected;
     }
 
@@ -167,6 +180,7 @@ internal sealed class SwitcherPresenter
 
     public void ForceClose()
     {
+        _sampler.Stop();
         _thumbs.Clear();
         _window.ForceClose();
     }
@@ -186,9 +200,13 @@ internal sealed class SwitcherPresenter
         }
 
         _session = new SwitcherSession(entries);
+        if (_settings().ShowLoad)
+            _session.SetSortMode(_settings().SortMode);
         if (delta != 0) _session.Move(delta);
         _searchMode = false;
         _status = null;
+        _arm.Clear();
+        _statusSticky = false;
         _icons.Clear();
         foreach (var entry in entries)
             _icons[entry.Handle] = IconLoader.Letter(entry.Title);
@@ -203,6 +221,8 @@ internal sealed class SwitcherPresenter
         _searchMode = false;
         _session = null;
         _thumbs.Clear();
+        _sampler.Stop();
+        _arm.Clear();
         _window.RunGuarded(() =>
         {
             if (_window.IsVisible) _window.HideSwitcher();
@@ -219,6 +239,8 @@ internal sealed class SwitcherPresenter
         _searchMode = false;
         _session = null;
         _thumbs.Clear();
+        _sampler.Stop();
+        _arm.Clear();
         _window.RunGuarded(() =>
         {
             if (wasVisible) _window.HideSwitcher();
@@ -234,6 +256,7 @@ internal sealed class SwitcherPresenter
         else if (delta == int.MaxValue) _session.SelectLast();
         else if (Math.Abs(delta) >= SwitcherSession.PageSize) _session.Page(Math.Sign(delta));
         else _session.Move(delta);
+        DisarmIfSelectionChanged();
         if (_window.IsVisible) Refresh(updateThumb: true);
     }
 
@@ -254,18 +277,47 @@ internal sealed class SwitcherPresenter
         SchedulePrune(selected.Handle);
     }
 
-    void KillSelected()
+    void KillSelected(bool? forceTree)
     {
         var selected = _session?.Selected;
         if (selected is null) return;
+        var includeTree = forceTree ?? _settings().EndTaskKillsTree;
         var decision = ProcessActionPolicy.Evaluate(selected.KillProcessName, selected.KillProcessId);
         if (!decision.Allowed)
         {
+            _arm.Clear();
             ShowStatus(Localizer.Current[decision.ReasonKey]);
             return;
         }
 
-        var result = WindowActions.Kill(selected.KillProcessId);
+        if (!_arm.Ready(selected.KillProcessId, includeTree, _settings().ConfirmEndTask))
+        {
+            var key = includeTree ? "kill.confirmTree" : "kill.confirm";
+            ShowStatus(Localizer.Current.Format(key, selected.DisplayProcessName), sticky: true);
+            return;
+        }
+
+        IReadOnlyList<int> targets;
+        try
+        {
+            var nodes = LoadSampler.CaptureProcesses()
+                .Select(sample => new ProcessNode(sample.ProcessId, sample.ParentProcessId, sample.Name))
+                .ToList();
+            targets = ProcessTree.SelectTargets(selected.KillProcessId, selected.KillProcessName, nodes, includeTree);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error(ex);
+            targets = includeTree ? Array.Empty<int>() : new[] { selected.KillProcessId };
+        }
+
+        if (targets.Count == 0)
+        {
+            ShowStatus(Localizer.Current["kill.failed"]);
+            return;
+        }
+
+        var result = WindowActions.KillAll(targets);
         ShowStatus(Localizer.Current[result switch
         {
             KillAttempt.Success => "kill.done",
@@ -274,6 +326,58 @@ internal sealed class SwitcherPresenter
         }]);
         if (result == KillAttempt.Success)
             SchedulePrune(selected.Handle);
+    }
+
+    void CycleSort()
+    {
+        var settings = _settings();
+        settings.SortMode = settings.SortMode switch
+        {
+            LoadSortMode.Recent => LoadSortMode.Cpu,
+            LoadSortMode.Cpu => LoadSortMode.Memory,
+            _ => LoadSortMode.Recent
+        };
+        _session?.SetSortMode(settings.ShowLoad ? settings.SortMode : LoadSortMode.Recent);
+        try { PersistRequested?.Invoke(); }
+        catch (Exception ex) { AppLog.Error(ex); }
+        if (_window.IsVisible) Refresh(updateThumb: false);
+    }
+
+    void ApplyLoad(LoadUpdate update)
+    {
+        if (_session is null || !_window.IsVisible || !_settings().ShowLoad) return;
+        _system = update.System;
+        var byHandle = new Dictionary<long, TaskLoad>();
+        foreach (var entry in _session.All)
+        {
+            if (update.ByProcessId.TryGetValue(entry.KillProcessId, out var load))
+                byHandle[entry.Handle] = load;
+        }
+        _session.UpdateLoads(byHandle);
+        DisarmIfSelectionChanged();
+        Refresh(updateThumb: false);
+    }
+
+    void SyncSampler()
+    {
+        if (_session is null || !_window.IsVisible || !_settings().ShowLoad)
+        {
+            _sampler.Stop();
+            return;
+        }
+        _sampler.Watch(_session.All.Select(entry => entry.KillProcessId).ToArray());
+    }
+
+    void DisarmIfSelectionChanged()
+    {
+        var pid = _session?.Selected?.KillProcessId ?? 0;
+        if (!_arm.IsArmed || pid == _arm.ProcessId) return;
+        _arm.Clear();
+        if (_statusSticky)
+        {
+            _statusSticky = false;
+            _status = null;
+        }
     }
 
     void RunAction(Action<nint> action, bool iconic, bool zoomed)
@@ -296,20 +400,23 @@ internal sealed class SwitcherPresenter
             if (!NativeMethods.IsWindow((nint)handle))
                 _session.RemoveHandle(handle);
             if (_window.IsVisible) Refresh(updateThumb: true);
+            SyncSampler();
         };
         timer.Start();
     }
 
-    void ShowStatus(string text)
+    void ShowStatus(string text, bool sticky = false)
     {
         _status = text;
+        _statusSticky = sticky;
         _statusTimer.Stop();
-        _statusTimer.Start();
+        if (!sticky) _statusTimer.Start();
         if (_window.IsVisible) Refresh(updateThumb: false);
     }
 
     void Refresh(bool updateThumb)
     {
+        DisarmIfSelectionChanged();
         _window.Render(BuildState());
         if (updateThumb && _window.IsVisible) UpdateThumb();
     }
@@ -327,6 +434,12 @@ internal sealed class SwitcherPresenter
                 : loc.Format("count.filtered", filtered.Count, allCount);
         var trigger = HotkeyLogic.TriggerDisplayName(HotkeyLogic.TriggerModifier(settings.Hotkey ?? HotkeyChord.AltTab()));
         var hint = _searchMode ? loc["hint.sticky"] : loc.Format("hint.gesture", trigger);
+        var showLoad = settings.ShowLoad;
+        var systemText = !showLoad
+            ? ""
+            : _system.MemoryTotalBytes <= 0
+                ? loc.Format("load.summary", "…", "…")
+                : loc.Format("load.summary", LoadFormat.Cpu(_system.CpuPercent), LoadFormat.MemoryPair(_system.MemoryUsedBytes, _system.MemoryTotalBytes));
         return new SwitcherViewState
         {
             Filtered = filtered,
@@ -338,6 +451,17 @@ internal sealed class SwitcherPresenter
             ShowPreview = settings.ShowPreview,
             SearchMode = _searchMode,
             Icons = _icons,
+            Loads = showLoad && _session is not null
+                ? _session.All.ToDictionary(entry => entry.Handle, entry => _session.LoadFor(entry.Handle))
+                : new Dictionary<long, TaskLoad>(),
+            ShowLoad = showLoad,
+            SystemText = systemText,
+            SortText = loc[settings.SortMode switch
+            {
+                LoadSortMode.Cpu => "sort.cpu",
+                LoadSortMode.Memory => "sort.memory",
+                _ => "sort.recent"
+            }],
             EmptyText = _session is null || allCount == 0
                 ? loc["list.empty"]
                 : filtered.Count == 0 ? loc["list.nomatch"] : ""

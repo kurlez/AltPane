@@ -14,6 +14,9 @@
   <SolidColorBrush x:Key="ButtonBgBrush" Color="#FFFFFFFF"/>
   <SolidColorBrush x:Key="ButtonBorderBrush" Color="#1A000000"/>
   <SolidColorBrush x:Key="SearchBgBrush" Color="#08000000"/>
+  <SolidColorBrush x:Key="LoadCalmBrush" Color="#663451D1"/>
+  <SolidColorBrush x:Key="LoadWarmBrush" Color="#FFB8860B"/>
+  <SolidColorBrush x:Key="LoadHotBrush" Color="#FFB42323"/>
 
   <Style x:Key="ActionButton" TargetType="Button">
     <Setter Property="Background" Value="{DynamicResource ButtonBgBrush}"/>

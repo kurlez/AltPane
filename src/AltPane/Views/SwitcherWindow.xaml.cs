@@ -6,6 +6,7 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using AltPane.Core.Input;
 using AltPane.Core.Layout;
+using AltPane.Core.Load;
 using AltPane.Core.Localization;
 using AltPane.Core.Models;
 using AltPane.Core.Switcher;
@@ -26,7 +27,43 @@ internal sealed class SwitcherRow : INotifyPropertyChanged
     public WindowEntry Entry { get; }
     public string Title => Entry.Title;
     public string Subtitle => string.IsNullOrWhiteSpace(Entry.DisplayProcessName) ? Entry.ProcessName : Entry.DisplayProcessName;
-    public string ToolTipText => $"{Entry.Title}\n{Subtitle}  ·  pid {Entry.KillProcessId}";
+    public string LoadText { get; private set; } = "";
+    public double BarWidth { get; private set; }
+    public int Heat { get; private set; }
+    public bool ShowLoad { get; private set; }
+    public string ToolTipText { get; private set; } = "";
+
+    public void ApplyLoad(bool show, in TaskLoad load)
+    {
+        ShowLoad = show;
+        if (!show)
+        {
+            LoadText = "";
+            BarWidth = 0;
+            Heat = 0;
+        }
+        else if (load.ProcessCount <= 0)
+        {
+            LoadText = "—";
+            BarWidth = 0;
+            Heat = 0;
+        }
+        else
+        {
+            LoadText = LoadFormat.Row(load);
+            var cpu = load.CpuPercent ?? 0;
+            BarWidth = Math.Clamp(cpu, 0, 100) / 100.0 * 40.0;
+            Heat = (int)LoadHeatMap.Classify(load.CpuPercent, load.WorkingSetBytes);
+        }
+        ToolTipText = show && load.ProcessCount > 0
+            ? $"{Entry.Title}\n{Subtitle}  ·  pid {Entry.KillProcessId}\n{LoadFormat.Cpu(load.CpuPercent)}  ·  {LoadFormat.Bytes(load.WorkingSetBytes)}  ·  {LoadFormat.Bytes(load.PrivateBytes)}"
+            : $"{Entry.Title}\n{Subtitle}  ·  pid {Entry.KillProcessId}";
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LoadText)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(BarWidth)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Heat)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ShowLoad)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ToolTipText)));
+    }
 
     public ImageSource Icon
     {
@@ -53,6 +90,10 @@ public sealed class SwitcherViewState
     public bool SearchMode { get; init; }
     public required string EmptyText { get; init; }
     public required IReadOnlyDictionary<long, ImageSource> Icons { get; init; }
+    public IReadOnlyDictionary<long, TaskLoad> Loads { get; init; } = new Dictionary<long, TaskLoad>();
+    public bool ShowLoad { get; init; }
+    public string SystemText { get; init; } = "";
+    public string SortText { get; init; } = "";
 }
 
 public partial class SwitcherWindow : Window
@@ -64,7 +105,9 @@ public partial class SwitcherWindow : Window
     readonly MenuItem _menuMin;
     readonly MenuItem _menuMax;
     readonly MenuItem _menuRestore;
+    readonly MenuItem _menuKillTree;
     Point _lastScreen = new(double.NaN, double.NaN);
+    int _renderedSelection = -2;
     bool _internalEdit;
     bool _composing;
     bool _searchMode;
@@ -79,12 +122,14 @@ public partial class SwitcherWindow : Window
         _menuMin = new MenuItem();
         _menuMax = new MenuItem();
         _menuRestore = new MenuItem();
+        _menuKillTree = new MenuItem();
         _menuClose.Click += (_, _) => CloseRequested?.Invoke();
         _menuKill.Click += (_, _) => KillRequested?.Invoke();
+        _menuKillTree.Click += (_, _) => KillTreeRequested?.Invoke();
         _menuMin.Click += (_, _) => MinimizeRequested?.Invoke();
         _menuMax.Click += (_, _) => MaximizeRequested?.Invoke();
         _menuRestore.Click += (_, _) => RestoreRequested?.Invoke();
-        _menu = new ContextMenu { Items = { _menuClose, _menuKill, new Separator(), _menuMin, _menuMax, _menuRestore } };
+        _menu = new ContextMenu { Items = { _menuClose, _menuKill, _menuKillTree, new Separator(), _menuMin, _menuMax, _menuRestore } };
         _menu.Opened += (_, _) => LocalizeMenu();
         WindowList.ContextMenu = _menu;
         TextCompositionManager.AddTextInputStartHandler(SearchBox, (_, _) => _composing = true);
@@ -114,6 +159,8 @@ public partial class SwitcherWindow : Window
     public event Action<int>? NavigateRequested;
     public event Action? CloseRequested;
     public event Action? KillRequested;
+    public event Action? KillTreeRequested;
+    public event Action? SortCycleRequested;
     public event Action? MinimizeRequested;
     public event Action? MaximizeRequested;
     public event Action? RestoreRequested;
@@ -134,6 +181,10 @@ public partial class SwitcherWindow : Window
         SearchPlaceholder.Visibility = string.IsNullOrEmpty(SearchBox.Text) ? Visibility.Visible : Visibility.Collapsed;
         HintText.Text = state.Hint;
         CountText.Text = state.CountText;
+        SystemText.Text = state.SystemText;
+        SystemText.Visibility = state.ShowLoad ? Visibility.Visible : Visibility.Collapsed;
+        SortButton.Visibility = state.ShowLoad ? Visibility.Visible : Visibility.Collapsed;
+        SortButton.Content = state.SortText;
         StatusText.Text = state.Status ?? "";
         EmptyText.Text = state.EmptyText;
         EmptyText.Visibility = string.IsNullOrEmpty(state.EmptyText) ? Visibility.Collapsed : Visibility.Visible;
@@ -148,24 +199,29 @@ public partial class SwitcherWindow : Window
             foreach (var entry in state.Filtered)
             {
                 state.Icons.TryGetValue(entry.Handle, out var icon);
-                _rows.Add(new SwitcherRow(entry, icon ?? IconLoader.Letter(entry.Title)));
+                var row = new SwitcherRow(entry, icon ?? IconLoader.Letter(entry.Title));
+                row.ApplyLoad(state.ShowLoad, default);
+                _rows.Add(row);
             }
             WindowList.ItemsSource = null;
             WindowList.ItemsSource = _rows;
         }
-        else
+
+        for (var i = 0; i < _rows.Count; i++)
         {
-            foreach (var row in _rows)
-            {
-                if (state.Icons.TryGetValue(row.Entry.Handle, out var icon) && !ReferenceEquals(icon, row.Icon))
-                    row.Icon = icon;
-            }
+            var row = _rows[i];
+            if (state.Icons.TryGetValue(row.Entry.Handle, out var icon) && !ReferenceEquals(icon, row.Icon))
+                row.Icon = icon;
+            var load = state.Loads.TryGetValue(row.Entry.Handle, out var found) ? found : default;
+            row.ApplyLoad(state.ShowLoad, load);
         }
 
+        var selectionChanged = _renderedSelection != state.SelectedIndex;
         if (WindowList.SelectedIndex != state.SelectedIndex)
             WindowList.SelectedIndex = state.SelectedIndex;
-        if (state.SelectedIndex >= 0 && state.SelectedIndex < _rows.Count)
+        if (selectionChanged && state.SelectedIndex >= 0 && state.SelectedIndex < _rows.Count)
             WindowList.ScrollIntoView(_rows[state.SelectedIndex]);
+        _renderedSelection = state.SelectedIndex;
 
         var selected = state.SelectedIndex >= 0 && state.SelectedIndex < state.Filtered.Count
             ? state.Filtered[state.SelectedIndex]
@@ -376,11 +432,14 @@ public partial class SwitcherWindow : Window
         LocalizeMenu();
     }
 
+    void Sort_Click(object sender, RoutedEventArgs e) => SortCycleRequested?.Invoke();
+
     void LocalizeMenu()
     {
         var loc = Localizer.Current;
         _menuClose.Header = loc["menu.close"];
         _menuKill.Header = loc["menu.kill"];
+        _menuKillTree.Header = loc["menu.killTree"];
         _menuMin.Header = loc["menu.minimize"];
         _menuMax.Header = loc["menu.maximize"];
         _menuRestore.Header = loc["menu.restore"];

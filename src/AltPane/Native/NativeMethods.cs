@@ -229,6 +229,74 @@ internal static class NativeMethods
 
     [DllImport("ole32.dll")]
     public static extern int CoCreateInstance(ref Guid rclsid, nint pUnkOuter, uint dwClsContext, ref Guid riid, [MarshalAs(UnmanagedType.IUnknown)] out object ppv);
+
+    public const uint Th32CsSnapProcess = 0x00000002;
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern nint CreateToolhelp32Snapshot(uint dwFlags, uint th32ProcessId);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true, EntryPoint = "Process32FirstW")]
+    public static extern bool Process32First(nint snapshot, ref ProcessEntry32 entry);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true, EntryPoint = "Process32NextW")]
+    public static extern bool Process32Next(nint snapshot, ref ProcessEntry32 entry);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool GetProcessTimes(nint process, out long creation, out long exit, out long kernel, out long user);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool GetSystemTimes(out long idle, out long kernel, out long user);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool GlobalMemoryStatusEx(ref MemoryStatusEx status);
+
+    [DllImport("psapi.dll", SetLastError = true)]
+    public static extern bool GetProcessMemoryInfo(nint process, ref ProcessMemoryCounters counters, uint cb);
+}
+
+[StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode, Pack = 8)]
+internal struct ProcessEntry32
+{
+    public uint dwSize;
+    public uint cntUsage;
+    public uint th32ProcessID;
+    public nint th32DefaultHeapID;
+    public uint th32ModuleID;
+    public uint cntThreads;
+    public uint th32ParentProcessID;
+    public int pcPriClassBase;
+    public uint dwFlags;
+    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)]
+    public string szExeFile;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct MemoryStatusEx
+{
+    public uint dwLength;
+    public uint dwMemoryLoad;
+    public ulong ullTotalPhys;
+    public ulong ullAvailPhys;
+    public ulong ullTotalPageFile;
+    public ulong ullAvailPageFile;
+    public ulong ullTotalVirtual;
+    public ulong ullAvailVirtual;
+    public ulong ullAvailExtendedVirtual;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct ProcessMemoryCounters
+{
+    public uint cb;
+    public uint PageFaultCount;
+    public nuint PeakWorkingSetSize;
+    public nuint WorkingSetSize;
+    public nuint QuotaPeakPagedPoolUsage;
+    public nuint QuotaPagedPoolUsage;
+    public nuint QuotaPeakNonPagedPoolUsage;
+    public nuint QuotaNonPagedPoolUsage;
+    public nuint PagefileUsage;
+    public nuint PeakPagefileUsage;
 }
 
 [StructLayout(LayoutKind.Sequential)]

@@ -34,7 +34,8 @@ public partial class SettingsWindow : Window
             WindowChrome.ApplyBackdrop(hwnd, ThemeService.IsDark);
         };
         MaxHeight = SystemParameters.WorkArea.Height * 0.92;
-        VersionText.Text = "AltPane 1.0.0";
+        var version = typeof(SettingsWindow).Assembly.GetName().Version;
+        VersionText.Text = "AltPane " + (version?.ToString(3) ?? "0.2.0");
         LoadDraft();
         Localizer.Current.LanguageChanged += (_, _) =>
         {
@@ -49,6 +50,9 @@ public partial class SettingsWindow : Window
         HotkeyText.Text = HotkeyLogic.Format(_draft.Hotkey ?? HotkeyChord.AltTab());
         WinTabBox.IsChecked = _draft.CaptureWinTab;
         PreviewBox.IsChecked = _draft.ShowPreview;
+        LoadBox.IsChecked = _draft.ShowLoad;
+        ConfirmKillBox.IsChecked = _draft.ConfirmEndTask;
+        KillTreeBox.IsChecked = _draft.EndTaskKillsTree;
         DesktopBox.IsChecked = _draft.IncludeOtherVirtualDesktops;
         StartupBox.IsChecked = _draft.StartWithWindows;
         PauseBox.IsChecked = _draft.OverridePaused;
@@ -57,6 +61,7 @@ public partial class SettingsWindow : Window
         Select(LanguageBox, _draft.Language);
         Select(SizeBox, _draft.Size);
         Select(PlacementBox, _draft.Placement);
+        Select(SortBox, _draft.SortMode);
         var admin = Admin.IsRunningAsAdmin();
         AdminButton.IsEnabled = !admin;
         AdminButton.Content = admin ? Localizer.Current["settings.alreadyAdmin"] : Localizer.Current["settings.restartAdmin"];
@@ -77,6 +82,10 @@ public partial class SettingsWindow : Window
         SizeLabel.Text = loc["settings.size"];
         PlacementLabel.Text = loc["settings.placement"];
         PreviewBox.Content = loc["settings.preview"];
+        LoadBox.Content = loc["settings.showLoad"];
+        SortLabel.Text = loc["settings.sort"];
+        ConfirmKillBox.Content = loc["settings.confirmKill"];
+        KillTreeBox.Content = loc["settings.killTree"];
         DesktopBox.Content = loc["settings.desktops"];
         StartupBox.Content = loc["settings.startup"];
         PauseBox.Content = loc["settings.pause"];
@@ -112,6 +121,12 @@ public partial class SettingsWindow : Window
             (SwitcherPlacement.MouseCursor, loc["settings.placement.mouse"]),
             (SwitcherPlacement.ActiveWindow, loc["settings.placement.window"])
         }, _draft.Placement);
+        Fill(SortBox, new (LoadSortMode, string)[]
+        {
+            (LoadSortMode.Recent, loc["settings.sort.recent"]),
+            (LoadSortMode.Cpu, loc["settings.sort.cpu"]),
+            (LoadSortMode.Memory, loc["settings.sort.memory"])
+        }, _draft.SortMode);
     }
 
     static void Fill<T>(System.Windows.Controls.ComboBox box, IEnumerable<(T Value, string Label)> items, T selected) where T : struct
@@ -218,6 +233,10 @@ public partial class SettingsWindow : Window
         StopRecording();
         _draft.CaptureWinTab = WinTabBox.IsChecked == true;
         _draft.ShowPreview = PreviewBox.IsChecked == true;
+        _draft.ShowLoad = LoadBox.IsChecked == true;
+        _draft.ConfirmEndTask = ConfirmKillBox.IsChecked == true;
+        _draft.EndTaskKillsTree = KillTreeBox.IsChecked == true;
+        _draft.SortMode = Read(SortBox, _draft.SortMode);
         _draft.IncludeOtherVirtualDesktops = DesktopBox.IsChecked == true;
         _draft.StartWithWindows = StartupBox.IsChecked == true;
         _draft.OverridePaused = PauseBox.IsChecked == true;
@@ -291,7 +310,11 @@ public partial class SettingsWindow : Window
         StartWithWindows = source.StartWithWindows,
         OverridePaused = source.OverridePaused,
         IncludeOtherVirtualDesktops = source.IncludeOtherVirtualDesktops,
-        WelcomeShown = source.WelcomeShown
+        WelcomeShown = source.WelcomeShown,
+        ShowLoad = source.ShowLoad,
+        SortMode = source.SortMode,
+        ConfirmEndTask = source.ConfirmEndTask,
+        EndTaskKillsTree = source.EndTaskKillsTree
     };
 
     sealed class Choice<T>

@@ -1,3 +1,4 @@
+using AltPane.Core.Load;
 using AltPane.Core.Models;
 using AltPane.Core.Search;
 
@@ -7,8 +8,10 @@ public sealed class SwitcherSession
 {
     public const int PageSize = 8;
     readonly List<WindowEntry> _all;
+    readonly Dictionary<long, TaskLoad> _loads = new();
     List<WindowEntry> _filtered;
     string _query = "";
+    LoadSortMode _sort = LoadSortMode.Recent;
 
     public SwitcherSession(IEnumerable<WindowEntry> windows)
     {
@@ -76,6 +79,26 @@ public sealed class SwitcherSession
         Recompute(resetSelection: true);
     }
 
+    public LoadSortMode SortMode => _sort;
+    public TaskLoad LoadFor(long handle) => _loads.TryGetValue(handle, out var load) ? load : default;
+
+    public void SetSortMode(LoadSortMode mode)
+    {
+        if (!Enum.IsDefined(mode)) mode = LoadSortMode.Recent;
+        if (mode == _sort) return;
+        _sort = mode;
+        Recompute(resetSelection: false);
+    }
+
+    public void UpdateLoads(IReadOnlyDictionary<long, TaskLoad> loads)
+    {
+        _loads.Clear();
+        foreach (var pair in loads)
+            _loads[pair.Key] = pair.Value;
+        if (_query.Length == 0 && _sort != LoadSortMode.Recent)
+            Recompute(resetSelection: false);
+    }
+
     public void SetQuery(string? query)
     {
         var next = query ?? "";
@@ -114,6 +137,15 @@ public sealed class SwitcherSession
     {
         var selectedHandle = Selected?.Handle ?? 0;
         _filtered = SearchMatcher.Rank(_all, _query, e => e.Title, e => e.DisplayProcessName, e => e.OriginalIndex);
+        if (_query.Length == 0 && _sort != LoadSortMode.Recent)
+        {
+            _filtered = LoadSorter.Sort(
+                _filtered,
+                _sort,
+                e => e.OriginalIndex,
+                e => LoadFor(e.Handle).ProcessCount > 0 ? LoadFor(e.Handle).CpuPercent : null,
+                e => LoadFor(e.Handle).WorkingSetBytes);
+        }
         if (_filtered.Count == 0)
         {
             SelectedIndex = -1;

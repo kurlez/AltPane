@@ -48,6 +48,11 @@
           <TextBlock x:Name="PlacementLabel" FontWeight="SemiBold" Margin="0,0,0,6"/>
           <ComboBox x:Name="PlacementBox" Margin="0,0,0,10"/>
           <CheckBox x:Name="PreviewBox" Margin="0,0,0,6"/>
+          <CheckBox x:Name="LoadBox" Margin="0,0,0,6"/>
+          <TextBlock x:Name="SortLabel" FontWeight="SemiBold" Margin="0,4,0,6"/>
+          <ComboBox x:Name="SortBox" Margin="0,0,0,10"/>
+          <CheckBox x:Name="ConfirmKillBox" Margin="0,0,0,6"/>
+          <CheckBox x:Name="KillTreeBox" Margin="0,0,0,6"/>
           <CheckBox x:Name="DesktopBox" Margin="0,0,0,6"/>
           <CheckBox x:Name="StartupBox" Margin="0,0,0,6"/>
           <CheckBox x:Name="PauseBox" Margin="0,0,0,14"/>

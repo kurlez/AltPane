@@ -43,6 +43,14 @@ public enum AppLanguage
     En
 }
 
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum LoadSortMode
+{
+    Recent,
+    Cpu,
+    Memory
+}
+
 /// <summary>
 /// A window the filter can judge without touching Win32.
 /// VirtualDesktopSame: 1 on the current desktop, 0 on another, -1 unknown.
@@ -110,6 +118,10 @@ public sealed class AppSettings
     public bool OverridePaused { get; set; }
     public bool IncludeOtherVirtualDesktops { get; set; }
     public bool WelcomeShown { get; set; }
+    public bool ShowLoad { get; set; } = true;
+    public LoadSortMode SortMode { get; set; } = LoadSortMode.Recent;
+    public bool ConfirmEndTask { get; set; } = true;
+    public bool EndTaskKillsTree { get; set; } = true;
 
     public static AppSettings CreateDefault() => new()
     {
@@ -120,6 +132,10 @@ public sealed class AppSettings
         Placement = SwitcherPlacement.MouseCursor,
         Theme = AppTheme.System,
         Language = AppLanguage.System,
-        ExcludedProcesses = new List<string>()
+        ExcludedProcesses = new List<string>(),
+        ShowLoad = true,
+        SortMode = LoadSortMode.Recent,
+        ConfirmEndTask = true,
+        EndTaskKillsTree = true
     };
 }

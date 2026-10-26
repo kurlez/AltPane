@@ -52,6 +52,7 @@
         </Grid.ColumnDefinitions>
         <StackPanel>
           <TextBlock x:Name="BrandText" Text="AltPane" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource AccentBrush}"/>
+          <TextBlock x:Name="SystemText" Margin="0,4,0,0" FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}"/>
           <Grid Margin="0,4,0,0" MinHeight="28">
             <TextBlock x:Name="SearchPlaceholder"
                        FontSize="18"
@@ -67,9 +68,12 @@
                      TextChanged="SearchBox_TextChanged"/>
           </Grid>
         </StackPanel>
-        <Border Grid.Column="1" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="1" CornerRadius="8" Padding="10,6" VerticalAlignment="Center">
-          <TextBlock x:Name="CountText" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12"/>
-        </Border>
+        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+          <Button x:Name="SortButton" Style="{DynamicResource ActionButton}" Margin="0,0,8,0" MinWidth="72" Click="Sort_Click"/>
+          <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="1" CornerRadius="8" Padding="10,6">
+            <TextBlock x:Name="CountText" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12"/>
+          </Border>
+        </StackPanel>
       </Grid>
 
       <Grid Grid.Row="1">
@@ -121,7 +125,7 @@
             </ListBox.ItemContainerStyle>
             <ListBox.ItemTemplate>
               <DataTemplate>
-                <Grid Height="48" ToolTip="{Binding ToolTipText}">
+                <Grid MinHeight="52" ToolTip="{Binding ToolTipText}">
                   <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="40"/>
                     <ColumnDefinition Width="*"/>
@@ -132,8 +136,23 @@
                   <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="8,0,8,0">
                     <TextBlock Text="{Binding Title}" FontSize="14" Foreground="{DynamicResource TextPrimaryBrush}" TextTrimming="CharacterEllipsis"/>
                     <TextBlock Text="{Binding Subtitle}" FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}" TextTrimming="CharacterEllipsis" Margin="0,1,0,0"/>
+                    <DockPanel x:Name="LoadLine" Margin="0,3,0,0">
+                      <Border x:Name="LoadBar" DockPanel.Dock="Left" Width="{Binding BarWidth}" Height="3" Margin="0,0,6,0" VerticalAlignment="Center" CornerRadius="1" Background="{DynamicResource LoadCalmBrush}"/>
+                      <TextBlock Text="{Binding LoadText}" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                    </DockPanel>
                   </StackPanel>
                 </Grid>
+                <DataTemplate.Triggers>
+                  <DataTrigger Binding="{Binding ShowLoad}" Value="False">
+                    <Setter TargetName="LoadLine" Property="Visibility" Value="Collapsed"/>
+                  </DataTrigger>
+                  <DataTrigger Binding="{Binding Heat}" Value="1">
+                    <Setter TargetName="LoadBar" Property="Background" Value="{DynamicResource LoadWarmBrush}"/>
+                  </DataTrigger>
+                  <DataTrigger Binding="{Binding Heat}" Value="2">
+                    <Setter TargetName="LoadBar" Property="Background" Value="{DynamicResource LoadHotBrush}"/>
+                  </DataTrigger>
+                </DataTemplate.Triggers>
               </DataTemplate>
             </ListBox.ItemTemplate>
           </ListBox>
