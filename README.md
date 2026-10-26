@@ -104,7 +104,7 @@ The hook procedure only classifies the key and queues a small operation. Enumera
 dotnet test tests/AltPane.Tests/AltPane.Tests.csproj -c Release
 ```
 
-Covered without a Windows desktop session: inclusion rules (visibility, tool windows, cloak, owner, empty title, exclusion list, ApplicationFrameHost), search ranking, pinyin and acronym matching, app ranking against launch frequency, shell-link (`.lnk`) parsing, session movement across windows and launch rows, hook interpretation (including sticky release, search mode, Ctrl+Enter, and the activation chord), settings JSON round-trip and corrupt-file recovery, kill-process policy, hotkey formatting, localization fallback, layout math, and the 48-byte DWM thumbnail property / 40-byte `INPUT` layouts.
+Covered without a Windows desktop session: inclusion rules (visibility, tool windows, cloak, owner, empty title, exclusion list, ApplicationFrameHost), search ranking, pinyin and acronym matching, app ranking against launch frequency, shell-link (`.lnk`) parsing, session movement across windows and launch rows, hook interpretation (including sticky release, search mode, Ctrl+Enter, and the activation chord), settings JSON round-trip and corrupt-file recovery, kill-process policy, hotkey formatting, localization fallback, layout math, the opaque window-frame colors (no full-window glass margin), and the 48-byte DWM thumbnail property / 40-byte `INPUT` layouts.
 
 Pinyin readings come from [mozillazg/pinyin-data](https://github.com/mozillazg/pinyin-data) (`pinyin.txt`, MIT). The compact table is `src/AltPane.Core/Search/pinyin.bin`. `ü` is stored as `v`, and a query may use `u` or `v` (`nu` and `nv` both match 女). Polyphonic characters keep their readings (乐 is `le` and `yue`).
 
@@ -117,7 +117,7 @@ Not covered here: the real hook, DWM thumbnails, tray icon, monitor placement, a
 - Switching to an elevated window, closing it, or thumbnailing it can fail with UIPI unless AltPane is running as administrator.
 - “Other virtual desktops” is approximate. The shell cloak bit and `IVirtualDesktopManager` are used when available. The application cloak bit (UWP ghost windows) is always hidden.
 - Protected processes (`explorer`, `csrss`, `lsass`, `svchost`, `dwm`, and similar) and an unresolved ApplicationFrameHost window cannot be killed from the switcher. Ending an elevated process needs AltPane to be running as administrator; the switcher says so when access is denied. CPU percent needs two samples, so the first fraction of a second shows memory and then CPU. GPU and disk load are not shown. Per-task CPU is a share of the whole machine. Memory is the working set, with private bytes in the tooltip, summed across helper processes.
-- The switcher keeps `AllowsTransparency` off so DWM thumbnails and the system backdrop work. Windows 11 rounds the window. On older builds the corners are square and, if Mica is unavailable, a legacy acrylic accent is requested.
+- The switcher keeps `AllowsTransparency` off so DWM thumbnails work. The window fill is opaque. Windows 11 rounds it with `DWMWA_WINDOW_CORNER_PREFERENCE`; Windows 10 keeps square corners and the same 1px edge. A one-pixel frame extension is only there so DWM can draw a shadow. Mica and acrylic are not used, because a transparent client paints black when those effects are unavailable.
 - The single-file executable is unsigned.
 - Store apps are discovered through `shell:AppsFolder` on a background thread and that scan is best-effort. If it fails, Start Menu and desktop shortcuts are still indexed. A Store app is launched with `IApplicationActivationManager`, then `explorer.exe shell:AppsFolder\<aumid>` if that fails. Store apps have no “run as administrator” and no file location.
 - Match quality outweighs habit when the gap is large: an exact name beats a heavily used loose match. Frequent use can lift a prefix above a never-used exact name. Pinyin covers the common readings in the embedded table, not every rare character.
@@ -134,6 +134,7 @@ Not covered here: the real hook, DWM thumbnails, tray icon, monitor placement, a
 8. Launch a second copy and confirm it focuses Settings on the first instance.
 9. Move the cursor to another monitor and another DPI scale. Confirm the switcher opens there and is sharp.
 10. Optional: enable Win+Tab capture and note whether Task View still appears. Restart as administrator and switch to an elevated window such as Task Manager.
+11. In light and dark themes, at 100%, 125%, 150%, and 200% scaling, the switcher and Settings have a solid fill and a thin edge. Windows 11 corners are rounded; Windows 10 corners are square. There is no black band in the corners or along the frame, and the shadow is soft. A window whose shape differs from the preview pane is centered; the bars around it are the pane color.
 
 ## 中文说明
 
@@ -141,6 +142,6 @@ AltPane 是一个 Windows 桌面窗口切换器。运行期间它会用低级键
 
 界面默认跟随系统语言：中文系统使用简体中文，也可在设置里改为 English。设置保存在 `%APPDATA%\AltPane\settings.json`。托盘图标可以打开切换器、设置、暂停接管、开机启动和退出。程序崩溃、暂停或结束后会卸下钩子，原生 Alt+Tab 恢复可用。
 
-按住 Alt 时直接打字适合英文和进程名。松开 Alt 后搜索框会获得焦点，可以直接用中文输入法，再按 Enter 确认；按住时仍可用 Ctrl+F。搜索框同时可以启动已安装的应用：窗口仍排在前面，下面是“启动”分组。`vsc` 能找到 Visual Studio Code，`wx` 或 `weixin` 能找到微信。Enter 启动应用并关闭切换器；若该应用已有窗口，会标明“已打开”，Enter 改为切换过去。Ctrl+Enter 以管理员身份运行（商店应用不可以）。右键可打开文件所在位置。索引在后台建立，缓存在 `%APPDATA%\AltPane\apps.json`，使用次数在 `launches.json`，打开切换器不会等待扫描。默认索引开始菜单、商店应用和桌面快捷方式，PATH 默认关闭。搜索框为空时不列出全部应用。极快地按一下 Alt+Tab 默认也会保持打开，设置中可改为立即切换。切换器打开时会显示整机和每个任务的 CPU、内存，可按 CPU 或内存排序。Shift+Delete 结束任务（可在设置中要求再按一次确认，并结束子进程）。最小化窗口按空格可在不抢焦点的情况下移到屏幕外预览，不切换过去则会重新最小化。普通权限无法切换或结束以管理员身份运行的窗口，需要在设置中“以管理员身份重新启动”。
+按住 Alt 时直接打字适合英文和进程名。松开 Alt 后搜索框会获得焦点，可以直接用中文输入法，再按 Enter 确认；按住时仍可用 Ctrl+F。搜索框同时可以启动已安装的应用：窗口仍排在前面，下面是“启动”分组。`vsc` 能找到 Visual Studio Code，`wx` 或 `weixin` 能找到微信。Enter 启动应用并关闭切换器；若该应用已有窗口，会标明“已打开”，Enter 改为切换过去。Ctrl+Enter 以管理员身份运行（商店应用不可以）。右键可打开文件所在位置。索引在后台建立，缓存在 `%APPDATA%\AltPane\apps.json`，使用次数在 `launches.json`，打开切换器不会等待扫描。默认索引开始菜单、商店应用和桌面快捷方式，PATH 默认关闭。搜索框为空时不列出全部应用。极快地按一下 Alt+Tab 默认也会保持打开，设置中可改为立即切换。切换器打开时会显示整机和每个任务的 CPU、内存，可按 CPU 或内存排序。Shift+Delete 结束任务（可在设置中要求再按一次确认，并结束子进程）。最小化窗口按空格可在不抢焦点的情况下移到屏幕外预览，不切换过去则会重新最小化。窗口填充是不透明的主题色，边缘是 1 像素描边。Windows 11 由系统裁成圆角，Windows 10 保持直角。阴影来自 DWM，不再把整窗做成透明玻璃，因此边角不会出现黑块。预览会按比例居中，周围是预览区的底色。普通权限无法切换或结束以管理员身份运行的窗口，需要在设置中“以管理员身份重新启动”。
 
 较小的发布包依赖本机已安装的 .NET 8 桌面运行时（x64）：<https://dotnet.microsoft.com/download/dotnet/8.0> ，安装包直链 <https://aka.ms/dotnet/8.0/windowsdesktop-runtime-win-x64.exe>。自包含的 `AltPane.exe` 不需要另外安装运行时；首次启动会解压本机库，会稍慢。文件未签名，SmartScreen 可能提示，确认来源后选择仍要运行。

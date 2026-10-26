@@ -58,12 +58,10 @@ internal static class NativeMethods
     public const int IconBig = 1;
     public const int IconSmall2 = 2;
     public const int DwmwaCloaked = 14;
+    public const int DwmwaUseImmersiveDarkModeLegacy = 19;
     public const int DwmwaUseImmersiveDarkMode = 20;
     public const int DwmwaWindowCornerPreference = 33;
     public const int DwmwaSystemBackdropType = 38;
-    public const int DwmwcpRound = 2;
-    public const int DwmsbtMainWindow = 2;
-    public const int DwmsbtTransientWindow = 3;
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
     public static extern nint GetModuleHandle(string? lpModuleName);
@@ -212,9 +210,6 @@ internal static class NativeMethods
     [DllImport("dwmapi.dll")]
     public static extern int DwmQueryThumbnailSourceSize(nint thumb, out NativeSize size);
 
-    [DllImport("user32.dll")]
-    public static extern int SetWindowCompositionAttribute(nint hwnd, ref WindowCompositionAttributeData data);
-
     [DllImport("kernel32.dll", SetLastError = true)]
     public static extern nint OpenProcess(uint dwDesiredAccess, bool bInheritHandle, int dwProcessId);
 
@@ -356,21 +351,4 @@ internal struct ProcessMemoryCounters
     public nuint QuotaNonPagedPoolUsage;
     public nuint PagefileUsage;
     public nuint PeakPagefileUsage;
-}
-
-[StructLayout(LayoutKind.Sequential)]
-internal struct WindowCompositionAttributeData
-{
-    public int Attribute;
-    public nint Data;
-    public int SizeOfData;
-}
-
-[StructLayout(LayoutKind.Sequential)]
-internal struct AccentPolicy
-{
-    public int AccentState;
-    public int AccentFlags;
-    public uint GradientColor;
-    public int AnimationId;
 }

@@ -9,7 +9,7 @@
         ShowInTaskbar="False"
         Topmost="True"
         AllowsTransparency="False"
-        Background="Transparent"
+        Background="{DynamicResource WindowBgBrush}"
         ShowActivated="True"
         WindowStartupLocation="Manual"
         SnapsToDevicePixels="True"
@@ -34,10 +34,9 @@
     </Style>
   </Window.Resources>
   <Border Background="{DynamicResource WindowBgBrush}"
-          BorderBrush="{DynamicResource StrokeBrush}"
+          BorderBrush="{DynamicResource WindowEdgeBrush}"
           BorderThickness="1"
-          CornerRadius="14"
-          ClipToBounds="True">
+          SnapsToDevicePixels="True">
     <Grid Margin="16">
       <Grid.RowDefinitions>
         <RowDefinition Height="Auto"/>

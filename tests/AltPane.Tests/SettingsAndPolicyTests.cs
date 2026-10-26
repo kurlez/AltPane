@@ -225,3 +225,76 @@ public class NativeLayoutTests
         Assert.Equal(16, Marshal.SizeOf<NativeRect>());
     }
 }
+
+public class WindowFrameTests
+{
+    [Fact]
+    public void Shadow_uses_one_bottom_pixel_and_not_a_glass_sheet()
+    {
+        var margins = WindowFrame.ShadowMargins;
+        Assert.Equal(new WindowFrame.FrameMargins(0, 0, 0, 1), margins);
+        Assert.False(WindowFrame.IsSheetOfGlass(margins));
+        Assert.True(WindowFrame.IsSheetOfGlass(new WindowFrame.FrameMargins(-1, -1, -1, -1)));
+    }
+
+    [Fact]
+    public void Frame_colors_are_opaque_and_follow_the_theme()
+    {
+        Assert.NotEqual(WindowFrame.BorderColor(true), WindowFrame.BorderColor(false));
+        Assert.Equal(0x009A8E8E, WindowFrame.BorderColor(true));
+        Assert.Equal(0x00786E6E, WindowFrame.BorderColor(false));
+        Assert.Equal(0x00221C1B, WindowFrame.CaptionColor(true));
+        Assert.Equal(0x00F8F7F7, WindowFrame.CaptionColor(false));
+        Assert.StartsWith("#FF", WindowFrame.WindowBackgroundHex(true));
+        Assert.StartsWith("#FF", WindowFrame.WindowBackgroundHex(false));
+        Assert.StartsWith("#FF", WindowFrame.PreviewWellHex(true));
+        Assert.StartsWith("#FF", WindowFrame.PreviewWellHex(false));
+    }
+
+    [Fact]
+    public void Theme_files_use_the_opaque_frame_colors()
+    {
+        var root = RepoRoot();
+        var dark = File.ReadAllText(Path.Combine(root, "src", "AltPane", "Themes", "Dark.xaml"));
+        var light = File.ReadAllText(Path.Combine(root, "src", "AltPane", "Themes", "Light.xaml"));
+        var switcher = File.ReadAllText(Path.Combine(root, "src", "AltPane", "Views", "SwitcherWindow.xaml"));
+        var settings = File.ReadAllText(Path.Combine(root, "src", "AltPane", "Views", "SettingsWindow.xaml"));
+
+        Assert.Contains(WindowFrame.WindowBackgroundHex(true), dark);
+        Assert.Contains(WindowFrame.EdgeHex(true), dark);
+        Assert.Contains(WindowFrame.PreviewWellHex(true), dark);
+        Assert.Contains(WindowFrame.WindowBackgroundHex(false), light);
+        Assert.Contains(WindowFrame.EdgeHex(false), light);
+        Assert.Contains(WindowFrame.PreviewWellHex(false), light);
+        Assert.Contains("Background=\"{DynamicResource WindowBgBrush}\"", switcher);
+        Assert.Contains("BorderBrush=\"{DynamicResource WindowEdgeBrush}\"", switcher);
+        Assert.DoesNotContain("CornerRadius=\"14\"", switcher);
+        Assert.Contains("BorderBrush=\"{DynamicResource WindowEdgeBrush}\"", settings);
+    }
+
+    [Fact]
+    public void Thumbnail_destination_preserves_aspect_and_stays_inside_the_pane()
+    {
+        var pane = new RectangleMath.RectI(4, 8, 400, 400);
+        var fitted = RectangleMath.FitContain(pane, 1920, 1080);
+        Assert.Equal(400, fitted.Width);
+        Assert.Equal(225, fitted.Height);
+        Assert.Equal(pane.X, fitted.X);
+        Assert.Equal(pane.Y + (pane.Height - fitted.Height) / 2, fitted.Y);
+        Assert.True(fitted.Y >= pane.Y);
+        Assert.True(fitted.Y + fitted.Height <= pane.Y + pane.Height);
+        Assert.InRange(Math.Abs((fitted.Width / (double)fitted.Height) - (1920 / 1080.0)), 0, 0.01);
+    }
+
+    static string RepoRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null)
+        {
+            if (File.Exists(Path.Combine(dir.FullName, "AltPane.sln"))) return dir.FullName;
+            dir = dir.Parent;
+        }
+
+        throw new InvalidOperationException("Could not find the repository root.");
+    }
+}

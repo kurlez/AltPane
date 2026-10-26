@@ -28,11 +28,9 @@ public partial class SettingsWindow : Window
         InitializeComponent();
         ThemeBox.SelectionChanged += ThemeBox_SelectionChanged;
         LanguageBox.SelectionChanged += LanguageBox_SelectionChanged;
-        SourceInitialized += (_, _) =>
-        {
-            var hwnd = new WindowInteropHelper(this).Handle;
-            WindowChrome.ApplyBackdrop(hwnd, ThemeService.IsDark);
-        };
+        SourceInitialized += (_, _) => ApplyChrome();
+        ThemeService.Changed += OnThemeChanged;
+        Closed += (_, _) => ThemeService.Changed -= OnThemeChanged;
         MaxHeight = SystemParameters.WorkArea.Height * 0.92;
         var version = typeof(SettingsWindow).Assembly.GetName().Version;
         VersionText.Text = "AltPane " + (version?.ToString(3) ?? "0.2.0");
@@ -179,6 +177,18 @@ public partial class SettingsWindow : Window
 
     static T Read<T>(System.Windows.Controls.ComboBox box, T fallback) =>
         box.SelectedItem is Choice<T> choice ? choice.Value : fallback;
+
+    void OnThemeChanged(bool dark) => Dispatcher.BeginInvoke(() =>
+    {
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd != 0) WindowChrome.ApplyBackdrop(hwnd, dark);
+    });
+
+    void ApplyChrome()
+    {
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd != 0) WindowChrome.ApplyBackdrop(hwnd, ThemeService.IsDark);
+    }
 
     void ThemeBox_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
     {

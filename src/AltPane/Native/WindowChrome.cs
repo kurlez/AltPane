@@ -100,53 +100,38 @@ internal static class WindowChrome
 
     public static void ApplyBackdrop(nint hwnd, bool dark)
     {
-        var corner = NativeMethods.DwmwcpRound;
+        if (hwnd == 0) return;
+
+        // Win11 clips the window to a rounded rectangle. Win10 ignores this
+        // attribute and keeps square corners, which is the fallback: a square
+        // 1px border, not a region that would cut the shadow off.
+        var corner = WindowFrame.CornerPreferenceRound;
         NativeMethods.DwmSetWindowAttribute(hwnd, NativeMethods.DwmwaWindowCornerPreference, ref corner, sizeof(int));
+
         var darkMode = dark ? 1 : 0;
         NativeMethods.DwmSetWindowAttribute(hwnd, NativeMethods.DwmwaUseImmersiveDarkMode, ref darkMode, sizeof(int));
-        var backdrop = NativeMethods.DwmsbtTransientWindow;
-        var hr = NativeMethods.DwmSetWindowAttribute(hwnd, NativeMethods.DwmwaSystemBackdropType, ref backdrop, sizeof(int));
-        if (hr != 0)
-        {
-            backdrop = NativeMethods.DwmsbtMainWindow;
-            hr = NativeMethods.DwmSetWindowAttribute(hwnd, NativeMethods.DwmwaSystemBackdropType, ref backdrop, sizeof(int));
-        }
-        if (hr != 0)
-            ApplyLegacyAcrylic(hwnd, dark);
+        // Attribute 19 is the same flag on builds from before it moved to 20.
+        NativeMethods.DwmSetWindowAttribute(hwnd, NativeMethods.DwmwaUseImmersiveDarkModeLegacy, ref darkMode, sizeof(int));
 
-        var margins = new Margins { Left = -1, Right = -1, Top = -1, Bottom = -1 };
-        NativeMethods.DwmExtendFrameIntoClientArea(hwnd, ref margins);
-    }
+        // Mica and acrylic need a transparent client. Where composition is off
+        // that transparency is black, including a band around the frame.
+        var backdrop = WindowFrame.BackdropNone;
+        NativeMethods.DwmSetWindowAttribute(hwnd, NativeMethods.DwmwaSystemBackdropType, ref backdrop, sizeof(int));
 
-    static void ApplyLegacyAcrylic(nint hwnd, bool dark)
-    {
-        var accent = new AccentPolicy
+        var border = WindowFrame.BorderColor(dark);
+        NativeMethods.DwmSetWindowAttribute(hwnd, WindowFrame.BorderColorAttribute, ref border, sizeof(int));
+        var caption = WindowFrame.CaptionColor(dark);
+        NativeMethods.DwmSetWindowAttribute(hwnd, WindowFrame.CaptionColorAttribute, ref caption, sizeof(int));
+
+        var shadow = WindowFrame.ShadowMargins;
+        var margins = new Margins
         {
-            AccentState = 4,
-            AccentFlags = 2,
-            GradientColor = dark ? 0xCC221C1Cu : 0xD8F5F2F2u
+            Left = shadow.Left,
+            Right = shadow.Right,
+            Top = shadow.Top,
+            Bottom = shadow.Bottom
         };
-        var size = Marshal.SizeOf<AccentPolicy>();
-        var ptr = Marshal.AllocHGlobal(size);
-        try
-        {
-            Marshal.StructureToPtr(accent, ptr, false);
-            var data = new WindowCompositionAttributeData
-            {
-                Attribute = 19,
-                Data = ptr,
-                SizeOfData = size
-            };
-            NativeMethods.SetWindowCompositionAttribute(hwnd, ref data);
-        }
-        catch (Exception ex)
-        {
-            AppLog.Error(ex);
-        }
-        finally
-        {
-            Marshal.FreeHGlobal(ptr);
-        }
+        NativeMethods.DwmExtendFrameIntoClientArea(hwnd, ref margins);
     }
 }
 
@@ -188,6 +173,8 @@ internal sealed class ThumbnailController
         if (NativeMethods.DwmQueryThumbnailSourceSize(_thumb, out var size) == 0 && size.Cx > 0 && size.Cy > 0)
             fitted = RectangleMath.FitContain(bounds, size.Cx, size.Cy);
 
+        // The destination already has the source aspect, so DWM scales into it
+        // instead of padding the thumbnail. Bars around it are the preview well.
         var props = new DwmThumbnailProperties
         {
             dwFlags = DwmThumbnailFlags.RectDestination | DwmThumbnailFlags.Visible | DwmThumbnailFlags.Opacity | DwmThumbnailFlags.SourceClientAreaOnly,

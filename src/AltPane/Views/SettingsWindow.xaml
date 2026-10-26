@@ -14,7 +14,7 @@
         FontFamily="Segoe UI, Microsoft YaHei UI, Microsoft YaHei, sans-serif"
         SnapsToDevicePixels="True"
         UseLayoutRounding="True">
-  <Border BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="1">
+  <Border Background="{DynamicResource SettingsBgBrush}" BorderBrush="{DynamicResource WindowEdgeBrush}" BorderThickness="1" SnapsToDevicePixels="True">
     <Grid>
       <Grid.RowDefinitions>
         <RowDefinition Height="Auto"/>
