@@ -1,7 +1,12 @@
 bin/
 obj/
 publish/
+publish-fx/
 TestResults/
+*.zip
+*.7z
+*.exe
+*.pdb
 .vs/
 .idea/
 *.user
