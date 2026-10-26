@@ -236,12 +236,16 @@ public class LoadSortAndKillTests
         settings.SortMode = LoadSortMode.Memory;
         settings.ConfirmEndTask = false;
         settings.EndTaskKillsTree = false;
+        settings.StickySwitcher = false;
+        settings.QuickTapSwitches = true;
         SettingsStore.Save(path, settings);
         var loaded = SettingsStore.Load(path);
         Assert.False(loaded.Settings.ShowLoad);
         Assert.Equal(LoadSortMode.Memory, loaded.Settings.SortMode);
         Assert.False(loaded.Settings.ConfirmEndTask);
         Assert.False(loaded.Settings.EndTaskKillsTree);
+        Assert.False(loaded.Settings.StickySwitcher);
+        Assert.True(loaded.Settings.QuickTapSwitches);
 
         var legacy = Path.Combine(Path.GetTempPath(), "altpane-tests", Guid.NewGuid().ToString("N"), "settings.json");
         Directory.CreateDirectory(Path.GetDirectoryName(legacy)!);
@@ -251,6 +255,8 @@ public class LoadSortAndKillTests
         Assert.Equal(LoadSortMode.Recent, old.Settings.SortMode);
         Assert.True(old.Settings.ConfirmEndTask);
         Assert.True(old.Settings.EndTaskKillsTree);
+        Assert.True(old.Settings.StickySwitcher);
+        Assert.False(old.Settings.QuickTapSwitches);
         Assert.Equal(AppTheme.Dark, old.Settings.Theme);
     }
 

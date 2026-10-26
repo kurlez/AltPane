@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Threading;
 using AltPane.Core.Input;
 using AltPane.Core.Layout;
 using AltPane.Core.Load;
@@ -161,6 +162,7 @@ public partial class SwitcherWindow : Window
     public event Action? SearchRequested;
     public event Action<string>? QueryEdited;
     public event Action<int>? NavigateRequested;
+    public event Action? SpaceRequested;
     public event Action? CloseRequested;
     public event Action? KillRequested;
     public event Action? KillTreeRequested;
@@ -311,7 +313,32 @@ public partial class SwitcherWindow : Window
         SearchBox.IsReadOnly = false;
         SearchBox.Focusable = true;
         SearchBox.Focus();
+        Keyboard.Focus(SearchBox);
         SearchBox.CaretIndex = SearchBox.Text.Length;
+    }
+
+    /// <summary>
+    /// Take the foreground after the trigger key is released. SendInput has already run,
+    /// which is what lets SetForegroundWindow succeed under the foreground lock.
+    /// A second attempt is posted so the search box still receives IME keys if the
+    /// first activation lands before the window is ready.
+    /// </summary>
+    public void ClaimKeyboard()
+    {
+        SuppressCancel(600);
+        var hwnd = Handle;
+        if (hwnd != 0)
+            WindowActions.TryActivate(hwnd);
+        FocusSearch();
+        Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() =>
+        {
+            if (!IsVisible || !_searchMode) return;
+            SuppressCancel(400);
+            var current = Handle;
+            if (current != 0 && NativeMethods.GetForegroundWindow() != current)
+                WindowActions.TryActivate(current);
+            FocusSearch();
+        }));
     }
 
     public bool TryGetThumbBounds(out RectangleMath.RectI bounds)
@@ -336,6 +363,16 @@ public partial class SwitcherWindow : Window
         if (!_searchMode || _composing || e.ImeProcessedKey != Key.None) return;
         var key = e.Key == Key.System ? e.SystemKey : e.Key;
         var mods = Keyboard.Modifiers;
+        if (key is Key.LeftAlt or Key.RightAlt
+            && !mods.HasFlag(WpfMods.Control)
+            && !mods.HasFlag(WpfMods.Shift)
+            && !mods.HasFlag(WpfMods.Windows))
+        {
+            // A bare Alt would open the window menu and steal the next character from the IME.
+            // Alt combined with Shift or Ctrl (IME switching, AltGr) is left for the text box.
+            e.Handled = true;
+            return;
+        }
         if (mods.HasFlag(WpfMods.Control))
         {
             switch (key)
@@ -399,8 +436,16 @@ public partial class SwitcherWindow : Window
                 NavigateRequested?.Invoke(mods.HasFlag(WpfMods.Shift) ? -1 : 1);
                 e.Handled = true;
                 break;
-            case Key.Delete when mods.HasFlag(WpfMods.Shift):
+            case Key.Space when mods == WpfMods.None && string.IsNullOrEmpty(SearchBox.Text):
+                SpaceRequested?.Invoke();
+                e.Handled = true;
+                break;
+            case Key.Delete when mods.HasFlag(WpfMods.Shift) && !mods.HasFlag(WpfMods.Control):
                 KillRequested?.Invoke();
+                e.Handled = true;
+                break;
+            case Key.Delete when !mods.HasFlag(WpfMods.Control) && !mods.HasFlag(WpfMods.Alt):
+                CloseRequested?.Invoke();
                 e.Handled = true;
                 break;
         }

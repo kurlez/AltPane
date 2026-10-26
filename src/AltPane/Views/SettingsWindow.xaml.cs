@@ -49,6 +49,9 @@ public partial class SettingsWindow : Window
         ApplyLabels();
         HotkeyText.Text = HotkeyLogic.Format(_draft.Hotkey ?? HotkeyChord.AltTab());
         WinTabBox.IsChecked = _draft.CaptureWinTab;
+        StickyBox.IsChecked = _draft.StickySwitcher;
+        QuickTapBox.IsChecked = _draft.QuickTapSwitches;
+        UpdateQuickTapEnabled();
         PreviewBox.IsChecked = _draft.ShowPreview;
         PreviewMinimizedBox.IsChecked = _draft.PreviewMinimized;
         LoadBox.IsChecked = _draft.ShowLoad;
@@ -78,6 +81,10 @@ public partial class SettingsWindow : Window
         RecordButton.Content = _recording ? loc["settings.recording"] : loc["settings.record"];
         WinTabBox.Content = loc["settings.winTab"];
         WinTabNote.Text = loc["settings.winTabNote"];
+        StickyBox.Content = loc["settings.sticky"];
+        StickyNote.Text = loc["settings.stickyNote"];
+        QuickTapBox.Content = loc["settings.quickTap"];
+        QuickTapNote.Text = loc["settings.quickTapNote"];
         ThemeLabel.Text = loc["settings.theme"];
         LanguageLabel.Text = loc["settings.language"];
         SizeLabel.Text = loc["settings.size"];
@@ -176,6 +183,19 @@ public partial class SettingsWindow : Window
         Localizer.Current.Apply(_draft.Language, System.Globalization.CultureInfo.CurrentUICulture.Name);
     }
 
+    void StickyBox_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_loading) return;
+        UpdateQuickTapEnabled();
+    }
+
+    void UpdateQuickTapEnabled()
+    {
+        var on = StickyBox.IsChecked == true;
+        QuickTapBox.IsEnabled = on;
+        QuickTapNote.Opacity = on ? 1 : 0.55;
+    }
+
     void Record_Click(object sender, RoutedEventArgs e)
     {
         _recording = true;
@@ -235,6 +255,8 @@ public partial class SettingsWindow : Window
     {
         StopRecording();
         _draft.CaptureWinTab = WinTabBox.IsChecked == true;
+        _draft.StickySwitcher = StickyBox.IsChecked == true;
+        _draft.QuickTapSwitches = QuickTapBox.IsChecked == true;
         _draft.ShowPreview = PreviewBox.IsChecked == true;
         _draft.PreviewMinimized = PreviewMinimizedBox.IsChecked == true;
         _draft.ShowLoad = LoadBox.IsChecked == true;
@@ -305,6 +327,8 @@ public partial class SettingsWindow : Window
             VirtualKey = source.Hotkey?.VirtualKey ?? VirtualKeys.Tab
         },
         CaptureWinTab = source.CaptureWinTab,
+        StickySwitcher = source.StickySwitcher,
+        QuickTapSwitches = source.QuickTapSwitches,
         Theme = source.Theme,
         Size = source.Size,
         ShowPreview = source.ShowPreview,

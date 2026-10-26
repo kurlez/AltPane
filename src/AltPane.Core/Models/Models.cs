@@ -123,6 +123,16 @@ public sealed class AppSettings
     public bool ConfirmEndTask { get; set; } = true;
     public bool EndTaskKillsTree { get; set; } = true;
     public bool PreviewMinimized { get; set; }
+    /// <summary>
+    /// When true (the default), releasing the trigger key leaves the switcher open.
+    /// Enter or a click activates the selection. When false, releasing the trigger activates it.
+    /// </summary>
+    public bool StickySwitcher { get; set; } = true;
+    /// <summary>
+    /// When sticky mode is on, a tap released before the switcher appears still leaves it open.
+    /// Turn this on to activate that tap immediately. Ignored when <see cref="StickySwitcher"/> is false.
+    /// </summary>
+    public bool QuickTapSwitches { get; set; }
 
     public static AppSettings CreateDefault() => new()
     {
@@ -137,6 +147,7 @@ public sealed class AppSettings
         ShowLoad = true,
         SortMode = LoadSortMode.Recent,
         ConfirmEndTask = true,
-        EndTaskKillsTree = true
+        EndTaskKillsTree = true,
+        StickySwitcher = true
     };
 }

@@ -117,7 +117,18 @@ internal sealed class HotkeyService : IDisposable
         GestureSnapshot before;
         lock (_gate) before = _snap;
 
-        var input = before.ToHookInput(hotkey, settings.CaptureWinTab, settings.OverridePaused, _recording(), vk, isDown, repeat, mods);
+        var input = before.ToHookInput(
+            hotkey,
+            settings.CaptureWinTab,
+            settings.OverridePaused,
+            _recording(),
+            vk,
+            isDown,
+            repeat,
+            mods,
+            settings.StickySwitcher,
+            settings.QuickTapSwitches,
+            _presenter.IsSwitcherVisible);
         var result = HookInterpreter.Interpret(input);
         if (result.Command == HookCommand.Pass)
             return NativeMethods.CallNextHookEx(_hook, nCode, wParam, lParam);
@@ -188,7 +199,9 @@ internal sealed class HotkeyService : IDisposable
                     more = _ops.Count > 0;
                 }
 
-                if (GestureTransitions.ShouldQuickCommit(snap, TriggerIsDown(snap.LatchedTrigger), _presenter.PendingShow, more))
+                var settings = _settings();
+                if (GestureTransitions.AllowsInstantTap(settings.StickySwitcher, settings.QuickTapSwitches)
+                    && GestureTransitions.ShouldQuickCommit(snap, TriggerIsDown(snap.LatchedTrigger), _presenter.PendingShow, more))
                 {
                     var trigger = snap.LatchedTrigger;
                     var selected = _presenter.TakeForQuickCommit();
@@ -222,6 +235,7 @@ internal sealed class HotkeyService : IDisposable
             UiOp.Commit commit => commit.Trigger,
             UiOp.Cancel cancel => cancel.Trigger,
             UiOp.EnterSearch search => search.Trigger,
+            UiOp.ReleaseHold hold => hold.Trigger,
             _ => ModifierKeys.None
         };
         if (trigger != ModifierKeys.None)

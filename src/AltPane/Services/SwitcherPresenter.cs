@@ -54,6 +54,7 @@ internal sealed class SwitcherPresenter
             Refresh(updateThumb: true);
         };
         _window.NavigateRequested += Nudge;
+        _window.SpaceRequested += OnSpace;
         _window.CloseRequested += CloseSelected;
         _window.KillRequested += () => KillSelected(null);
         _window.KillTreeRequested += () => KillSelected(true);
@@ -76,6 +77,7 @@ internal sealed class SwitcherPresenter
 
     public HotkeyService? Hotkeys { get; set; }
     public bool PendingShow { get; private set; }
+    public bool IsSwitcherVisible => _window.IsVisible;
     public event Action<string>? Notify;
     public event Action? PersistRequested;
 
@@ -117,12 +119,13 @@ internal sealed class SwitcherPresenter
                 Cancel();
                 break;
             case UiOp.EnterSearch:
+            case UiOp.ReleaseHold:
                 _searchMode = true;
                 if (!_window.IsVisible) PendingShow = true;
-                if (_window.IsVisible)
+                else
                 {
                     Refresh(updateThumb: false);
-                    _window.FocusSearch();
+                    _window.ClaimKeyboard();
                 }
                 break;
             case UiOp.CloseWindow:
@@ -158,7 +161,7 @@ internal sealed class SwitcherPresenter
         _searchMode = snap.SearchMode;
         _window.Render(BuildState());
         _window.ShowFor(_settings(), _restore);
-        if (snap.SearchMode) _window.FocusSearch();
+        if (snap.SearchMode) _window.ClaimKeyboard();
         QueueIcons();
         UpdateThumb();
         SyncSampler();
@@ -451,7 +454,9 @@ internal sealed class SwitcherPresenter
                 ? loc.Format("count.windows", filtered.Count)
                 : loc.Format("count.filtered", filtered.Count, allCount);
         var trigger = HotkeyLogic.TriggerDisplayName(HotkeyLogic.TriggerModifier(settings.Hotkey ?? HotkeyChord.AltTab()));
-        var hint = _searchMode ? loc["hint.sticky"] : loc.Format("hint.gesture", trigger);
+        var hint = settings.StickySwitcher || _searchMode
+            ? loc.Format("hint.sticky", trigger)
+            : loc.Format("hint.gesture", trigger);
         var showLoad = settings.ShowLoad;
         var systemText = !showLoad
             ? ""

@@ -11,6 +11,8 @@ public abstract record UiOp
     public sealed record Commit(ModifierKeys Trigger) : UiOp;
     public sealed record Cancel(ModifierKeys Trigger) : UiOp;
     public sealed record EnterSearch(ModifierKeys Trigger) : UiOp;
+    /// <summary>Trigger was released in sticky mode. The switcher stays open and takes the keyboard.</summary>
+    public sealed record ReleaseHold(ModifierKeys Trigger) : UiOp;
     public sealed record CloseWindow : UiOp;
     public sealed record KillProcess : UiOp;
     public sealed record Minimize : UiOp;
@@ -39,7 +41,18 @@ public readonly record struct GestureSnapshot(
 
     public static GestureSnapshot Idle => new(false, false, false, 0, ModifierKeys.None, ModifierKeys.None);
 
-    public HookInput ToHookInput(HotkeyChord hotkey, bool captureWinTab, bool paused, bool recording, int vk, bool isKeyDown, bool isRepeat, ModifierState mods) =>
+    public HookInput ToHookInput(
+        HotkeyChord hotkey,
+        bool captureWinTab,
+        bool paused,
+        bool recording,
+        int vk,
+        bool isKeyDown,
+        bool isRepeat,
+        ModifierState mods,
+        bool stickySwitcher = false,
+        bool quickTapSwitches = false,
+        bool switcherShown = false) =>
         new()
         {
             Paused = paused,
@@ -52,6 +65,9 @@ public readonly record struct GestureSnapshot(
             PendingTriggerRelease = PendingTriggerRelease,
             Hotkey = hotkey,
             CaptureWinTab = captureWinTab,
+            StickySwitcher = stickySwitcher,
+            QuickTapSwitches = quickTapSwitches,
+            SwitcherShown = switcherShown,
             VirtualKey = vk,
             IsKeyDown = isKeyDown,
             IsRepeat = isRepeat,
@@ -106,6 +122,21 @@ public static class GestureTransitions
                     LatchedTrigger = ModifierKeys.None,
                     PendingTriggerRelease = searchPending
                 }, new UiOp.EnterSearch(searchTrigger));
+            case HookCommand.ReleaseHold:
+                if (!state.SwitcherOpen) return new(state, null);
+                // This event is the physical trigger key-up, and the hook swallows it.
+                // Do not arm PendingTriggerRelease: the matching up will not arrive again,
+                // and arming it would swallow the next Alt+Tab's key-up.
+                var holdTrigger = state.LatchedTrigger != ModifierKeys.None
+                    ? state.LatchedTrigger
+                    : activationTrigger;
+                return new(state with
+                {
+                    SearchMode = true,
+                    GestureLatched = false,
+                    LatchedTrigger = ModifierKeys.None,
+                    PendingTriggerRelease = ModifierKeys.None
+                }, new UiOp.ReleaseHold(holdTrigger));
             case HookCommand.CloseWindow:
                 return state.SwitcherOpen ? new(state, new UiOp.CloseWindow()) : new(state, null);
             case HookCommand.KillProcess:
@@ -141,6 +172,13 @@ public static class GestureTransitions
             LatchedTrigger = ModifierKeys.None
         }, new UiOp.Open(0));
     }
+
+    /// <summary>
+    /// Classic mode activates a tap released before the switcher is drawn.
+    /// Sticky mode leaves that tap open unless <paramref name="quickTapSwitches"/> is set.
+    /// </summary>
+    public static bool AllowsInstantTap(bool stickySwitcher, bool quickTapSwitches) =>
+        !stickySwitcher || quickTapSwitches;
 
     public static bool ShouldQuickCommit(GestureSnapshot snap, bool triggerIsDown, bool pendingShow, bool moreOpsQueued) =>
         pendingShow

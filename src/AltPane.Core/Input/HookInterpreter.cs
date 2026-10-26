@@ -20,7 +20,8 @@ public enum HookCommand
     Home,
     End,
     Page,
-    SpaceAction
+    SpaceAction,
+    ReleaseHold
 }
 
 public readonly record struct HookResult(HookCommand Command, int Delta, bool LatchGesture, bool ClearAwaitingRelease)
@@ -42,6 +43,7 @@ public readonly record struct HookResult(HookCommand Command, int Delta, bool La
     public static HookResult End() => new(HookCommand.End, 0, false, false);
     public static HookResult Page(int direction) => new(HookCommand.Page, direction < 0 ? -1 : 1, false, false);
     public static HookResult Space() => new(HookCommand.SpaceAction, 0, false, false);
+    public static HookResult ReleaseHold() => new(HookCommand.ReleaseHold, 0, false, false);
 }
 
 public readonly record struct HookInput
@@ -56,6 +58,12 @@ public readonly record struct HookInput
     public ModifierKeys PendingTriggerRelease { get; init; }
     public HotkeyChord? Hotkey { get; init; }
     public bool CaptureWinTab { get; init; }
+    /// <summary>When true, releasing the trigger leaves the switcher open instead of activating.</summary>
+    public bool StickySwitcher { get; init; }
+    /// <summary>With <see cref="StickySwitcher"/>, a tap released before the window is shown still activates.</summary>
+    public bool QuickTapSwitches { get; init; }
+    /// <summary>The switcher window is already on screen. A hidden session is the quick-tap window.</summary>
+    public bool SwitcherShown { get; init; }
     public int VirtualKey { get; init; }
     public bool IsKeyDown { get; init; }
     public bool IsRepeat { get; init; }
@@ -99,7 +107,16 @@ public static class HookInterpreter
                 ? input.LatchedTrigger
                 : HotkeyLogic.TriggerModifier(hotkey);
             if (input.GestureLatched && HotkeyLogic.IsTriggerModifierKey(input.VirtualKey, trigger))
-                return HookResult.Commit();
+            {
+                // Classic mode activates on release. Sticky mode keeps the switcher up so the
+                // search box can take real focus (IME included). A quick tap that is released
+                // before the window is drawn can still activate when that option is on.
+                if (!input.StickySwitcher)
+                    return HookResult.Commit();
+                if (input.QuickTapSwitches && !input.SwitcherShown && !input.HasSearchQuery)
+                    return HookResult.Commit();
+                return HookResult.ReleaseHold();
+            }
             if (HotkeyLogic.IsModifierKey(input.VirtualKey))
                 return HookResult.Pass();
             return HookResult.Swallow();

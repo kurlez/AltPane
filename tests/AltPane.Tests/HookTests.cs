@@ -89,8 +89,33 @@ public class HookInterpreterTests
     {
         var up = Open(Key(VirtualKeys.Menu, false, ModifierState.None));
         Assert.Equal(HookCommand.Commit, HookInterpreter.Interpret(up).Command);
-        var sticky = up with { GestureLatched = false, LatchedTrigger = ModifierKeys.None };
-        Assert.Equal(HookCommand.Pass, HookInterpreter.Interpret(sticky).Command);
+        var unlatched = up with { GestureLatched = false, LatchedTrigger = ModifierKeys.None };
+        Assert.Equal(HookCommand.Pass, HookInterpreter.Interpret(unlatched).Command);
+    }
+
+    [Fact]
+    public void Sticky_release_keeps_the_switcher_and_a_quick_tap_is_optional()
+    {
+        var shown = Open(Key(VirtualKeys.Menu, false, ModifierState.None)) with
+        {
+            StickySwitcher = true,
+            SwitcherShown = true
+        };
+        Assert.Equal(HookCommand.ReleaseHold, HookInterpreter.Interpret(shown).Command);
+
+        var hidden = shown with { SwitcherShown = false, QuickTapSwitches = false };
+        Assert.Equal(HookCommand.ReleaseHold, HookInterpreter.Interpret(hidden).Command);
+
+        var instant = hidden with { QuickTapSwitches = true };
+        Assert.Equal(HookCommand.Commit, HookInterpreter.Interpret(instant).Command);
+
+        var typed = instant with { HasSearchQuery = true };
+        Assert.Equal(HookCommand.ReleaseHold, HookInterpreter.Interpret(typed).Command);
+
+        var enter = Open(Key(VirtualKeys.Return, true, ModifierState.AltOnly)) with { StickySwitcher = true };
+        Assert.Equal(HookCommand.Commit, HookInterpreter.Interpret(enter).Command);
+        var tab = Open(Key(VirtualKeys.Tab, true, ModifierState.AltOnly)) with { StickySwitcher = true };
+        Assert.Equal(HookCommand.Cycle, HookInterpreter.Interpret(tab).Command);
     }
 
     [Fact]
@@ -260,6 +285,54 @@ public class GestureTransitionTests
         Assert.False(GestureTransitions.ShouldQuickCommit(snap with { QueryLength = 1 }, false, true, false));
         Assert.False(GestureTransitions.ShouldQuickCommit(snap, false, true, moreOpsQueued: true));
         Assert.False(GestureTransitions.ShouldQuickCommit(snap with { GestureLatched = false, LatchedTrigger = ModifierKeys.None }, false, true, false));
+    }
+
+    [Fact]
+    public void Sticky_release_opens_search_without_arming_another_key_up()
+    {
+        var open = GestureSnapshot.Idle with
+        {
+            SwitcherOpen = true,
+            GestureLatched = true,
+            LatchedTrigger = ModifierKeys.Alt,
+            QueryLength = 1
+        };
+        var released = GestureTransitions.Apply(open, HookResult.ReleaseHold(), null, triggerStillDown: true, ModifierKeys.Alt);
+        var hold = Assert.IsType<UiOp.ReleaseHold>(released.Op);
+        Assert.Equal(ModifierKeys.Alt, hold.Trigger);
+        Assert.True(released.Next.SwitcherOpen);
+        Assert.True(released.Next.SearchMode);
+        Assert.False(released.Next.GestureLatched);
+        Assert.Equal(ModifierKeys.None, released.Next.LatchedTrigger);
+        Assert.Equal(ModifierKeys.None, released.Next.PendingTriggerRelease);
+        Assert.Equal(1, released.Next.QueryLength);
+        Assert.False(GestureTransitions.ShouldQuickCommit(released.Next, triggerIsDown: false, pendingShow: true, moreOpsQueued: false));
+
+        var cycleInput = released.Next.ToHookInput(
+            HotkeyChord.AltTab(), false, false, false, VirtualKeys.Tab, true, false, ModifierState.AltOnly, stickySwitcher: true, switcherShown: true);
+        var cycle = HookInterpreter.Interpret(cycleInput);
+        Assert.Equal(HookCommand.Cycle, cycle.Command);
+        var cycled = GestureTransitions.Apply(released.Next, cycle, null, true, ModifierKeys.Alt);
+        Assert.True(cycled.Next.SearchMode);
+        Assert.True(cycled.Next.SwitcherOpen);
+        Assert.False(cycled.Next.GestureLatched);
+
+        var letter = released.Next.ToHookInput(
+            HotkeyChord.AltTab(), false, false, false, VirtualKeys.A, true, false, ModifierState.None, stickySwitcher: true, switcherShown: true);
+        Assert.Equal(HookCommand.Pass, HookInterpreter.Interpret(letter).Command);
+        var enter = letter with { VirtualKey = VirtualKeys.Return };
+        Assert.Equal(HookCommand.Pass, HookInterpreter.Interpret(enter).Command);
+        var arrows = letter with { VirtualKey = VirtualKeys.Down };
+        Assert.Equal(HookCommand.Pass, HookInterpreter.Interpret(arrows).Command);
+    }
+
+    [Fact]
+    public void Instant_tap_is_classic_behavior_unless_sticky_opts_in()
+    {
+        Assert.True(GestureTransitions.AllowsInstantTap(stickySwitcher: false, quickTapSwitches: false));
+        Assert.True(GestureTransitions.AllowsInstantTap(stickySwitcher: false, quickTapSwitches: true));
+        Assert.False(GestureTransitions.AllowsInstantTap(stickySwitcher: true, quickTapSwitches: false));
+        Assert.True(GestureTransitions.AllowsInstantTap(stickySwitcher: true, quickTapSwitches: true));
     }
 
     [Fact]
