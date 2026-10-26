@@ -116,9 +116,8 @@ internal sealed class EverythingClient
             }
             return list;
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            AppLog.Error(ex);
             return null;
         }
     }
@@ -209,9 +208,8 @@ internal sealed class EverythingClient
             }
             return reply is null ? null : ParseList(reply, max);
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            AppLog.Error(ex);
             return null;
         }
         finally
@@ -304,9 +302,8 @@ internal sealed class EverythingClient
             }
             return list;
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            AppLog.Error(ex);
             return Array.Empty<string>();
         }
     }

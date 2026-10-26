@@ -17,6 +17,7 @@ internal sealed class AppIndexService : IDisposable
     readonly string _historyPath;
     readonly List<FileSystemWatcher> _watchers = new();
     readonly EverythingClient _everything = new();
+    readonly IAppDirectory _files;
     IReadOnlyList<AppEntry> _all = Array.Empty<AppEntry>();
     IReadOnlyList<AppEntry> _visible = Array.Empty<AppEntry>();
     IReadOnlyList<AppEntry> _extra = Array.Empty<AppEntry>();
@@ -27,16 +28,27 @@ internal sealed class AppIndexService : IDisposable
     Timer? _save;
     Timer? _periodic;
     int _sources;
+    int _everythingNotice;
+    volatile bool _usingBuiltInIndex;
     bool _started;
     bool _disposed;
 
     public AppIndexService(Func<AppSettings> settings)
+        : this(settings, new PhysicalAppDirectory())
+    {
+    }
+
+    public AppIndexService(Func<AppSettings> settings, IAppDirectory files)
     {
         _settings = settings;
+        _files = files;
         var directory = Path.GetDirectoryName(SettingsStore.DefaultPath()) ?? "";
         _indexPath = Path.Combine(directory, "apps.json");
         _historyPath = Path.Combine(directory, "launches.json");
     }
+
+    /// <summary>Everything was requested and is not available, so launch rows come from the built-in index.</summary>
+    public bool UsingBuiltInIndex => _usingBuiltInIndex;
 
     public event Action? Updated;
 
@@ -93,6 +105,7 @@ internal sealed class AppIndexService : IDisposable
                 var history = AppCatalog.LoadHistory(_historyPath);
                 Publish(cached, history, save: false);
                 FullScan();
+                NoteBuiltInIndex();
                 BindWatchers();
                 _periodic = new Timer(_ => FullScan(), null, TimeSpan.FromMinutes(10), TimeSpan.FromMinutes(10));
             }
@@ -143,16 +156,25 @@ internal sealed class AppIndexService : IDisposable
         {
             var settings = _settings();
             Volatile.Write(ref _sources, SourceMask(settings));
-            var found = new List<AppEntry>();
-            if (settings.IndexStartMenu)
-                found.AddRange(ScanShortcuts(StartMenuRoots(), AppSource.StartMenu));
-            if (settings.IndexDesktop)
-                found.AddRange(ScanShortcuts(DesktopRoots(), AppSource.Desktop));
-            if (settings.IndexPath)
-                found.AddRange(ScanPath());
-            if (settings.IndexStoreApps)
-                found.AddRange(ScanStore());
-            Publish(AppCatalog.Merge(found), usage: null, save: true);
+            var result = InstalledIndex.Scan(new InstalledIndexRequest
+            {
+                StartMenu = settings.IndexStartMenu,
+                Desktop = settings.IndexDesktop,
+                Path = settings.IndexPath,
+                Store = settings.IndexStoreApps,
+                StartMenuRoots = StartMenuRoots().Where(Directory.Exists).ToArray(),
+                DesktopRoots = DesktopRoots().Where(Directory.Exists).ToArray(),
+                PathDirectories = PathDirectories(),
+                StoreApps = () => ScanStore().ToArray(),
+                OnSourceFailed = (name, ex) =>
+                {
+                    AppLog.Info(name + " index failed and was skipped.");
+                    AppLog.Error(ex);
+                }
+            }, _files);
+            if (result.SkippedFolders > 0)
+                AppLog.Info($"App index skipped {result.SkippedFolders} inaccessible folder(s).");
+            Publish(result.Apps, usage: null, save: true);
         }
         catch (Exception ex)
         {
@@ -290,65 +312,19 @@ internal sealed class AppIndexService : IDisposable
         }
     }
 
-    static IEnumerable<AppEntry> ScanShortcuts(IEnumerable<string> roots, AppSource source)
-    {
-        foreach (var root in roots)
-        {
-            if (!Directory.Exists(root)) continue;
-            IEnumerable<string> files;
-            try
-            {
-                files = Directory.EnumerateFiles(root, "*.lnk", SearchOption.AllDirectories);
-            }
-            catch (Exception ex)
-            {
-                AppLog.Error(ex);
-                continue;
-            }
-
-            foreach (var file in files)
-            {
-                AppEntry? entry = null;
-                try
-                {
-                    if (ShellLinkReader.TryRead(File.ReadAllBytes(file), out var link))
-                        entry = AppCatalog.FromShortcut(file, link, source);
-                }
-                catch (Exception ex)
-                {
-                    AppLog.Error(ex);
-                }
-                if (entry is not null) yield return entry;
-            }
-        }
-    }
-
-    static IEnumerable<AppEntry> ScanPath()
+    static string[] PathDirectories()
     {
         var variable = Environment.GetEnvironmentVariable("PATH");
-        if (string.IsNullOrWhiteSpace(variable)) yield break;
+        if (string.IsNullOrWhiteSpace(variable)) return Array.Empty<string>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var dirs = new List<string>();
         foreach (var raw in variable.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
         {
             var dir = raw.Trim().Trim('"');
             if (dir.Length == 0 || !Directory.Exists(dir) || !seen.Add(dir)) continue;
-            IEnumerable<string> files;
-            try
-            {
-                files = Directory.EnumerateFiles(dir, "*.exe");
-            }
-            catch
-            {
-                continue;
-            }
-
-            foreach (var file in files)
-            {
-                if (AppCatalog.IsNoisyPathExecutable(file)) continue;
-                var name = Path.GetFileNameWithoutExtension(file);
-                yield return AppCatalog.Create(name, file, AppKind.Executable, AppSource.Path, file, "", dir, file, 0);
-            }
+            dirs.Add(dir);
         }
+        return dirs.ToArray();
     }
 
     static IEnumerable<AppEntry> ScanStore()
@@ -414,6 +390,11 @@ internal sealed class AppIndexService : IDisposable
         var settings = _settings();
         var built = EverythingIndex.Build(query, settings.EverythingExtensions, settings.EverythingExcludedPaths);
         if (built is null || generation != Volatile.Read(ref _searchGeneration)) return;
+        if (!_everything.Probe().Running)
+        {
+            NoteBuiltInIndex();
+            return;
+        }
         IReadOnlyList<string> paths;
         try
         {
@@ -421,7 +402,8 @@ internal sealed class AppIndexService : IDisposable
         }
         catch (Exception ex)
         {
-            AppLog.Error(ex);
+            NoteBuiltInIndex();
+            if (AppLog.Verbose) AppLog.Error(ex);
             return;
         }
         if (generation != Volatile.Read(ref _searchGeneration)) return;
@@ -453,6 +435,17 @@ internal sealed class AppIndexService : IDisposable
             _extra = entries;
         }
         Updated?.Invoke();
+    }
+
+    void NoteBuiltInIndex()
+    {
+        var settings = _settings();
+        if (!settings.LaunchApps || !settings.UseEverything || _everything.Probe().Running) return;
+        var changed = !_usingBuiltInIndex;
+        _usingBuiltInIndex = true;
+        if (Interlocked.Exchange(ref _everythingNotice, 1) == 0)
+            AppLog.Info("Everything is not running. Using the built-in app index.");
+        if (changed) Updated?.Invoke();
     }
 
     static IEnumerable<string> DesktopRoots()

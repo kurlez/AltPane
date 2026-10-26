@@ -698,7 +698,9 @@ internal sealed class SwitcherPresenter
             EmptyText = EmptyMessage(loc, settings, filtered.Count, allCount),
             Apps = _session?.AppHits ?? Array.Empty<AppHit>(),
             AppIcons = _appIcons,
-            LaunchSection = loc["launch.section"],
+            LaunchSection = _apps is { UsingBuiltInIndex: true }
+                ? loc["launch.section"] + "  ·  " + loc["launch.everythingOff"]
+                : loc["launch.section"],
             OpenBadge = loc["launch.openBadge"],
             SwitchSubtitle = loc["launch.switchSubtitle"],
             ShowMonitorBadges = showBadges,
