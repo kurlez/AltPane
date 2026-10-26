@@ -13,6 +13,6 @@ Dependencies:
 Installers:
   - Architecture: x64
     InstallerUrl: https://github.com/kurlez/AltPane/releases/download/v0.3.1/AltPane-0.3.1-win-x64.zip
-    InstallerSha256: 0000000000000000000000000000000000000000000000000000000000000000
+    InstallerSha256: 8F154212D9B995CFBA95B5352C05F6D4551A6F5B62C32D1CC98AC85E573D973A
 ManifestType: installer
 ManifestVersion: 1.6.0
