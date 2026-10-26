@@ -4,6 +4,7 @@ using AltPane.Core.Input;
 using AltPane.Core.Load;
 using AltPane.Core.Localization;
 using AltPane.Core.Models;
+using AltPane.Core.Preview;
 using AltPane.Core.Switcher;
 
 namespace AltPane;
@@ -17,6 +18,10 @@ internal sealed class SwitcherPresenter
     readonly DispatcherTimer _statusTimer;
     readonly LoadSampler _sampler = new();
     readonly KillArm _arm = new();
+    readonly MinimizedPreviewSession _preview = new();
+    readonly Dictionary<long, System.Windows.Media.ImageSource> _stills = new();
+    int _captureGeneration;
+    long _giveUpHandle;
     SwitcherSession? _session;
     nint _restore;
     string? _status;
@@ -53,6 +58,7 @@ internal sealed class SwitcherPresenter
         _window.KillRequested += () => KillSelected(null);
         _window.KillTreeRequested += () => KillSelected(true);
         _window.SortCycleRequested += CycleSort;
+        _window.PreviewRequested += PreviewSelected;
         _sampler.Updated += update => _window.Dispatcher.BeginInvoke(() => ApplyLoad(update));
         _window.MinimizeRequested += () => RunAction(static hwnd => WindowActions.Minimize(hwnd), iconic: true, zoomed: false);
         _window.MaximizeRequested += () => RunAction(static hwnd => WindowActions.Maximize(hwnd), iconic: false, zoomed: true);
@@ -134,6 +140,9 @@ internal sealed class SwitcherPresenter
             case UiOp.Restore:
                 RunAction(static hwnd => WindowActions.Restore(hwnd), iconic: false, zoomed: false);
                 break;
+            case UiOp.SpaceAction:
+                OnSpace();
+                break;
             case UiOp.BringToFront:
                 if (_session is null) Build(0);
                 else if (_window.IsVisible) _window.Activate();
@@ -158,6 +167,7 @@ internal sealed class SwitcherPresenter
     public WindowEntry? TakeForQuickCommit()
     {
         var selected = _session?.Selected;
+        ApplyPreview(_preview.Cancel());
         PendingShow = false;
         _searchMode = false;
         _session = null;
@@ -180,6 +190,7 @@ internal sealed class SwitcherPresenter
 
     public void ForceClose()
     {
+        ApplyPreview(_preview.Cancel());
         _sampler.Stop();
         _thumbs.Clear();
         _window.ForceClose();
@@ -187,6 +198,7 @@ internal sealed class SwitcherPresenter
 
     void Build(int delta)
     {
+        ApplyPreview(_preview.Cancel());
         _restore = NativeMethods.GetForegroundWindow();
         List<WindowEntry> entries;
         try
@@ -217,6 +229,7 @@ internal sealed class SwitcherPresenter
     void Commit()
     {
         var selected = _session?.Selected;
+        ApplyPreview(_preview.Commit());
         PendingShow = false;
         _searchMode = false;
         _session = null;
@@ -233,6 +246,7 @@ internal sealed class SwitcherPresenter
 
     void Cancel()
     {
+        ApplyPreview(_preview.Cancel());
         var restore = _restore;
         var wasVisible = _window.IsVisible;
         PendingShow = false;
@@ -265,6 +279,7 @@ internal sealed class SwitcherPresenter
         var session = _session;
         var selected = session?.Selected;
         if (session is null || selected is null) return;
+        ReturnBorrowed(selected.Handle);
         var hwnd = (nint)selected.Handle;
         if (!NativeMethods.IsWindow(hwnd))
         {
@@ -281,6 +296,7 @@ internal sealed class SwitcherPresenter
     {
         var selected = _session?.Selected;
         if (selected is null) return;
+        ReturnBorrowed(selected.Handle);
         var includeTree = forceTree ?? _settings().EndTaskKillsTree;
         var decision = ProcessActionPolicy.Evaluate(selected.KillProcessName, selected.KillProcessId);
         if (!decision.Allowed)
@@ -384,6 +400,8 @@ internal sealed class SwitcherPresenter
     {
         var selected = _session?.Selected;
         if (selected is null || !NativeMethods.IsWindow((nint)selected.Handle)) return;
+        if (iconic) ReturnBorrowed(selected.Handle);
+        else ReleaseBorrowed(selected.Handle);
         action((nint)selected.Handle);
         selected.IsIconic = iconic;
         selected.IsZoomed = zoomed;
@@ -494,17 +512,29 @@ internal sealed class SwitcherPresenter
     void UpdateThumb()
     {
         var settings = _settings();
+        FollowMinimizedPreview();
         var selected = _session?.Selected;
         if (!settings.ShowPreview || selected is null || !_window.IsVisible || selected.IsIconic)
         {
             _thumbs.Clear();
-            _window.SetPreviewMessage(selected is null
-                ? Localizer.Current["preview.none"]
-                : selected.IsIconic
-                    ? Localizer.Current["preview.minimized"]
-                    : "");
+            if (selected is { IsIconic: true } && _stills.TryGetValue(selected.Handle, out var still))
+            {
+                _window.ShowStillPreview(still, Localizer.Current["preview.minimizedBadge"]);
+                _window.SetPreviewMessage("");
+            }
+            else
+            {
+                _window.ShowStillPreview(null, null);
+                _window.SetPreviewMessage(selected is null
+                    ? Localizer.Current["preview.none"]
+                    : selected.IsIconic
+                        ? Localizer.Current["preview.minimized"]
+                        : "");
+            }
             return;
         }
+
+        _window.ShowStillPreview(null, null);
 
         if (!_window.TryGetThumbBounds(out var bounds))
         {
@@ -516,11 +546,173 @@ internal sealed class SwitcherPresenter
         if (hr == 0)
         {
             _window.SetPreviewMessage("");
+            QueueStill(selected.Handle, (nint)selected.Handle);
             return;
         }
 
         _thumbs.Clear();
         var denied = unchecked((int)hr) == unchecked((int)0x80070005);
         _window.SetPreviewMessage(Localizer.Current[denied ? "preview.denied" : "preview.unavailable"]);
+    }
+
+    void FollowMinimizedPreview()
+    {
+        if (!_settings().ShowPreview || _session?.Selected is not { } selected)
+        {
+            ApplyPreview(_preview.Cancel());
+            return;
+        }
+        if (_giveUpHandle != 0 && _giveUpHandle != selected.Handle)
+            _giveUpHandle = 0;
+        if (_preview.IsBorrowing && _preview.Handle == selected.Handle)
+            return;
+        var auto = _settings().PreviewMinimized && _giveUpHandle != selected.Handle;
+        ApplyPreview(_preview.Consider(selected.Handle, selected.IsIconic, auto, manual: false));
+    }
+
+    void OnSpace()
+    {
+        var selected = _session?.Selected;
+        if (selected is null || !selected.IsIconic)
+        {
+            Hotkeys?.RequestCommit();
+            return;
+        }
+        _giveUpHandle = 0;
+        ApplyPreview(_preview.Consider(selected.Handle, true, auto: false, manual: true), manualBorrow: true);
+        if (_window.IsVisible) UpdateThumb();
+    }
+
+    void PreviewSelected()
+    {
+        var selected = _session?.Selected;
+        if (selected is null || !selected.IsIconic) return;
+        _giveUpHandle = 0;
+        ApplyPreview(_preview.Consider(selected.Handle, true, auto: false, manual: true), manualBorrow: true);
+        if (_window.IsVisible) UpdateThumb();
+    }
+
+    void ReturnBorrowed(long handle)
+    {
+        if (!_preview.IsBorrowing || _preview.Handle != handle) return;
+        ApplyPreview(_preview.Cancel());
+    }
+
+    void ReleaseBorrowed(long handle)
+    {
+        if (!_preview.IsBorrowing || _preview.Handle != handle) return;
+        ApplyPreview(_preview.Commit());
+    }
+
+    void ApplyPreview(PreviewStep step, bool manualBorrow = false)
+    {
+        if (step.ReturnHandle != 0 && step.ReturnPlacement is { } back)
+        {
+            WindowPlacementStore.TryApply((nint)step.ReturnHandle, back);
+            MarkIconic(step.ReturnHandle, true);
+        }
+        if (step.ReleaseHandle != 0 && step.ReleasePlacement is { } forward)
+        {
+            _window.SuppressCancel(600);
+            WindowPlacementStore.TryApply((nint)step.ReleaseHandle, forward);
+            MarkIconic(step.ReleaseHandle, false);
+        }
+        if (step.BorrowHandle != 0)
+            BeginBorrow(step.BorrowHandle, manualBorrow);
+    }
+
+    void BeginBorrow(long handle, bool manual)
+    {
+        if (!manual && _giveUpHandle == handle) return;
+        var hwnd = (nint)handle;
+        if (!NativeMethods.IsWindow(hwnd) || !WindowPlacementStore.TryGet(hwnd, out var original))
+        {
+            _giveUpHandle = handle;
+            ShowStatus(Localizer.Current["preview.restoreFailed"]);
+            return;
+        }
+
+        var off = PlacementEdits.OffScreen(
+            original,
+            NativeMethods.GetSystemMetrics(NativeMethods.SmXVirtualScreen),
+            NativeMethods.GetSystemMetrics(NativeMethods.SmYVirtualScreen));
+        _window.SuppressCancel(700);
+        var applied = false;
+        _window.RunGuarded(() => applied = WindowPlacementStore.TryApply(hwnd, off));
+        if (!applied)
+        {
+            _giveUpHandle = handle;
+            ShowStatus(Localizer.Current["preview.restoreFailed"]);
+            return;
+        }
+
+        _preview.NoteBorrowed(handle, original);
+        if (!NativeMethods.IsIconic(hwnd))
+        {
+            MarkIconic(handle, false);
+            KeepSwitcherForeground();
+            return;
+        }
+
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(180) };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            if (!_preview.IsBorrowing || _preview.Handle != handle) return;
+            _window.SuppressCancel(400);
+            if (NativeMethods.IsWindow(hwnd) && !NativeMethods.IsIconic(hwnd))
+            {
+                MarkIconic(handle, false);
+                KeepSwitcherForeground();
+                if (_window.IsVisible) UpdateThumb();
+                return;
+            }
+            if (NativeMethods.IsWindow(hwnd))
+                WindowPlacementStore.TryApply(hwnd, original);
+            _preview.NoteFailed();
+            _giveUpHandle = handle;
+            MarkIconic(handle, true);
+            ShowStatus(Localizer.Current["preview.restoreFailed"]);
+            if (_window.IsVisible) UpdateThumb();
+        };
+        timer.Start();
+    }
+
+    void KeepSwitcherForeground()
+    {
+        var hwnd = _window.Handle;
+        if (hwnd == 0) return;
+        NativeMethods.SetWindowPos(hwnd, new nint(-1), 0, 0, 0, 0, NativeMethods.SwpNoMove | NativeMethods.SwpNoSize | NativeMethods.SwpNoActivate);
+        if (NativeMethods.GetForegroundWindow() != hwnd)
+            NativeMethods.SetForegroundWindow(hwnd);
+    }
+
+    void MarkIconic(long handle, bool iconic)
+    {
+        var entry = _session?.All.FirstOrDefault(item => item.Handle == handle);
+        if (entry is not null) entry.IsIconic = iconic;
+    }
+
+    void QueueStill(long handle, nint hwnd)
+    {
+        if (_stills.ContainsKey(handle)) return;
+        var generation = ++_captureGeneration;
+        _window.Dispatcher.BeginInvoke(() =>
+        {
+            if (generation != _captureGeneration || _stills.ContainsKey(handle)) return;
+            var image = PreviewCapture.TryCapture(hwnd);
+            if (image is null) return;
+            _stills[handle] = image;
+            while (_stills.Count > 16)
+            {
+                long drop = 0;
+                foreach (var key in _stills.Keys)
+                {
+                    drop = key;
+                    break;
+                }
+                _stills.Remove(drop);
+            }
+        }, DispatcherPriority.Background);
     }
 }

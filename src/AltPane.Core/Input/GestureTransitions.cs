@@ -20,6 +20,7 @@ public abstract record UiOp
     public sealed record End : UiOp;
     public sealed record Page(int Direction) : UiOp;
     public sealed record BringToFront : UiOp;
+    public sealed record SpaceAction : UiOp;
 }
 
 /// <summary>
@@ -121,6 +122,8 @@ public static class GestureTransitions
                 return state.SwitcherOpen ? new(state, new UiOp.End()) : new(state, null);
             case HookCommand.Page:
                 return state.SwitcherOpen ? new(state, new UiOp.Page(result.Delta)) : new(state, null);
+            case HookCommand.SpaceAction:
+                return state.SwitcherOpen ? new(state, new UiOp.SpaceAction()) : new(state, null);
             default:
                 return new(state, null);
         }

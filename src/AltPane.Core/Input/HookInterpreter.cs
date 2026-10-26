@@ -19,7 +19,8 @@ public enum HookCommand
     EnterSearch,
     Home,
     End,
-    Page
+    Page,
+    SpaceAction
 }
 
 public readonly record struct HookResult(HookCommand Command, int Delta, bool LatchGesture, bool ClearAwaitingRelease)
@@ -40,6 +41,7 @@ public readonly record struct HookResult(HookCommand Command, int Delta, bool La
     public static HookResult Home() => new(HookCommand.Home, 0, false, false);
     public static HookResult End() => new(HookCommand.End, 0, false, false);
     public static HookResult Page(int direction) => new(HookCommand.Page, direction < 0 ? -1 : 1, false, false);
+    public static HookResult Space() => new(HookCommand.SpaceAction, 0, false, false);
 }
 
 public readonly record struct HookInput
@@ -113,7 +115,7 @@ public static class HookInterpreter
         {
             case VirtualKeys.Escape: return HookResult.Cancel();
             case VirtualKeys.Return: return HookResult.Commit();
-            case VirtualKeys.Space when !input.HasSearchQuery: return HookResult.Commit();
+            case VirtualKeys.Space when !input.HasSearchQuery: return HookResult.Space();
             case VirtualKeys.Space: return HookResult.Type();
             case VirtualKeys.Back: return HookResult.Backspace();
             case VirtualKeys.Up:
@@ -183,7 +185,7 @@ public static class HookInterpreter
 
     static bool IsNonRepeating(in HookInput input)
     {
-        if (input.VirtualKey is VirtualKeys.Escape or VirtualKeys.Return or VirtualKeys.Delete)
+        if (input.VirtualKey is VirtualKeys.Escape or VirtualKeys.Return or VirtualKeys.Delete or VirtualKeys.Space)
             return true;
         if (!input.Modifiers.Ctrl) return false;
         return input.VirtualKey is VirtualKeys.W or VirtualKeys.M or VirtualKeys.R or VirtualKeys.F;

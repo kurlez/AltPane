@@ -252,6 +252,65 @@ internal static class NativeMethods
 
     [DllImport("psapi.dll", SetLastError = true)]
     public static extern bool GetProcessMemoryInfo(nint process, ref ProcessMemoryCounters counters, uint cb);
+
+    public const int SwShowMaximized = 3;
+    public const int SwShowNoActivate = 4;
+    public const int SmXVirtualScreen = 76;
+    public const int SmYVirtualScreen = 77;
+    public const uint SwpNoActivate = 0x0010;
+    public const uint SwpNoMove = 0x0002;
+    public const uint SwpNoSize = 0x0001;
+    public const uint SwpNoZOrder = 0x0004;
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool GetWindowPlacement(nint hwnd, ref WindowPlacementNative placement);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool SetWindowPlacement(nint hwnd, ref WindowPlacementNative placement);
+
+    [DllImport("user32.dll")]
+    public static extern int GetSystemMetrics(int index);
+
+    [DllImport("user32.dll")]
+    public static extern bool GetWindowRect(nint hwnd, out NativeRect rect);
+
+    [DllImport("user32.dll")]
+    public static extern bool IsHungAppWindow(nint hwnd);
+
+    [DllImport("user32.dll")]
+    public static extern bool PrintWindow(nint hwnd, nint hdc, uint flags);
+
+    [DllImport("user32.dll")]
+    public static extern nint GetDC(nint hwnd);
+
+    [DllImport("user32.dll")]
+    public static extern int ReleaseDC(nint hwnd, nint hdc);
+
+    [DllImport("gdi32.dll")]
+    public static extern nint CreateCompatibleDC(nint hdc);
+
+    [DllImport("gdi32.dll")]
+    public static extern bool DeleteDC(nint hdc);
+
+    [DllImport("gdi32.dll")]
+    public static extern nint CreateCompatibleBitmap(nint hdc, int width, int height);
+
+    [DllImport("gdi32.dll")]
+    public static extern nint SelectObject(nint hdc, nint obj);
+
+    [DllImport("gdi32.dll")]
+    public static extern bool DeleteObject(nint obj);
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct WindowPlacementNative
+{
+    public uint length;
+    public uint flags;
+    public uint showCmd;
+    public NativePoint ptMinPosition;
+    public NativePoint ptMaxPosition;
+    public NativeRect rcNormalPosition;
 }
 
 [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode, Pack = 8)]

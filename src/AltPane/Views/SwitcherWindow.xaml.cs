@@ -106,6 +106,7 @@ public partial class SwitcherWindow : Window
     readonly MenuItem _menuMax;
     readonly MenuItem _menuRestore;
     readonly MenuItem _menuKillTree;
+    readonly MenuItem _menuPreview;
     Point _lastScreen = new(double.NaN, double.NaN);
     int _renderedSelection = -2;
     bool _internalEdit;
@@ -113,6 +114,7 @@ public partial class SwitcherWindow : Window
     bool _searchMode;
     bool _guard;
     DateTime _shownAt;
+    DateTime _suppressCancelUntil;
 
     public SwitcherWindow()
     {
@@ -123,13 +125,15 @@ public partial class SwitcherWindow : Window
         _menuMax = new MenuItem();
         _menuRestore = new MenuItem();
         _menuKillTree = new MenuItem();
+        _menuPreview = new MenuItem();
         _menuClose.Click += (_, _) => CloseRequested?.Invoke();
         _menuKill.Click += (_, _) => KillRequested?.Invoke();
         _menuKillTree.Click += (_, _) => KillTreeRequested?.Invoke();
+        _menuPreview.Click += (_, _) => PreviewRequested?.Invoke();
         _menuMin.Click += (_, _) => MinimizeRequested?.Invoke();
         _menuMax.Click += (_, _) => MaximizeRequested?.Invoke();
         _menuRestore.Click += (_, _) => RestoreRequested?.Invoke();
-        _menu = new ContextMenu { Items = { _menuClose, _menuKill, _menuKillTree, new Separator(), _menuMin, _menuMax, _menuRestore } };
+        _menu = new ContextMenu { Items = { _menuClose, _menuKill, _menuKillTree, _menuPreview, new Separator(), _menuMin, _menuMax, _menuRestore } };
         _menu.Opened += (_, _) => LocalizeMenu();
         WindowList.ContextMenu = _menu;
         TextCompositionManager.AddTextInputStartHandler(SearchBox, (_, _) => _composing = true);
@@ -161,6 +165,7 @@ public partial class SwitcherWindow : Window
     public event Action? KillRequested;
     public event Action? KillTreeRequested;
     public event Action? SortCycleRequested;
+    public event Action? PreviewRequested;
     public event Action? MinimizeRequested;
     public event Action? MaximizeRequested;
     public event Action? RestoreRequested;
@@ -234,6 +239,7 @@ public partial class SwitcherWindow : Window
         RestoreButton.IsEnabled = enabled;
         CloseButton.IsEnabled = enabled;
         KillButton.IsEnabled = enabled;
+        _menuPreview.IsEnabled = selected?.IsIconic == true;
     }
 
     public void SetPreviewMessage(string message)
@@ -241,6 +247,17 @@ public partial class SwitcherWindow : Window
         PreviewPlaceholder.Text = message;
         PreviewPlaceholder.Visibility = string.IsNullOrEmpty(message) ? Visibility.Collapsed : Visibility.Visible;
     }
+
+    public void ShowStillPreview(ImageSource? image, string? badge)
+    {
+        CachedPreview.Source = image;
+        CachedPreview.Visibility = image is null ? Visibility.Collapsed : Visibility.Visible;
+        MinimizedBadgeText.Text = badge ?? "";
+        MinimizedBadge.Visibility = image is null || string.IsNullOrEmpty(badge) ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    public void SuppressCancel(int milliseconds) =>
+        _suppressCancelUntil = DateTime.UtcNow.AddMilliseconds(Math.Max(0, milliseconds));
 
     public void ShowFor(AppSettings settings, nint activeWindow)
     {
@@ -393,6 +410,7 @@ public partial class SwitcherWindow : Window
     {
         base.OnDeactivated(e);
         if (_guard || !IsVisible) return;
+        if (DateTime.UtcNow < _suppressCancelUntil) return;
         if ((DateTime.UtcNow - _shownAt).TotalMilliseconds < 250) return;
         CancelRequested?.Invoke();
     }
@@ -440,6 +458,7 @@ public partial class SwitcherWindow : Window
         _menuClose.Header = loc["menu.close"];
         _menuKill.Header = loc["menu.kill"];
         _menuKillTree.Header = loc["menu.killTree"];
+        _menuPreview.Header = loc["menu.preview"];
         _menuMin.Header = loc["menu.minimize"];
         _menuMax.Header = loc["menu.maximize"];
         _menuRestore.Header = loc["menu.restore"];

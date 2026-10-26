@@ -123,9 +123,9 @@ public class HookInterpreterTests
     }
 
     [Fact]
-    public void Space_commits_until_there_is_a_query()
+    public void Space_asks_the_switcher_until_there_is_a_query()
     {
-        Assert.Equal(HookCommand.Commit, HookInterpreter.Interpret(Open(Key(VirtualKeys.Space, true, ModifierState.AltOnly))).Command);
+        Assert.Equal(HookCommand.SpaceAction, HookInterpreter.Interpret(Open(Key(VirtualKeys.Space, true, ModifierState.AltOnly))).Command);
         var typing = Open(Key(VirtualKeys.Space, true, ModifierState.AltOnly)) with { HasSearchQuery = true };
         Assert.Equal(HookCommand.Type, HookInterpreter.Interpret(typing).Command);
     }

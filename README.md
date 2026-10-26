@@ -14,6 +14,7 @@ This is an independent project. It is not affiliated with NTWind or the commerci
 - Live preview uses `DwmRegisterThumbnail`.
 - Type-to-search filters by window title or process name (substring, plus a short acronym/subsequence match).
 - While the switcher is open it shows machine CPU and memory, and each task’s CPU and working set. Helper processes are rolled into the window that owns them (browsers, and UWP apps hosted by ApplicationFrameHost). Heavy tasks get a warm or hot bar. Sort by recent use, CPU, or memory. Sampling runs on a background thread only while the switcher is visible.
+- Minimized windows can be restored off-screen for a live thumbnail (Space, the context menu, or a setting that does it automatically). If you do not switch to that window it is minimized again, including a window that was maximized before it was minimized. A previous snapshot is shown when one was captured.
 - Keyboard and mouse navigation, plus close, end task, minimize, maximize, and restore.
 - The window opens on the monitor under the cursor or the monitor of the active window. The process is per-monitor DPI aware (v2).
 - System tray menu: open the switcher, Settings, pause/resume the override, start with Windows, exit. A second launch asks the running instance to open Settings.
@@ -26,7 +27,8 @@ This is an independent project. It is not affiliated with NTWind or the commerci
 | --- | --- |
 | Open and move to the previous window | Alt+Tab (or your hotkey) |
 | Open and move the other way | Alt+Shift+Tab, when Shift is not part of the hotkey |
-| Activate the selection | Release the trigger modifier, or Enter |
+| Activate the selection | Release the trigger modifier, or Enter. Space does this when the window is not minimized |
+| Preview a minimized window | Space, or the context menu item “Restore to preview”. The window is restored off-screen without taking focus. Moving away or cancelling minimizes it again. Switching to it leaves it restored. A saved snapshot, when one exists, shows with a Minimized badge |
 | Cancel | Esc |
 | Move the selection | Tab, Shift+Tab, arrow keys, Home, End, Page Up, Page Down, mouse wheel |
 | Filter | Type letters or digits while holding the trigger |
@@ -102,7 +104,7 @@ Not covered here: the real hook, DWM thumbnails, tray icon, monitor placement, a
 ## Known limitations
 
 - Win+Tab capture is best-effort. Task View or the Start menu can still appear, because the shell handles that chord outside a normal keystroke.
-- Exclusive fullscreen, DRM, and some elevated windows produce a blank thumbnail. Minimized windows show a placeholder instead of a thumbnail.
+- Exclusive fullscreen, DRM, and some elevated windows produce a blank thumbnail. Minimized windows have no DWM thumbnail until they are restored for preview. Some apps ignore a no-activate restore or animate back to the taskbar; AltPane then puts the saved placement back and shows a failure message. Snapshot capture uses `PrintWindow` and is blank for many GPU-rendered windows.
 - Switching to an elevated window, closing it, or thumbnailing it can fail with UIPI unless AltPane is running as administrator.
 - “Other virtual desktops” is approximate. The shell cloak bit and `IVirtualDesktopManager` are used when available. The application cloak bit (UWP ghost windows) is always hidden.
 - Protected processes (`explorer`, `csrss`, `lsass`, `svchost`, `dwm`, and similar) and an unresolved ApplicationFrameHost window cannot be killed from the switcher. Ending an elevated process needs AltPane to be running as administrator; the switcher says so when access is denied. CPU percent needs two samples, so the first fraction of a second shows memory and then CPU. GPU and disk load are not shown. Per-task CPU is a share of the whole machine. Memory is the working set, with private bytes in the tooltip, summed across helper processes.
@@ -128,6 +130,6 @@ AltPane 是一个 Windows 桌面窗口切换器。运行期间它会用低级键
 
 界面默认跟随系统语言：中文系统使用简体中文，也可在设置里改为 English。设置保存在 `%APPDATA%\AltPane\settings.json`。托盘图标可以打开切换器、设置、暂停接管、开机启动和退出。程序崩溃、暂停或结束后会卸下钩子，原生 Alt+Tab 恢复可用。
 
-按住 Alt 时直接打字适合英文和进程名。中文输入请按 Ctrl+F 或点击搜索框，再用 Enter 确认。切换器打开时会显示整机和每个任务的 CPU、内存，可按 CPU 或内存排序。Shift+Delete 结束任务（可在设置中要求再按一次确认，并结束子进程）。普通权限无法切换或结束以管理员身份运行的窗口，需要在设置中“以管理员身份重新启动”。
+按住 Alt 时直接打字适合英文和进程名。中文输入请按 Ctrl+F 或点击搜索框，再用 Enter 确认。切换器打开时会显示整机和每个任务的 CPU、内存，可按 CPU 或内存排序。Shift+Delete 结束任务（可在设置中要求再按一次确认，并结束子进程）。最小化窗口按空格可在不抢焦点的情况下移到屏幕外预览，不切换过去则会重新最小化。普通权限无法切换或结束以管理员身份运行的窗口，需要在设置中“以管理员身份重新启动”。
 
 较小的发布包依赖本机已安装的 .NET 8 桌面运行时（x64）：<https://dotnet.microsoft.com/download/dotnet/8.0> ，安装包直链 <https://aka.ms/dotnet/8.0/windowsdesktop-runtime-win-x64.exe>。自包含的 `AltPane.exe` 不需要另外安装运行时；首次启动会解压本机库，会稍慢。文件未签名，SmartScreen 可能提示，确认来源后选择仍要运行。

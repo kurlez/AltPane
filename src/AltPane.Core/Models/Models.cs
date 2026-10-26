@@ -122,6 +122,7 @@ public sealed class AppSettings
     public LoadSortMode SortMode { get; set; } = LoadSortMode.Recent;
     public bool ConfirmEndTask { get; set; } = true;
     public bool EndTaskKillsTree { get; set; } = true;
+    public bool PreviewMinimized { get; set; }
 
     public static AppSettings CreateDefault() => new()
     {

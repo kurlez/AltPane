@@ -48,6 +48,8 @@
           <TextBlock x:Name="PlacementLabel" FontWeight="SemiBold" Margin="0,0,0,6"/>
           <ComboBox x:Name="PlacementBox" Margin="0,0,0,10"/>
           <CheckBox x:Name="PreviewBox" Margin="0,0,0,6"/>
+          <CheckBox x:Name="PreviewMinimizedBox" Margin="22,0,0,2"/>
+          <TextBlock x:Name="PreviewMinimizedNote" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="22,0,0,10"/>
           <CheckBox x:Name="LoadBox" Margin="0,0,0,6"/>
           <TextBlock x:Name="SortLabel" FontWeight="SemiBold" Margin="0,4,0,6"/>
           <ComboBox x:Name="SortBox" Margin="0,0,0,10"/>

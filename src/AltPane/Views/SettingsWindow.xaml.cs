@@ -50,6 +50,7 @@ public partial class SettingsWindow : Window
         HotkeyText.Text = HotkeyLogic.Format(_draft.Hotkey ?? HotkeyChord.AltTab());
         WinTabBox.IsChecked = _draft.CaptureWinTab;
         PreviewBox.IsChecked = _draft.ShowPreview;
+        PreviewMinimizedBox.IsChecked = _draft.PreviewMinimized;
         LoadBox.IsChecked = _draft.ShowLoad;
         ConfirmKillBox.IsChecked = _draft.ConfirmEndTask;
         KillTreeBox.IsChecked = _draft.EndTaskKillsTree;
@@ -82,6 +83,8 @@ public partial class SettingsWindow : Window
         SizeLabel.Text = loc["settings.size"];
         PlacementLabel.Text = loc["settings.placement"];
         PreviewBox.Content = loc["settings.preview"];
+        PreviewMinimizedBox.Content = loc["settings.previewMinimized"];
+        PreviewMinimizedNote.Text = loc["settings.previewMinimizedNote"];
         LoadBox.Content = loc["settings.showLoad"];
         SortLabel.Text = loc["settings.sort"];
         ConfirmKillBox.Content = loc["settings.confirmKill"];
@@ -233,6 +236,7 @@ public partial class SettingsWindow : Window
         StopRecording();
         _draft.CaptureWinTab = WinTabBox.IsChecked == true;
         _draft.ShowPreview = PreviewBox.IsChecked == true;
+        _draft.PreviewMinimized = PreviewMinimizedBox.IsChecked == true;
         _draft.ShowLoad = LoadBox.IsChecked == true;
         _draft.ConfirmEndTask = ConfirmKillBox.IsChecked == true;
         _draft.EndTaskKillsTree = KillTreeBox.IsChecked == true;
@@ -304,6 +308,7 @@ public partial class SettingsWindow : Window
         Theme = source.Theme,
         Size = source.Size,
         ShowPreview = source.ShowPreview,
+        PreviewMinimized = source.PreviewMinimized,
         Placement = source.Placement,
         Language = source.Language,
         ExcludedProcesses = new List<string>(source.ExcludedProcesses ?? new List<string>()),
