@@ -46,6 +46,48 @@ internal static class MonitorUtil
             dpiX,
             dpiY);
     }
+
+    public static IReadOnlyList<DisplayBounds> All()
+    {
+        var found = new List<DisplayBounds>();
+        NativeMethods.MonitorEnumProc callback = (monitor, _, _, _) =>
+        {
+            var info = new MonitorInfoEx { cbSize = Marshal.SizeOf<MonitorInfoEx>() };
+            if (!NativeMethods.GetMonitorInfoEx(monitor, ref info)) return true;
+            var dpiX = 96;
+            var dpiY = 96;
+            try
+            {
+                if (NativeMethods.GetDpiForMonitor(monitor, 0, out var x, out var y) == 0)
+                {
+                    if (x != 0) dpiX = (int)x;
+                    if (y != 0) dpiY = (int)y;
+                }
+            }
+            catch
+            {
+                // GetDpiForMonitor is missing on very old builds.
+            }
+
+            var name = info.szDevice ?? "";
+            const string prefix = @"\\.\";
+            if (name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                name = name[prefix.Length..];
+            found.Add(new DisplayBounds(
+                info.rcWork.Left,
+                info.rcWork.Top,
+                Math.Max(1, info.rcWork.Right - info.rcWork.Left),
+                Math.Max(1, info.rcWork.Bottom - info.rcWork.Top),
+                dpiX,
+                dpiY,
+                0,
+                name));
+            return true;
+        };
+        NativeMethods.EnumDisplayMonitors(0, 0, callback, 0);
+        GC.KeepAlive(callback);
+        return OtherMonitorHints.NumberLeftToRight(found);
+    }
 }
 
 internal static class ModifierRelease
@@ -114,6 +156,18 @@ internal static class WindowChrome
         var tool = ex | 0x80 | 0x00000008;
         NativeMethods.SetWindowLongPtr(hwnd, NativeMethods.GwlExStyle, tool);
         NativeMethods.SetWindowPos(hwnd, 0, 0, 0, 0, 0, 0x0020 | 0x0001 | 0x0002 | 0x0004 | 0x0020);
+    }
+
+    public static void ApplyNoActivate(nint hwnd, bool dark)
+    {
+        if (hwnd == 0) return;
+        var ex = NativeMethods.GetWindowLongPtr(hwnd, NativeMethods.GwlExStyle);
+        // TOOLWINDOW | TOPMOST | NOACTIVATE. Clicks still arrive, but the window
+        // never becomes the foreground window, so the switcher keeps the keyboard.
+        var style = ex | 0x80 | 0x00000008 | 0x08000000;
+        NativeMethods.SetWindowLongPtr(hwnd, NativeMethods.GwlExStyle, style);
+        NativeMethods.SetWindowPos(hwnd, new nint(-1), 0, 0, 0, 0, 0x0010 | 0x0001 | 0x0002 | 0x0020);
+        ApplyBackdrop(hwnd, dark);
     }
 
     public static void ApplyBackdrop(nint hwnd, bool dark)

@@ -143,6 +143,8 @@ public partial class SwitcherWindow : Window
     bool _guard;
     DateTime _shownAt;
     DateTime _suppressCancelUntil;
+    readonly HintOverlay _hints = new();
+    bool _showHints = true;
 
     public SwitcherWindow()
     {
@@ -184,7 +186,15 @@ public partial class SwitcherWindow : Window
             if (hwnd != 0) WindowChrome.ApplyBackdrop(hwnd, dark);
         });
         ApplyStaticText();
-        Localizer.Current.LanguageChanged += (_, _) => ApplyStaticText();
+        Localizer.Current.LanguageChanged += (_, _) =>
+        {
+            ApplyStaticText();
+            if (IsVisible) SyncHints();
+        };
+        _hints.DisplayChanged += () =>
+        {
+            if (IsVisible) SyncHints(allowRelocate: true);
+        };
     }
 
     public nint Handle => new WindowInteropHelper(this).Handle;
@@ -356,10 +366,13 @@ public partial class SwitcherWindow : Window
         }
         if (reveal) Opacity = 1;
         Activate();
+        _showHints = settings.ShowOtherMonitorHints;
+        SyncHints(centered, allowRelocate: false);
     }
 
     public void HideSwitcher()
     {
+        _hints.Hide();
         if (IsVisible) Hide();
     }
 
@@ -528,9 +541,89 @@ public partial class SwitcherWindow : Window
     {
         base.OnDeactivated(e);
         if (_guard || !IsVisible) return;
+        if (_hints.IsOurWindow(NativeMethods.GetForegroundWindow())) return;
         if (DateTime.UtcNow < _suppressCancelUntil) return;
         if ((DateTime.UtcNow - _shownAt).TotalMilliseconds < 250) return;
         CancelRequested?.Invoke();
+    }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        _hints.Dispose();
+        base.OnClosed(e);
+    }
+
+    void SyncHints(RectangleMath.RectI? known = null, bool allowRelocate = true)
+    {
+        if (!_showHints || !IsVisible)
+        {
+            _hints.Hide();
+            return;
+        }
+
+        var monitors = MonitorUtil.All();
+        int left, top, width, height;
+        if (known is { } placed)
+        {
+            left = placed.X;
+            top = placed.Y;
+            width = placed.Width;
+            height = placed.Height;
+        }
+        else if (NativeMethods.GetWindowRect(Handle, out var rect))
+        {
+            left = rect.Left;
+            top = rect.Top;
+            width = Math.Max(1, rect.Right - rect.Left);
+            height = Math.Max(1, rect.Bottom - rect.Top);
+        }
+        else
+        {
+            _hints.Hide();
+            return;
+        }
+
+        var host = OtherMonitorHints.HostIndex(monitors, left, top, width, height);
+        if (host < 0 && allowRelocate && monitors.Count > 0)
+        {
+            MoveToMonitor(monitors[0]);
+            return;
+        }
+
+        var plans = OtherMonitorHints.Plan(monitors, host);
+        _hints.Show(plans, monitors, MoveToMonitor);
+    }
+
+    void MoveToMonitor(int index)
+    {
+        var monitors = MonitorUtil.All();
+        if (index < 0 || index >= monitors.Count) return;
+        MoveToMonitor(monitors[index]);
+    }
+
+    void MoveToMonitor(DisplayBounds monitor)
+    {
+        SuppressCancel(400);
+        var scaleX = monitor.DpiX <= 0 ? 1d : monitor.DpiX / 96d;
+        var scaleY = monitor.DpiY <= 0 ? 1d : monitor.DpiY / 96d;
+        var physicalW = Math.Max(1, (int)Math.Round(Width * scaleX));
+        var physicalH = Math.Max(1, (int)Math.Round(Height * scaleY));
+        var centered = RectangleMath.Center(
+            new RectangleMath.RectI(monitor.X, monitor.Y, monitor.Width, monitor.Height),
+            physicalW,
+            physicalH);
+        var hwnd = Handle;
+        NativeMethods.SetWindowPos(hwnd, new nint(-1), centered.X, centered.Y, centered.Width, centered.Height, 0x0010 | 0x0040);
+        if (PresentationSource.FromVisual(this)?.CompositionTarget is { } target)
+        {
+            var origin = target.TransformFromDevice.Transform(new Point(centered.X, centered.Y));
+            Left = origin.X;
+            Top = origin.Y;
+        }
+        if (NativeMethods.GetForegroundWindow() != hwnd)
+            Activate();
+        if (_searchMode) FocusSearch();
+        SyncHints(centered, allowRelocate: false);
     }
 
     protected override void OnClosing(CancelEventArgs e)

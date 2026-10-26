@@ -69,6 +69,7 @@ public partial class SettingsWindow : Window
         Select(LanguageBox, _draft.Language);
         Select(SizeBox, _draft.Size);
         Select(PlacementBox, _draft.Placement);
+        OtherMonitorsBox.IsChecked = _draft.ShowOtherMonitorHints;
         Select(SortBox, _draft.SortMode);
         var admin = Admin.IsRunningAsAdmin();
         AdminButton.IsEnabled = !admin;
@@ -93,6 +94,8 @@ public partial class SettingsWindow : Window
         LanguageLabel.Text = loc["settings.language"];
         SizeLabel.Text = loc["settings.size"];
         PlacementLabel.Text = loc["settings.placement"];
+        OtherMonitorsBox.Content = loc["settings.otherMonitors"];
+        OtherMonitorsNote.Text = loc["settings.otherMonitorsNote"];
         PreviewBox.Content = loc["settings.preview"];
         PreviewMinimizedBox.Content = loc["settings.previewMinimized"];
         PreviewMinimizedNote.Text = loc["settings.previewMinimizedNote"];
@@ -300,6 +303,7 @@ public partial class SettingsWindow : Window
         _draft.Language = Read(LanguageBox, _draft.Language);
         _draft.Size = Read(SizeBox, _draft.Size);
         _draft.Placement = Read(PlacementBox, _draft.Placement);
+        _draft.ShowOtherMonitorHints = OtherMonitorsBox.IsChecked == true;
         _draft.ExcludedProcesses = ExclusionBox.Text
             .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
             .ToList();
@@ -367,6 +371,7 @@ public partial class SettingsWindow : Window
         ShowPreview = source.ShowPreview,
         PreviewMinimized = source.PreviewMinimized,
         Placement = source.Placement,
+        ShowOtherMonitorHints = source.ShowOtherMonitorHints,
         Language = source.Language,
         ExcludedProcesses = new List<string>(source.ExcludedProcesses ?? new List<string>()),
         StartWithWindows = source.StartWithWindows,

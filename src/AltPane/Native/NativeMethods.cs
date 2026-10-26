@@ -22,6 +22,17 @@ internal struct MonitorInfo
     public uint dwFlags;
 }
 
+[StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+internal struct MonitorInfoEx
+{
+    public int cbSize;
+    public NativeRect rcMonitor;
+    public NativeRect rcWork;
+    public uint dwFlags;
+    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+    public string szDevice;
+}
+
 [StructLayout(LayoutKind.Sequential)]
 internal struct Margins
 {
@@ -173,6 +184,14 @@ internal static class NativeMethods
 
     [DllImport("user32.dll")]
     public static extern bool GetCursorPos(out NativePoint lpPoint);
+
+    public delegate bool MonitorEnumProc(nint hMonitor, nint hdcMonitor, nint lprcMonitor, nint dwData);
+
+    [DllImport("user32.dll")]
+    public static extern bool EnumDisplayMonitors(nint hdc, nint lprcClip, MonitorEnumProc lpfnEnum, nint dwData);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "GetMonitorInfoW")]
+    public static extern bool GetMonitorInfoEx(nint hMonitor, ref MonitorInfoEx lpmi);
 
     [DllImport("user32.dll")]
     public static extern nint MonitorFromPoint(NativePoint pt, uint dwFlags);

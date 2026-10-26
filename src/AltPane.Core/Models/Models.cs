@@ -113,6 +113,8 @@ public sealed class AppSettings
     public SwitcherSize Size { get; set; } = SwitcherSize.Comfortable;
     public bool ShowPreview { get; set; } = true;
     public SwitcherPlacement Placement { get; set; } = SwitcherPlacement.MouseCursor;
+    /// <summary>When true (the default), other monitors point at the one showing the switcher.</summary>
+    public bool ShowOtherMonitorHints { get; set; } = true;
     public AppLanguage Language { get; set; } = AppLanguage.System;
     public List<string> ExcludedProcesses { get; set; } = new();
     public bool StartWithWindows { get; set; }
@@ -150,6 +152,7 @@ public sealed class AppSettings
         ShowPreview = true,
         Size = SwitcherSize.Comfortable,
         Placement = SwitcherPlacement.MouseCursor,
+        ShowOtherMonitorHints = true,
         Theme = AppTheme.System,
         Language = AppLanguage.System,
         ExcludedProcesses = new List<string>(),

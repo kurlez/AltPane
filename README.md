@@ -17,7 +17,7 @@ This is an independent project. It is not affiliated with NTWind or the commerci
 - While the switcher is open it shows machine CPU and memory, and each task’s CPU and working set. Helper processes are rolled into the window that owns them (browsers, and UWP apps hosted by ApplicationFrameHost). Heavy tasks get a warm or hot bar. Sort by recent use, CPU, or memory. Sampling runs on a background thread only while the switcher is visible.
 - Minimized windows can be restored off-screen for a live thumbnail (Space, the context menu, or a setting that does it automatically). If you do not switch to that window it is minimized again, including a window that was maximized before it was minimized. A previous snapshot is shown when one was captured.
 - Keyboard and mouse navigation, plus close, end task, minimize, maximize, and restore.
-- The window opens on the monitor under the cursor or the monitor of the active window. The process is per-monitor DPI aware (v2).
+- The window opens on the monitor under the cursor or the monitor of the active window. The process is per-monitor DPI aware (v2). On every other connected monitor, a small reminder points back at the switcher. It does not take focus. Clicking it moves the switcher to that monitor. A single monitor shows nothing extra. The reminder can be turned off in Settings.
 - System tray menu: open the switcher, Settings, pause/resume the override, start with Windows, exit. A second launch asks the running instance to open Settings.
 - Settings are stored as JSON in `%APPDATA%\AltPane\settings.json`. A corrupt file is copied to `settings.json.bak` and defaults are loaded.
 - Pausing, exiting, or an unhandled exception removes the hook. If the process is killed, Windows drops the hook as well, so the native switcher works again.
@@ -29,6 +29,7 @@ This is an independent project. It is not affiliated with NTWind or the commerci
 | Open and move to the previous window | Alt+Tab (or your hotkey). Win+Tab does this too, and is on by default |
 | Open and move the other way | Alt+Shift+Tab, when Shift is not part of the hotkey. Win+Shift+Tab reverses a Win+Tab session |
 | Win+Tab | Opens the switcher and leaves it open after both keys are released. Enter switches, Esc cancels. Tab or Win+Tab cycles. Task View does not open. A Windows key on its own still opens Start. Win+E, Win+D, and Win+Shift+S are unchanged |
+| Other displays | A reminder on each other monitor points at the switcher. Click it to move the switcher there. Nothing appears when only one monitor is connected |
 | Activate the selection | Enter, or click a row. Space does this when the window is not minimized and the search box is empty. In classic mode (Settings), releasing the trigger modifier also activates |
 | Launch an app | Type part of its name, move to the Launch row, and press Enter. If that app already has a window, Enter switches to it instead |
 | Run as administrator | Ctrl+Enter on a Launch row, or the context menu. Store apps cannot be elevated. Cancelling the UAC prompt does not count as a launch |
@@ -105,7 +106,7 @@ The hook procedure only classifies the key and queues a small operation. Enumera
 dotnet test tests/AltPane.Tests/AltPane.Tests.csproj -c Release
 ```
 
-Covered without a Windows desktop session: inclusion rules (visibility, tool windows, cloak, owner, empty title, exclusion list, ApplicationFrameHost), search ranking, pinyin and acronym matching, app ranking against launch frequency, shell-link (`.lnk`) parsing, session movement across windows and launch rows, hook interpretation (including sticky release, Win+Tab staying open, search mode, Ctrl+Enter, and the activation chord), the Win-key suppression state machine, settings JSON round-trip and corrupt-file recovery, kill-process policy, hotkey formatting, localization fallback, layout math, the opaque window-frame colors (no full-window glass margin), and the 48-byte DWM thumbnail property / 40-byte `INPUT` layouts.
+Covered without a Windows desktop session: inclusion rules (visibility, tool windows, cloak, owner, empty title, exclusion list, ApplicationFrameHost), search ranking, pinyin and acronym matching, app ranking against launch frequency, shell-link (`.lnk`) parsing, session movement across windows and launch rows, hook interpretation (including sticky release, Win+Tab staying open, search mode, Ctrl+Enter, and the activation chord), the Win-key suppression state machine, other-monitor hint direction and placement, settings JSON round-trip and corrupt-file recovery, kill-process policy, hotkey formatting, localization fallback, layout math, the opaque window-frame colors (no full-window glass margin), and the 48-byte DWM thumbnail property / 40-byte `INPUT` layouts.
 
 Pinyin readings come from [mozillazg/pinyin-data](https://github.com/mozillazg/pinyin-data) (`pinyin.txt`, MIT). The compact table is `src/AltPane.Core/Search/pinyin.bin`. `ü` is stored as `v`, and a query may use `u` or `v` (`nu` and `nv` both match 女). Polyphonic characters keep their readings (乐 is `le` and `yue`).
 
@@ -136,10 +137,11 @@ Not covered here: the real hook, DWM thumbnails, tray icon, monitor placement, a
 9. Move the cursor to another monitor and another DPI scale. Confirm the switcher opens there and is sharp.
 10. Win+Tab opens AltPane, not Task View, and releasing Win does not open Start or leave Win stuck. The switcher stays open; Tab cycles; Win+Shift+Tab reverses; Enter switches; Esc cancels. A Windows key alone still opens Start. Win+E, Win+D, and Win+Shift+S still work. Turn the setting off and confirm Task View is back. With an elevated window in front, such as Task Manager, Win+Tab reaches AltPane only after Restart as administrator.
 11. In light and dark themes, at 100%, 125%, 150%, and 200% scaling, the switcher and Settings have a solid fill and a thin edge. Windows 11 corners are rounded; Windows 10 corners are square. There is no black band in the corners or along the frame, and the shadow is soft. A window whose shape differs from the preview pane is centered; the bars around it are the pane color.
+12. With two or more monitors, opening the switcher by Alt+Tab or Win+Tab shows a reminder centered on each other monitor. The arrow points at the monitor that has the switcher, in that monitor's language and scale. The reminder does not take focus, and typing still filters the switcher. Clicking a reminder moves the switcher there and the arrows follow. Unplug a monitor while it is open and the reminder disappears. One monitor shows no reminder. Turn the setting off and confirm the reminders stay hidden.
 
 ## 中文说明
 
-AltPane 是一个 Windows 桌面窗口切换器。运行期间它会用低级键盘钩子接管 Alt+Tab（以及 Alt+Shift+Tab），系统自带的切换界面不会出现。Win+Tab 默认也会打开 AltPane，而不是任务视图；松开 Win 不会弹出开始菜单，也不会让 Windows 键卡住。单独按 Windows 键仍打开开始菜单，Win+E、Win+D、Win+Shift+S 保持原样。默认松开触发键后切换器保持打开，Enter 或单击才切换到所选窗口，Esc 或点击外部取消。设置里可以改回松开即切换，也可以关闭 Win+Tab 接管。当前窗口以管理员身份运行时，需要同样以管理员身份启动 AltPane，钩子才能看到这个组合键。
+AltPane 是一个 Windows 桌面窗口切换器。运行期间它会用低级键盘钩子接管 Alt+Tab（以及 Alt+Shift+Tab），系统自带的切换界面不会出现。Win+Tab 默认也会打开 AltPane，而不是任务视图；松开 Win 不会弹出开始菜单，也不会让 Windows 键卡住。单独按 Windows 键仍打开开始菜单，Win+E、Win+D、Win+Shift+S 保持原样。默认松开触发键后切换器保持打开，Enter 或单击才切换到所选窗口，Esc 或点击外部取消。设置里可以改回松开即切换，也可以关闭 Win+Tab 接管。当前窗口以管理员身份运行时，需要同样以管理员身份启动 AltPane，钩子才能看到这个组合键。接了多台显示器时，没有显示切换器的屏幕中央会出现提示，箭头指向切换器所在的那一台，单击提示可把切换器移过去。提示不抢焦点。只有一台显示器时不会出现。可在设置中关闭。
 
 界面默认跟随系统语言：中文系统使用简体中文，也可在设置里改为 English。设置保存在 `%APPDATA%\AltPane\settings.json`。托盘图标可以打开切换器、设置、暂停接管、开机启动和退出。程序崩溃、暂停或结束后会卸下钩子，原生 Alt+Tab 恢复可用。
 
