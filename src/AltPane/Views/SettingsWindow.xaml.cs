@@ -33,7 +33,7 @@ public partial class SettingsWindow : Window
         Closed += (_, _) => ThemeService.Changed -= OnThemeChanged;
         MaxHeight = SystemParameters.WorkArea.Height * 0.92;
         var version = typeof(SettingsWindow).Assembly.GetName().Version;
-        VersionText.Text = "AltPane " + (version?.ToString(3) ?? "0.3.5");
+        VersionText.Text = "AltPane " + (version?.ToString(3) ?? "0.4.0");
         LoadDraft();
         Localizer.Current.LanguageChanged += (_, _) =>
         {
@@ -51,8 +51,6 @@ public partial class SettingsWindow : Window
         StickyBox.IsChecked = _draft.StickySwitcher;
         QuickTapBox.IsChecked = _draft.QuickTapSwitches;
         UpdateQuickTapEnabled();
-        PreviewBox.IsChecked = _draft.ShowPreview;
-        PreviewMinimizedBox.IsChecked = _draft.PreviewMinimized;
         LoadBox.IsChecked = _draft.ShowLoad;
         ConfirmKillBox.IsChecked = _draft.ConfirmEndTask;
         KillTreeBox.IsChecked = _draft.EndTaskKillsTree;
@@ -70,7 +68,6 @@ public partial class SettingsWindow : Window
         Select(LanguageBox, _draft.Language);
         Select(SizeBox, _draft.Size);
         Select(PlacementBox, _draft.Placement);
-        OtherMonitorsBox.IsChecked = _draft.ShowOtherMonitorHints;
         MonitorBadgesBox.IsChecked = _draft.ShowMonitorBadges;
         MoveBox.IsChecked = _draft.MoveToSwitcherMonitor;
         VerboseBox.IsChecked = _draft.VerboseLog;
@@ -103,8 +100,6 @@ public partial class SettingsWindow : Window
         LanguageLabel.Text = loc["settings.language"];
         SizeLabel.Text = loc["settings.size"];
         PlacementLabel.Text = loc["settings.placement"];
-        OtherMonitorsBox.Content = loc["settings.otherMonitors"];
-        OtherMonitorsNote.Text = loc["settings.otherMonitorsNote"];
         MonitorBadgesBox.Content = loc["settings.monitorBadges"];
         MonitorBadgesNote.Text = loc["settings.monitorBadgesNote"];
         MoveBox.Content = loc["settings.move"];
@@ -118,9 +113,6 @@ public partial class SettingsWindow : Window
         EverythingExcludeHint.Text = loc["settings.everythingExcludeHint"];
         EverythingStartButton.Content = loc["settings.everythingStart"];
         EverythingSiteButton.Content = loc["settings.everythingSite"];
-        PreviewBox.Content = loc["settings.preview"];
-        PreviewMinimizedBox.Content = loc["settings.previewMinimized"];
-        PreviewMinimizedNote.Text = loc["settings.previewMinimizedNote"];
         LoadBox.Content = loc["settings.showLoad"];
         SortLabel.Text = loc["settings.sort"];
         ConfirmKillBox.Content = loc["settings.confirmKill"];
@@ -308,8 +300,6 @@ public partial class SettingsWindow : Window
         _draft.CaptureWinTab = WinTabBox.IsChecked == true;
         _draft.StickySwitcher = StickyBox.IsChecked == true;
         _draft.QuickTapSwitches = QuickTapBox.IsChecked == true;
-        _draft.ShowPreview = PreviewBox.IsChecked == true;
-        _draft.PreviewMinimized = PreviewMinimizedBox.IsChecked == true;
         _draft.ShowLoad = LoadBox.IsChecked == true;
         _draft.ConfirmEndTask = ConfirmKillBox.IsChecked == true;
         _draft.EndTaskKillsTree = KillTreeBox.IsChecked == true;
@@ -326,7 +316,6 @@ public partial class SettingsWindow : Window
         _draft.Language = Read(LanguageBox, _draft.Language);
         _draft.Size = Read(SizeBox, _draft.Size);
         _draft.Placement = Read(PlacementBox, _draft.Placement);
-        _draft.ShowOtherMonitorHints = OtherMonitorsBox.IsChecked == true;
         _draft.ShowMonitorBadges = MonitorBadgesBox.IsChecked == true;
         _draft.MoveToSwitcherMonitor = MoveBox.IsChecked == true;
         _draft.VerboseLog = VerboseBox.IsChecked == true;
@@ -445,10 +434,7 @@ public partial class SettingsWindow : Window
         QuickTapSwitches = source.QuickTapSwitches,
         Theme = source.Theme,
         Size = source.Size,
-        ShowPreview = source.ShowPreview,
-        PreviewMinimized = source.PreviewMinimized,
         Placement = source.Placement,
-        ShowOtherMonitorHints = source.ShowOtherMonitorHints,
         ShowMonitorBadges = source.ShowMonitorBadges,
         MoveToSwitcherMonitor = source.MoveToSwitcherMonitor,
         UseEverything = source.UseEverything,

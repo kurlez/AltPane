@@ -6,7 +6,6 @@ using AltPane.Core.Load;
 using AltPane.Core.Layout;
 using AltPane.Core.Localization;
 using AltPane.Core.Models;
-using AltPane.Core.Preview;
 using AltPane.Core.Switcher;
 
 namespace AltPane;
@@ -14,18 +13,13 @@ namespace AltPane;
 internal sealed class SwitcherPresenter
 {
     readonly Func<AppSettings> _settings;
-    readonly SwitcherWindow _window;
-    readonly ThumbnailController _thumbs = new();
+    readonly SwitcherDeck _deck;
     readonly Dictionary<long, System.Windows.Media.ImageSource> _icons = new();
     readonly Dictionary<string, System.Windows.Media.ImageSource> _appIcons = new(StringComparer.OrdinalIgnoreCase);
     AppIndexService? _apps;
     readonly DispatcherTimer _statusTimer;
     readonly LoadSampler _sampler = new();
     readonly KillArm _arm = new();
-    readonly MinimizedPreviewSession _preview = new();
-    readonly Dictionary<long, System.Windows.Media.ImageSource> _stills = new();
-    int _captureGeneration;
-    long _giveUpHandle;
     int _displayCount = -1;
     DispatcherTimer? _prune;
     SwitcherSession? _session;
@@ -39,84 +33,113 @@ internal sealed class SwitcherPresenter
     public SwitcherPresenter(Func<AppSettings> settings)
     {
         _settings = settings;
-        _window = new SwitcherWindow();
-        _window.Hovered += handle =>
-        {
-            if (_session?.SelectHandle(handle) == true)
-                Refresh(updateThumb: true);
-        };
-        _window.Invoked += handle =>
-        {
-            _session?.SelectHandle(handle);
-            Hotkeys?.RequestCommit();
-        };
-        _window.AppHovered += id =>
-        {
-            if (_session?.SelectApp(id) == true)
-                Refresh(updateThumb: true);
-        };
-        _window.AppInvoked += id =>
-        {
-            _session?.SelectApp(id);
-            Hotkeys?.RequestCommit();
-        };
-        _window.AdminLaunchRequested += LaunchAdmin;
-        _window.OpenLocationRequested += RevealSelected;
-        _window.CommitRequested += () => Hotkeys?.RequestCommit();
-        _window.CommitInPlaceRequested += () => Hotkeys?.RequestCommit(moveChoice: 0);
-        _window.ForceMoveRequested += () => Hotkeys?.RequestCommit(moveChoice: 1);
-        _window.ClearQueryRequested += () => Hotkeys?.RequestClearQuery();
-        _window.CancelRequested += () => Hotkeys?.RequestCancel();
-        _window.Releasing += () => ReleaseLiveSurface(activateBorrowed: false);
-        _window.SearchRequested += () => Hotkeys?.RequestSearchMode();
-        _window.QueryEdited += text =>
-        {
-            _session?.SetQuery(text);
-            Hotkeys?.SyncQueryLength(text?.Length ?? 0);
-            SyncSearch();
-            Refresh(updateThumb: true);
-        };
-        _window.NavigateRequested += Nudge;
-        _window.SpaceRequested += OnSpace;
-        _window.CloseRequested += CloseSelected;
-        _window.KillRequested += () => KillSelected(null);
-        _window.KillTreeRequested += () => KillSelected(true);
-        _window.SortCycleRequested += CycleSort;
-        _window.MonitorFilterRequested += ToggleMonitorFilter;
-        _window.DisplaysChanged += OnDisplaysChanged;
-        _window.HostMonitorChanged += FollowHostMonitor;
-        _window.LabelsRequested += () =>
-        {
-            if (_window.IsVisible) Refresh(updateThumb: false);
-        };
-        _window.PreviewRequested += PreviewSelected;
-        _sampler.Updated += update => _window.Dispatcher.BeginInvoke(() => ApplyLoad(update));
-        _window.MinimizeRequested += () => RunAction(static hwnd => WindowActions.Minimize(hwnd), iconic: true, zoomed: false);
-        _window.MaximizeRequested += () => RunAction(static hwnd => WindowActions.Maximize(hwnd), iconic: false, zoomed: true);
-        _window.RestoreRequested += () => RunAction(static hwnd => WindowActions.Restore(hwnd), iconic: false, zoomed: false);
-        _window.LayoutChanged += () => UpdateThumb();
+        _deck = new SwitcherDeck();
+        _deck.Attach(Bind);
+        _deck.DisplaysChanged += OnDisplaysChanged;
+        _sampler.Updated += update => _deck.Dispatcher.BeginInvoke(() => ApplyLoad(update));
         _statusTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2.6) };
         _statusTimer.Tick += (_, _) =>
         {
             _statusTimer.Stop();
             if (_statusSticky) return;
             _status = null;
-            if (_window.IsVisible) Refresh(updateThumb: false);
+            if (_deck.IsVisible) Refresh();
         };
     }
 
     public HotkeyService? Hotkeys { get; set; }
     public bool PendingShow { get; private set; }
-    public bool IsSwitcherVisible => _window.IsVisible;
-    public bool IsImeComposing => _window.IsImeComposing;
-    public int VisibleQueryLength => _window.QueryCharCount;
-    public bool VisibleSearchMode => _window.IsSearchMode;
-    public bool EscapeBelongsToIme() => _window.EscapeBelongsToIme();
+    public bool IsSwitcherVisible => _deck.IsVisible;
+    public bool IsImeComposing => _deck.IsImeComposing;
+    public int VisibleQueryLength => _deck.QueryCharCount;
+    public bool VisibleSearchMode => _deck.IsSearchMode;
+    public bool EscapeBelongsToIme() => _deck.EscapeBelongsToIme();
+
+    void Bind(SwitcherWindow window)
+    {
+        window.IsCompanion = _deck.Owns;
+        window.Hovered += handle =>
+        {
+            if (_session?.SelectHandle(handle) == true)
+                Refresh();
+        };
+        window.Invoked += handle =>
+        {
+            _deck.NoteClick(window);
+            _session?.SelectHandle(handle);
+            Hotkeys?.RequestCommit();
+        };
+        window.AppHovered += id =>
+        {
+            if (_session?.SelectApp(id) == true)
+                Refresh();
+        };
+        window.AppInvoked += id =>
+        {
+            _deck.NoteClick(window);
+            _session?.SelectApp(id);
+            Hotkeys?.RequestCommit();
+        };
+        window.AdminLaunchRequested += () =>
+        {
+            if (window.TakeMouse()) _deck.NoteClick(window);
+            else _deck.ClearClick();
+            LaunchAdmin();
+        };
+        window.OpenLocationRequested += RevealSelected;
+        window.CommitRequested += () =>
+        {
+            if (window.TakeMouse()) _deck.NoteClick(window);
+            else _deck.ClearClick();
+            Hotkeys?.RequestCommit();
+        };
+        window.CommitInPlaceRequested += () =>
+        {
+            window.TakeMouse();
+            _deck.ClearClick();
+            Hotkeys?.RequestCommit(moveChoice: 0);
+        };
+        window.ForceMoveRequested += () =>
+        {
+            if (window.TakeMouse()) _deck.NoteClick(window);
+            Hotkeys?.RequestCommit(moveChoice: 1);
+        };
+        window.ClearQueryRequested += () => Hotkeys?.RequestClearQuery();
+        window.CancelRequested += () => Hotkeys?.RequestCancel();
+        window.Releasing += () => ReleaseLiveSurface();
+        window.SearchRequested += () =>
+        {
+            _deck.NoteKeyboard(window);
+            Hotkeys?.RequestSearchMode();
+        };
+        window.QueryEdited += text =>
+        {
+            _deck.NoteKeyboard(window);
+            _session?.SetQuery(text);
+            Hotkeys?.SyncQueryLength(text?.Length ?? 0);
+            SyncSearch();
+            Refresh();
+        };
+        window.NavigateRequested += Nudge;
+        window.SpaceRequested += OnSpace;
+        window.CloseRequested += CloseSelected;
+        window.KillRequested += () => KillSelected(null);
+        window.KillTreeRequested += () => KillSelected(true);
+        window.SortCycleRequested += CycleSort;
+        window.MonitorFilterRequested += ToggleMonitorFilter;
+        window.LabelsRequested += () =>
+        {
+            if (_deck.IsVisible) Refresh();
+        };
+        window.MinimizeRequested += () => RunAction(static hwnd => WindowActions.Minimize(hwnd), iconic: true, zoomed: false);
+        window.MaximizeRequested += () => RunAction(static hwnd => WindowActions.Maximize(hwnd), iconic: false, zoomed: true);
+        window.RestoreRequested += () => RunAction(static hwnd => WindowActions.Restore(hwnd), iconic: false, zoomed: false);
+    }
 
     public void UseApps(AppIndexService apps)
     {
         _apps = apps;
-        apps.Updated += () => _window.Dispatcher.BeginInvoke(ReloadApps);
+        apps.Updated += () => _deck.Dispatcher.BeginInvoke(ReloadApps);
     }
     public event Action<string>? Notify;
     public event Action? PersistRequested;
@@ -130,41 +153,41 @@ internal sealed class SwitcherPresenter
                 break;
             case UiOp.Cycle cycle:
                 _session?.Move(cycle.Delta);
-                if (_window.IsVisible) Refresh(updateThumb: true);
+                if (_deck.IsVisible) Refresh();
                 break;
             case UiOp.AppendQuery append:
                 _session?.AppendQuery(append.Text);
                 SyncSearch();
-                if (_window.IsVisible) Refresh(updateThumb: true);
+                if (_deck.IsVisible) Refresh();
                 break;
             case UiOp.Backspace:
                 _session?.Backspace();
                 SyncSearch();
-                if (_window.IsVisible) Refresh(updateThumb: true);
+                if (_deck.IsVisible) Refresh();
                 break;
             case UiOp.ClearQuery:
                 if (_session?.ClearQuery() == true)
                 {
                     Hotkeys?.SyncQueryLength(0);
                     SyncSearch();
-                    if (_window.IsVisible)
+                    if (_deck.IsVisible)
                     {
-                        Refresh(updateThumb: true);
-                        if (_searchMode) _window.FocusSearch();
+                        Refresh();
+                        if (_searchMode) _deck.FocusSearch();
                     }
                 }
                 break;
             case UiOp.Home:
                 _session?.SelectFirst();
-                if (_window.IsVisible) Refresh(updateThumb: true);
+                if (_deck.IsVisible) Refresh();
                 break;
             case UiOp.End:
                 _session?.SelectLast();
-                if (_window.IsVisible) Refresh(updateThumb: true);
+                if (_deck.IsVisible) Refresh();
                 break;
             case UiOp.Page page:
                 _session?.Page(page.Direction);
-                if (_window.IsVisible) Refresh(updateThumb: true);
+                if (_deck.IsVisible) Refresh();
                 break;
             case UiOp.Commit commit:
                 Commit(commit.MoveToMonitor);
@@ -175,11 +198,11 @@ internal sealed class SwitcherPresenter
             case UiOp.EnterSearch:
             case UiOp.ReleaseHold:
                 _searchMode = true;
-                if (!_window.IsVisible) PendingShow = true;
+                if (!_deck.IsVisible) PendingShow = true;
                 else
                 {
-                    Refresh(updateThumb: false);
-                    _window.ClaimKeyboard();
+                    Refresh();
+                    _deck.ClaimKeyboard();
                 }
                 break;
             case UiOp.CloseWindow:
@@ -205,7 +228,7 @@ internal sealed class SwitcherPresenter
                 break;
             case UiOp.BringToFront:
                 if (_session is null) Build(0);
-                else if (_window.IsVisible) _window.Activate();
+                else if (_deck.IsVisible) _deck.ActivateFocused();
                 else PendingShow = true;
                 break;
         }
@@ -216,35 +239,37 @@ internal sealed class SwitcherPresenter
         if (!PendingShow || !snap.SwitcherOpen) return;
         PendingShow = false;
         _searchMode = snap.SearchMode;
-        _window.Render(BuildState());
-        _window.ShowFor(_settings(), _restore);
-        if (snap.SearchMode) _window.ClaimKeyboard();
+        var settings = _settings();
+        _deck.Prepare(settings, _restore);
+        _deck.Render(BuildState());
+        _deck.Reveal();
+        if (snap.SearchMode) _deck.ClaimKeyboard();
         QueueIcons();
-        UpdateThumb();
         SyncSampler();
     }
 
     public WindowEntry? TakeForQuickCommit()
     {
         var selected = _session?.Selected;
-        ReleaseLiveSurface(activateBorrowed: true);
+        ReleaseLiveSurface();
         PendingShow = false;
         _searchMode = false;
         _session = null;
         _arm.Clear();
+        _deck.HideAll();
         return selected;
     }
 
     public void ActivateEntry(WindowEntry entry) => ActivateEntry(entry, null);
 
-    void ActivateEntry(WindowEntry entry, bool? moveOverride)
+    void ActivateEntry(WindowEntry entry, DisplayBounds? moveTo)
     {
         if (!NativeMethods.IsWindow((nint)entry.Handle))
         {
             Notify?.Invoke(Localizer.Current["activate.missing"]);
             return;
         }
-        if (WantsMove(moveOverride) && _window.TryGetHostMonitor(out var host)
+        if (moveTo is { } host
             && !WindowMover.TryMoveTo((nint)entry.Handle, host, MonitorUtil.All()))
             AppLog.Info($"Could not move 0x{entry.Handle:X} onto the switcher's display. Activating it where it is.");
         if (!WindowActions.TryActivate((nint)entry.Handle))
@@ -253,14 +278,14 @@ internal sealed class SwitcherPresenter
 
     public void ForceClose()
     {
-        ReleaseLiveSurface(activateBorrowed: false);
-        _window.ForceClose();
+        ReleaseLiveSurface();
+        _deck.ForceClose();
     }
 
     void Build(int delta)
     {
         var clock = AppLog.Verbose ? System.Diagnostics.Stopwatch.StartNew() : null;
-        ReleaseLiveSurface(activateBorrowed: false);
+        ReleaseLiveSurface();
         _restore = NativeMethods.GetForegroundWindow();
         List<WindowEntry> entries;
         try
@@ -304,40 +329,22 @@ internal sealed class SwitcherPresenter
             AppLog.Info($"open enumerated {entries.Count} windows in {clock.ElapsedMilliseconds} ms");
     }
 
-    void RedrawThumbnailSource()
+    void ReleaseLiveSurface()
     {
-        var source = _thumbs.Clear();
-        if (source == 0) return;
-        NativeMethods.RedrawWindow(
-            source,
-            0,
-            0,
-            NativeMethods.RdwInvalidate | NativeMethods.RdwErase | NativeMethods.RdwAllChildren | NativeMethods.RdwUpdatenow | NativeMethods.RdwFrame);
-    }
-
-    void ReleaseLiveSurface(bool activateBorrowed)
-    {
-        RedrawThumbnailSource();
-        ApplyPreview(activateBorrowed ? _preview.Commit() : _preview.Cancel());
         _sampler.Stop();
         _apps?.CancelSearch();
         _prune?.Stop();
-        _captureGeneration++;
     }
 
-    void DismissSwitcher(bool keepBorrowed)
+    void DismissSwitcher()
     {
-        ReleaseLiveSurface(keepBorrowed);
+        ReleaseLiveSurface();
         PendingShow = false;
         _searchMode = false;
         _session = null;
-        _thumbs.Clear();
         _sampler.Stop();
         _arm.Clear();
-        _window.RunGuarded(() =>
-        {
-            if (_window.IsVisible) _window.HideSwitcher();
-        });
+        _deck.HideAll();
     }
 
     void LaunchAdmin()
@@ -351,8 +358,8 @@ internal sealed class SwitcherPresenter
             return;
         }
         var app = appHit.App;
-        var host = HostForLaunch(null);
-        DismissSwitcher(keepBorrowed: false);
+        var host = MoveDestination(null);
+        DismissSwitcher();
         if (!AppLauncher.TryLaunch(app, admin: true, out var error) && error is not null)
             Notify?.Invoke(Localizer.Current.Format(error, app.Name));
         else
@@ -374,7 +381,7 @@ internal sealed class SwitcherPresenter
     {
         if (_session is null) return;
         ApplyCatalog(resetClock: false);
-        if (_window.IsVisible) Refresh(updateThumb: false);
+        if (_deck.IsVisible) Refresh();
     }
 
     void ApplyCatalog(bool resetClock)
@@ -398,13 +405,12 @@ internal sealed class SwitcherPresenter
             var window = appHit.SwitchHandle == 0
                 ? null
                 : _session?.All.FirstOrDefault(entry => entry.Handle == appHit.SwitchHandle);
-            var keepBorrowed = window is not null && _preview.IsBorrowing && _preview.Handle == window.Handle;
-            var host = HostForLaunch(moveOverride);
-            DismissSwitcher(keepBorrowed);
+            var host = MoveDestination(moveOverride);
+            DismissSwitcher();
             if (window is not null)
             {
                 _apps?.Remember(app.Id);
-                ActivateEntry(window, moveOverride);
+                ActivateEntry(window, host);
                 return;
             }
             if (!AppLauncher.TryLaunch(app, admin: false, out var error) && error is not null)
@@ -418,26 +424,21 @@ internal sealed class SwitcherPresenter
         }
 
         var selected = _session?.Selected;
-        ReleaseLiveSurface(activateBorrowed: true);
+        var destination = MoveDestination(moveOverride);
+        ReleaseLiveSurface();
         PendingShow = false;
         _searchMode = false;
         _session = null;
         _arm.Clear();
-        _window.RunGuarded(() =>
-        {
-            if (_window.IsVisible) _window.HideSwitcher();
-        });
+        _deck.HideAll();
         if (selected is null) return;
-        ActivateEntry(selected, moveOverride);
+        ActivateEntry(selected, destination);
     }
 
     bool WantsMove(bool? moveOverride) => moveOverride ?? _settings().MoveToSwitcherMonitor;
 
-    DisplayBounds? HostForLaunch(bool? moveOverride)
-    {
-        if (!WantsMove(moveOverride)) return null;
-        return _window.TryGetHostMonitor(out var host) ? host : null;
-    }
+    DisplayBounds? MoveDestination(bool? moveOverride) =>
+        WantsMove(moveOverride) ? _deck.TakeMoveTarget() : null;
 
     void SyncSearch() => _apps?.ScheduleSearch(_session?.Query);
 
@@ -490,17 +491,14 @@ internal sealed class SwitcherPresenter
 
     void Cancel()
     {
-        ReleaseLiveSurface(activateBorrowed: false);
+        ReleaseLiveSurface();
         var restore = _restore;
-        var wasVisible = _window.IsVisible;
+        var wasVisible = _deck.IsVisible;
         PendingShow = false;
         _searchMode = false;
         _session = null;
         _arm.Clear();
-        _window.RunGuarded(() =>
-        {
-            if (wasVisible) _window.HideSwitcher();
-        });
+        if (wasVisible) _deck.HideAll();
         if (wasVisible && restore != 0)
             WindowActions.TryActivate(restore);
     }
@@ -513,7 +511,7 @@ internal sealed class SwitcherPresenter
         else if (Math.Abs(delta) >= SwitcherSession.PageSize) _session.Page(Math.Sign(delta));
         else _session.Move(delta);
         DisarmIfSelectionChanged();
-        if (_window.IsVisible) Refresh(updateThumb: true);
+        if (_deck.IsVisible) Refresh();
     }
 
     void CloseSelected()
@@ -521,8 +519,6 @@ internal sealed class SwitcherPresenter
         var session = _session;
         var selected = session?.Selected;
         if (session is null || selected is null) return;
-        RedrawThumbnailSource();
-        ReturnBorrowed(selected.Handle);
         var hwnd = (nint)selected.Handle;
         if (!NativeMethods.IsWindow(hwnd))
         {
@@ -539,8 +535,6 @@ internal sealed class SwitcherPresenter
     {
         var selected = _session?.Selected;
         if (selected is null) return;
-        RedrawThumbnailSource();
-        ReturnBorrowed(selected.Handle);
         var includeTree = forceTree ?? _settings().EndTaskKillsTree;
         var decision = ProcessActionPolicy.Evaluate(selected.KillProcessName, selected.KillProcessId);
         if (!decision.Allowed)
@@ -601,12 +595,12 @@ internal sealed class SwitcherPresenter
         _session?.SetSortMode(settings.SortMode);
         try { PersistRequested?.Invoke(); }
         catch (Exception ex) { AppLog.Error(ex); }
-        if (_window.IsVisible) Refresh(updateThumb: false);
+        if (_deck.IsVisible) Refresh();
     }
 
     void ApplyLoad(LoadUpdate update)
     {
-        if (_session is null || !_window.IsVisible || !_settings().ShowLoad) return;
+        if (_session is null || !_deck.IsVisible || !_settings().ShowLoad) return;
         _system = update.System;
         var byHandle = new Dictionary<long, TaskLoad>();
         foreach (var entry in _session.All)
@@ -616,12 +610,12 @@ internal sealed class SwitcherPresenter
         }
         _session.UpdateLoads(byHandle);
         DisarmIfSelectionChanged();
-        Refresh(updateThumb: false);
+        Refresh();
     }
 
     void SyncSampler()
     {
-        if (_session is null || !_window.IsVisible || !_settings().ShowLoad)
+        if (_session is null || !_deck.IsVisible || !_settings().ShowLoad)
         {
             _sampler.Stop();
             return;
@@ -645,12 +639,10 @@ internal sealed class SwitcherPresenter
     {
         var selected = _session?.Selected;
         if (selected is null || !NativeMethods.IsWindow((nint)selected.Handle)) return;
-        if (iconic) ReturnBorrowed(selected.Handle);
-        else ReleaseBorrowed(selected.Handle);
         action((nint)selected.Handle);
         selected.IsIconic = iconic;
         selected.IsZoomed = zoomed;
-        Refresh(updateThumb: true);
+        Refresh();
     }
 
     void SchedulePrune(long handle)
@@ -663,7 +655,7 @@ internal sealed class SwitcherPresenter
             if (_session is null) return;
             if (!NativeMethods.IsWindow((nint)handle))
                 _session.RemoveHandle(handle);
-            if (_window.IsVisible) Refresh(updateThumb: true);
+            if (_deck.IsVisible) Refresh();
             SyncSampler();
         };
         _prune.Start();
@@ -675,14 +667,13 @@ internal sealed class SwitcherPresenter
         _statusSticky = sticky;
         _statusTimer.Stop();
         if (!sticky) _statusTimer.Start();
-        if (_window.IsVisible) Refresh(updateThumb: false);
+        if (_deck.IsVisible) Refresh();
     }
 
-    void Refresh(bool updateThumb)
+    void Refresh()
     {
         DisarmIfSelectionChanged();
-        _window.Render(BuildState());
-        if (updateThumb && _window.IsVisible) UpdateThumb();
+        _deck.Render(BuildState());
     }
 
     SwitcherViewState BuildState()
@@ -721,7 +712,6 @@ internal sealed class SwitcherPresenter
             Hint = hint,
             CountText = count,
             Status = _status,
-            ShowPreview = settings.ShowPreview,
             SearchMode = _searchMode,
             Icons = _icons,
             Loads = showLoad && _session is not null
@@ -770,19 +760,11 @@ internal sealed class SwitcherPresenter
         }
         else
         {
-            var number = _window.HostMonitorNumber();
+            var number = _deck.HostMonitorNumber();
             if (number <= 0 || MonitorUtil.All().Count < 2) return;
             _session.SetMonitorFilter(number);
         }
-        if (_window.IsVisible) Refresh(updateThumb: true);
-    }
-
-    void FollowHostMonitor()
-    {
-        if (_session is null || _session.MonitorFilter == 0) return;
-        var number = _window.HostMonitorNumber();
-        if (number > 0) _session.SetMonitorFilter(number);
-        if (_window.IsVisible) Refresh(updateThumb: true);
+        if (_deck.IsVisible) Refresh();
     }
 
     string[] AppIndexLabels(int count)
@@ -805,16 +787,19 @@ internal sealed class SwitcherPresenter
             _session.SetMonitorFilter(0);
         else if (_session.MonitorFilter > 0)
         {
-            var number = _window.HostMonitorNumber();
+            var number = _deck.HostMonitorNumber();
             if (number > 0) _session.SetMonitorFilter(number);
         }
-        if (_window.IsVisible) Refresh(updateThumb: false);
+        if (!_deck.IsVisible) return;
+        _deck.Prepare(_settings(), _restore, captureForeground: false);
+        Refresh();
+        _deck.Reveal();
     }
 
     void QueueIcons()
     {
         var generation = ++_iconGeneration;
-        _window.Dispatcher.BeginInvoke(() =>
+        _deck.Dispatcher.BeginInvoke(() =>
         {
             if (generation != _iconGeneration || _session is null) return;
             foreach (var entry in _session.All.ToList())
@@ -837,253 +822,9 @@ internal sealed class SwitcherPresenter
                 var icon = IconLoader.TryGetFileIcon(path, hit.App.IconIndex) ?? IconLoader.TryGetFileIcon(hit.App.LaunchPath, 0);
                 if (icon is not null) _appIcons[hit.App.Id] = icon;
             }
-            if (_window.IsVisible) Refresh(updateThumb: false);
+            if (_deck.IsVisible) Refresh();
         }, DispatcherPriority.Background);
     }
 
-    void UpdateThumb()
-    {
-        var settings = _settings();
-        if (_session?.SelectedApp is { } appHit)
-        {
-            _thumbs.Clear();
-            _window.ShowStillPreview(null, null);
-            var path = string.IsNullOrWhiteSpace(appHit.App.ResolvedPath) ? appHit.App.LaunchPath : appHit.App.ResolvedPath;
-            _window.SetPreviewMessage(appHit.SwitchHandle != 0
-                ? Localizer.Current["launch.switchSubtitle"]
-                : path);
-            return;
-        }
-        FollowMinimizedPreview();
-        var selected = _session?.Selected;
-        if (!settings.ShowPreview || selected is null || !_window.IsVisible || selected.IsIconic)
-        {
-            _thumbs.Clear();
-            if (selected is { IsIconic: true } && _stills.TryGetValue(selected.Handle, out var still))
-            {
-                _window.ShowStillPreview(still, Localizer.Current["preview.minimizedBadge"]);
-                _window.SetPreviewMessage("");
-            }
-            else
-            {
-                _window.ShowStillPreview(null, null);
-                _window.SetPreviewMessage(selected is null
-                    ? Localizer.Current["preview.none"]
-                    : selected.IsIconic
-                        ? Localizer.Current["preview.minimized"]
-                        : "");
-            }
-            return;
-        }
-
-        _window.ShowStillPreview(null, null);
-
-        if (!_window.TryGetThumbBounds(out var bounds))
-        {
-            _thumbs.Clear();
-            return;
-        }
-
-        var hr = _thumbs.Show(_window.Handle, (nint)selected.Handle, bounds);
-        if (hr == 0)
-        {
-            _window.SetPreviewMessage("");
-            QueueStill(selected.Handle, (nint)selected.Handle);
-            return;
-        }
-
-        _thumbs.Clear();
-        var denied = unchecked((int)hr) == unchecked((int)0x80070005);
-        _window.SetPreviewMessage(Localizer.Current[denied ? "preview.denied" : "preview.unavailable"]);
-    }
-
-    void FollowMinimizedPreview()
-    {
-        if (!_settings().ShowPreview || _session?.Selected is not { } selected)
-        {
-            ApplyPreview(_preview.Cancel());
-            return;
-        }
-        if (_giveUpHandle != 0 && _giveUpHandle != selected.Handle)
-            _giveUpHandle = 0;
-        if (_preview.IsBorrowing && _preview.Handle == selected.Handle)
-            return;
-        var auto = _settings().PreviewMinimized && _giveUpHandle != selected.Handle;
-        ApplyPreview(_preview.Consider(selected.Handle, selected.IsIconic, auto, manual: false));
-    }
-
-    void OnSpace()
-    {
-        var selected = _session?.Selected;
-        if (selected is null || !selected.IsIconic)
-        {
-            Hotkeys?.RequestCommit();
-            return;
-        }
-        _giveUpHandle = 0;
-        ApplyPreview(_preview.Consider(selected.Handle, true, auto: false, manual: true), manualBorrow: true);
-        if (_window.IsVisible) UpdateThumb();
-    }
-
-    void PreviewSelected()
-    {
-        var selected = _session?.Selected;
-        if (selected is null || !selected.IsIconic) return;
-        _giveUpHandle = 0;
-        ApplyPreview(_preview.Consider(selected.Handle, true, auto: false, manual: true), manualBorrow: true);
-        if (_window.IsVisible) UpdateThumb();
-    }
-
-    void ReturnBorrowed(long handle)
-    {
-        if (!_preview.IsBorrowing || _preview.Handle != handle) return;
-        ApplyPreview(_preview.Cancel());
-    }
-
-    void ReleaseBorrowed(long handle)
-    {
-        if (!_preview.IsBorrowing || _preview.Handle != handle) return;
-        ApplyPreview(_preview.Commit());
-    }
-
-    void ApplyPreview(PreviewStep step, bool manualBorrow = false)
-    {
-        if (step.ReturnHandle != 0 && step.ReturnPlacement is { } back)
-        {
-            _window.HoldActivation();
-            try
-            {
-                WindowPlacementStore.TryApply((nint)step.ReturnHandle, back);
-                MarkIconic(step.ReturnHandle, true);
-            }
-            finally
-            {
-                _window.ReleaseActivation();
-            }
-        }
-        if (step.ReleaseHandle != 0 && step.ReleasePlacement is { } forward)
-        {
-            _window.HoldActivation();
-            try
-            {
-                WindowPlacementStore.TryApply((nint)step.ReleaseHandle, forward);
-                MarkIconic(step.ReleaseHandle, false);
-            }
-            finally
-            {
-                _window.ReleaseActivation();
-            }
-        }
-        if (step.BorrowHandle != 0)
-            BeginBorrow(step.BorrowHandle, manualBorrow);
-    }
-
-    void BeginBorrow(long handle, bool manual)
-    {
-        if (!manual && _giveUpHandle == handle) return;
-        var hwnd = (nint)handle;
-        if (!NativeMethods.IsWindow(hwnd) || !WindowPlacementStore.TryGet(hwnd, out var original))
-        {
-            _giveUpHandle = handle;
-            ShowStatus(Localizer.Current["preview.restoreFailed"]);
-            return;
-        }
-
-        var off = PlacementEdits.OffScreen(
-            original,
-            NativeMethods.GetSystemMetrics(NativeMethods.SmXVirtualScreen),
-            NativeMethods.GetSystemMetrics(NativeMethods.SmYVirtualScreen));
-        var applied = false;
-        _window.HoldActivation();
-        try
-        {
-            _window.RunGuarded(() => applied = WindowPlacementStore.TryApply(hwnd, off));
-        }
-        finally
-        {
-            _window.ReleaseActivation();
-        }
-        if (!applied)
-        {
-            _giveUpHandle = handle;
-            ShowStatus(Localizer.Current["preview.restoreFailed"]);
-            return;
-        }
-
-        _preview.NoteBorrowed(handle, original);
-        if (!NativeMethods.IsIconic(hwnd))
-        {
-            MarkIconic(handle, false);
-            KeepSwitcherForeground();
-            return;
-        }
-
-        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(180) };
-        timer.Tick += (_, _) =>
-        {
-            timer.Stop();
-            if (!_preview.IsBorrowing || _preview.Handle != handle) return;
-            _window.HoldActivation();
-            try
-            {
-            if (NativeMethods.IsWindow(hwnd) && !NativeMethods.IsIconic(hwnd))
-            {
-                MarkIconic(handle, false);
-                KeepSwitcherForeground();
-                if (_window.IsVisible) UpdateThumb();
-                return;
-            }
-            if (NativeMethods.IsWindow(hwnd))
-                WindowPlacementStore.TryApply(hwnd, original);
-            _preview.NoteFailed();
-            _giveUpHandle = handle;
-            MarkIconic(handle, true);
-            ShowStatus(Localizer.Current["preview.restoreFailed"]);
-            if (_window.IsVisible) UpdateThumb();
-            }
-            finally
-            {
-                _window.ReleaseActivation();
-            }
-        };
-        timer.Start();
-    }
-
-    void KeepSwitcherForeground()
-    {
-        var hwnd = _window.Handle;
-        if (hwnd == 0) return;
-        NativeMethods.SetWindowPos(hwnd, new nint(-1), 0, 0, 0, 0, NativeMethods.SwpNoMove | NativeMethods.SwpNoSize | NativeMethods.SwpNoActivate);
-        if (NativeMethods.GetForegroundWindow() != hwnd)
-            NativeMethods.SetForegroundWindow(hwnd);
-    }
-
-    void MarkIconic(long handle, bool iconic)
-    {
-        var entry = _session?.All.FirstOrDefault(item => item.Handle == handle);
-        if (entry is not null) entry.IsIconic = iconic;
-    }
-
-    void QueueStill(long handle, nint hwnd)
-    {
-        if (_stills.ContainsKey(handle)) return;
-        var generation = ++_captureGeneration;
-        _window.Dispatcher.BeginInvoke(() =>
-        {
-            if (generation != _captureGeneration || _stills.ContainsKey(handle)) return;
-            var image = PreviewCapture.TryCapture(hwnd);
-            if (image is null) return;
-            _stills[handle] = image;
-            while (_stills.Count > 16)
-            {
-                long drop = 0;
-                foreach (var key in _stills.Keys)
-                {
-                    drop = key;
-                    break;
-                }
-                _stills.Remove(drop);
-            }
-        }, DispatcherPriority.Background);
-    }
+    void OnSpace() => Hotkeys?.RequestCommit();
 }

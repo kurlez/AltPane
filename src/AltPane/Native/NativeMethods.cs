@@ -231,15 +231,6 @@ internal static class NativeMethods
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool SetWindowPos(nint hWnd, nint hWndInsertAfter, int x, int y, int cx, int cy, uint uFlags);
 
-    [DllImport("user32.dll")]
-    public static extern bool RedrawWindow(nint hwnd, nint lprcUpdate, nint hrgnUpdate, uint flags);
-
-    public const uint RdwInvalidate = 0x0001;
-    public const uint RdwErase = 0x0004;
-    public const uint RdwAllChildren = 0x0080;
-    public const uint RdwUpdatenow = 0x0100;
-    public const uint RdwFrame = 0x0400;
-
     [DllImport("dwmapi.dll")]
     public static extern int DwmGetWindowAttribute(nint hwnd, int dwAttribute, out int pvAttribute, int cbAttribute);
 
@@ -248,18 +239,6 @@ internal static class NativeMethods
 
     [DllImport("dwmapi.dll")]
     public static extern int DwmExtendFrameIntoClientArea(nint hwnd, ref Margins margins);
-
-    [DllImport("dwmapi.dll")]
-    public static extern int DwmRegisterThumbnail(nint dest, nint src, out nint thumb);
-
-    [DllImport("dwmapi.dll")]
-    public static extern int DwmUnregisterThumbnail(nint thumb);
-
-    [DllImport("dwmapi.dll")]
-    public static extern int DwmUpdateThumbnailProperties(nint thumb, ref DwmThumbnailProperties props);
-
-    [DllImport("dwmapi.dll")]
-    public static extern int DwmQueryThumbnailSourceSize(nint thumb, out NativeSize size);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     public static extern nint OpenProcess(uint dwDesiredAccess, bool bInheritHandle, int dwProcessId);
@@ -319,33 +298,6 @@ internal static class NativeMethods
 
     [DllImport("user32.dll")]
     public static extern bool GetWindowRect(nint hwnd, out NativeRect rect);
-
-    [DllImport("user32.dll")]
-    public static extern bool IsHungAppWindow(nint hwnd);
-
-    [DllImport("user32.dll")]
-    public static extern bool PrintWindow(nint hwnd, nint hdc, uint flags);
-
-    [DllImport("user32.dll")]
-    public static extern nint GetDC(nint hwnd);
-
-    [DllImport("user32.dll")]
-    public static extern int ReleaseDC(nint hwnd, nint hdc);
-
-    [DllImport("gdi32.dll")]
-    public static extern nint CreateCompatibleDC(nint hdc);
-
-    [DllImport("gdi32.dll")]
-    public static extern bool DeleteDC(nint hdc);
-
-    [DllImport("gdi32.dll")]
-    public static extern nint CreateCompatibleBitmap(nint hdc, int width, int height);
-
-    [DllImport("gdi32.dll")]
-    public static extern nint SelectObject(nint hdc, nint obj);
-
-    [DllImport("gdi32.dll")]
-    public static extern bool DeleteObject(nint obj);
 }
 
 [StructLayout(LayoutKind.Sequential)]

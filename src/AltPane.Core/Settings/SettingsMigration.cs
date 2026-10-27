@@ -10,6 +10,8 @@ namespace AltPane.Core.Settings;
 /// A file that already contains <c>stickySwitcher</c> was saved by v0.2 or later, so an
 /// explicit off stays off. Hotkey, theme, language, exclusions, and the other choices
 /// that existed in v0.1 are never rewritten.
+/// Schema 5 removes showPreview, previewMinimized, and showOtherMonitorHints.
+/// The deserializer ignores those keys. Saving writes the file without them.
 /// </summary>
 public static class SettingsMigration
 {
@@ -32,7 +34,6 @@ public static class SettingsMigration
             settings.IndexStartMenu = true;
             settings.IndexStoreApps = true;
             settings.IndexDesktop = true;
-            settings.ShowOtherMonitorHints = true;
             settings.ShowMonitorBadges = true;
             changed = true;
         }

@@ -25,7 +25,6 @@ public class SettingsStoreTests
         settings.Placement = SwitcherPlacement.ActiveWindow;
         settings.StartWithWindows = true;
         settings.IncludeOtherVirtualDesktops = true;
-        settings.ShowPreview = false;
         settings.Hotkey = new HotkeyChord { Modifiers = ModifierKeys.Control | ModifierKeys.Alt, VirtualKey = VirtualKeys.Space };
         settings.ExcludedProcesses = new List<string> { "Notepad.EXE", "  spotify ", "Spotify", "" };
 
@@ -38,7 +37,6 @@ public class SettingsStoreTests
         Assert.Equal(AppLanguage.ZhCn, loaded.Settings.Language);
         Assert.Equal(SwitcherSize.Large, loaded.Settings.Size);
         Assert.Equal(SwitcherPlacement.ActiveWindow, loaded.Settings.Placement);
-        Assert.False(loaded.Settings.ShowPreview);
         Assert.Equal(VirtualKeys.Space, loaded.Settings.Hotkey!.VirtualKey);
         Assert.Equal(ModifierKeys.Control | ModifierKeys.Alt, loaded.Settings.Hotkey.Modifiers);
         Assert.Equal(new[] { "Notepad", "spotify" }, loaded.Settings.ExcludedProcesses);
@@ -53,7 +51,8 @@ public class SettingsStoreTests
         Assert.True(HotkeyLogic.IsValid(loaded.Settings.Hotkey));
         Assert.Equal(VirtualKeys.Tab, loaded.Settings.Hotkey!.VirtualKey);
         Assert.Equal(ModifierKeys.Alt, loaded.Settings.Hotkey.Modifiers);
-        Assert.True(loaded.Settings.ShowPreview);
+        Assert.True(loaded.Settings.ShowMonitorBadges);
+        Assert.Equal(AppSettings.CurrentSchema, loaded.Settings.Version);
     }
 
     [Fact]
@@ -150,18 +149,6 @@ public class RectangleMathTests
     }
 
     [Fact]
-    public void Fits_thumbnails_with_letterboxing()
-    {
-        var dest = new RectangleMath.RectI(10, 20, 800, 600);
-        var fitted = RectangleMath.FitContain(dest, 1920, 1080);
-        Assert.Equal(800, fitted.Width);
-        Assert.Equal(450, fitted.Height);
-        Assert.Equal(10, fitted.X);
-        Assert.True(fitted.Y > dest.Y);
-        Assert.Equal(dest, RectangleMath.FitContain(dest, 0, 0));
-    }
-
-    [Fact]
     public void Converts_dips_with_rounding()
     {
         var physical = RectangleMath.DipToPhysical(10, 20, 100, 50, 1.5, 1.5);
@@ -214,10 +201,6 @@ public class HotkeyFormatTests
 public class NativeLayoutTests
 {
     [Fact]
-    public void Thumbnail_properties_match_the_windows_x64_size() =>
-        Assert.Equal(48, Marshal.SizeOf<DwmThumbnailProperties>());
-
-    [Fact]
     public void SendInput_struct_is_40_bytes_on_x64()
     {
         if (Environment.Is64BitProcess)
@@ -247,8 +230,6 @@ public class WindowFrameTests
         Assert.Equal(0x00F8F7F7, WindowFrame.CaptionColor(false));
         Assert.StartsWith("#FF", WindowFrame.WindowBackgroundHex(true));
         Assert.StartsWith("#FF", WindowFrame.WindowBackgroundHex(false));
-        Assert.StartsWith("#FF", WindowFrame.PreviewWellHex(true));
-        Assert.StartsWith("#FF", WindowFrame.PreviewWellHex(false));
     }
 
     [Fact]
@@ -263,31 +244,16 @@ public class WindowFrameTests
         Assert.Contains(WindowFrame.WindowBackgroundHex(true), dark);
         Assert.Contains(WindowFrame.EdgeHex(true), dark);
         Assert.Contains(WindowFrame.EdgeInnerHex(true), dark);
-        Assert.Contains(WindowFrame.PreviewWellHex(true), dark);
         Assert.Contains(WindowFrame.WindowBackgroundHex(false), light);
         Assert.Contains(WindowFrame.EdgeHex(false), light);
         Assert.Contains(WindowFrame.EdgeInnerHex(false), light);
-        Assert.Contains(WindowFrame.PreviewWellHex(false), light);
         Assert.Contains("Background=\"{DynamicResource WindowBgBrush}\"", switcher);
         Assert.Contains("BorderBrush=\"{DynamicResource WindowEdgeBrush}\"", switcher);
         Assert.Contains("BorderThickness=\"2\"", switcher);
         Assert.Contains("BorderBrush=\"{DynamicResource WindowEdgeInnerBrush}\"", switcher);
         Assert.DoesNotContain("CornerRadius=\"14\"", switcher);
+        Assert.DoesNotContain("PreviewRoot", switcher);
         Assert.Contains("BorderBrush=\"{DynamicResource WindowEdgeBrush}\"", settings);
-    }
-
-    [Fact]
-    public void Thumbnail_destination_preserves_aspect_and_stays_inside_the_pane()
-    {
-        var pane = new RectangleMath.RectI(4, 8, 400, 400);
-        var fitted = RectangleMath.FitContain(pane, 1920, 1080);
-        Assert.Equal(400, fitted.Width);
-        Assert.Equal(225, fitted.Height);
-        Assert.Equal(pane.X, fitted.X);
-        Assert.Equal(pane.Y + (pane.Height - fitted.Height) / 2, fitted.Y);
-        Assert.True(fitted.Y >= pane.Y);
-        Assert.True(fitted.Y + fitted.Height <= pane.Y + pane.Height);
-        Assert.InRange(Math.Abs((fitted.Width / (double)fitted.Height) - (1920 / 1080.0)), 0, 0.01);
     }
 
     static string RepoRoot()

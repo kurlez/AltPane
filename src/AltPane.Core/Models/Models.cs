@@ -116,8 +116,10 @@ public sealed class AppSettings
     /// 1 is a v0.1.0 file (Win+Tab capture defaulted off). v0.2.0 still wrote 1, and is
     /// recognized by the presence of stickySwitcher. 3 is a file saved by v0.3.0.
     /// 4 makes initial-letter order the window-list default.
+    /// 5 drops live preview, minimized-preview restore, and the other-monitor reminder.
+    /// The switcher is shown on every monitor. Those keys are ignored and not written back.
     /// </summary>
-    public const int CurrentSchema = 4;
+    public const int CurrentSchema = 5;
 
     public int Version { get; set; } = CurrentSchema;
     public HotkeyChord? Hotkey { get; set; } = HotkeyChord.AltTab();
@@ -125,11 +127,8 @@ public sealed class AppSettings
     public bool CaptureWinTab { get; set; } = true;
     public AppTheme Theme { get; set; } = AppTheme.System;
     public SwitcherSize Size { get; set; } = SwitcherSize.Comfortable;
-    public bool ShowPreview { get; set; } = true;
     public SwitcherPlacement Placement { get; set; } = SwitcherPlacement.MouseCursor;
-    /// <summary>When true (the default), other monitors point at the one showing the switcher.</summary>
-    public bool ShowOtherMonitorHints { get; set; } = true;
-    /// <summary>When true (the default), each row shows its display number while more than one monitor is connected.</summary>
+    /// <summary>When true (the default), each row shows its display relative to the monitor drawing that switcher.</summary>
     public bool ShowMonitorBadges { get; set; } = true;
     public AppLanguage Language { get; set; } = AppLanguage.System;
     public List<string> ExcludedProcesses { get; set; } = new();
@@ -141,7 +140,6 @@ public sealed class AppSettings
     public LoadSortMode SortMode { get; set; } = LoadSortMode.Initial;
     public bool ConfirmEndTask { get; set; } = true;
     public bool EndTaskKillsTree { get; set; } = true;
-    public bool PreviewMinimized { get; set; }
     /// <summary>
     /// When true (the default), releasing the trigger key leaves the switcher open.
     /// Enter or a click activates the selection. When false, releasing the trigger activates it.
@@ -173,10 +171,8 @@ public sealed class AppSettings
     {
         Version = CurrentSchema,
         Hotkey = HotkeyChord.AltTab(),
-        ShowPreview = true,
         Size = SwitcherSize.Comfortable,
         Placement = SwitcherPlacement.MouseCursor,
-        ShowOtherMonitorHints = true,
         ShowMonitorBadges = true,
         Theme = AppTheme.System,
         Language = AppLanguage.System,

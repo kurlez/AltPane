@@ -93,12 +93,8 @@ public class ListBehaviorTests
         Assert.False(SwitcherCleanup.ShouldDismiss(5, 9, false, holdingActivation: true, previousForeground: 4, ageMilliseconds: 400));
         Assert.False(SwitcherCleanup.ShouldDismiss(4, 9, false, false, previousForeground: 4, ageMilliseconds: 100));
         Assert.True(SwitcherCleanup.ShouldDismiss(4, 9, false, false, previousForeground: 4, ageMilliseconds: 300));
-        Assert.Equal(CleanupStep.UnregisterThumbnail, SwitcherCleanup.Steps(activateSelection: false)[0]);
-        Assert.Contains(CleanupStep.ReturnBorrowedPreview, SwitcherCleanup.Steps(activateSelection: false));
-        Assert.Contains(CleanupStep.RestorePreviousForeground, SwitcherCleanup.Steps(activateSelection: false));
-        Assert.DoesNotContain(CleanupStep.ReturnBorrowedPreview, SwitcherCleanup.Steps(activateSelection: true));
-        Assert.Contains(CleanupStep.ReleaseBorrowedForActivate, SwitcherCleanup.Steps(activateSelection: true));
-        Assert.DoesNotContain(CleanupStep.RestorePreviousForeground, SwitcherCleanup.Steps(activateSelection: true));
+        Assert.Equal(new[] { CleanupStep.HideSwitcher, CleanupStep.RestorePreviousForeground }, SwitcherCleanup.Steps(activateSelection: false));
+        Assert.Equal(new[] { CleanupStep.HideSwitcher }, SwitcherCleanup.Steps(activateSelection: true));
         Assert.True(SwitcherCleanup.IsImeUiClass("MSCTFIME UI"));
         Assert.True(SwitcherCleanup.IsImeUiClass("CiceroUIWndFrame"));
         Assert.True(SwitcherCleanup.IsImeUiClass("IME"));

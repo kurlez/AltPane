@@ -12,7 +12,6 @@
   <SolidColorBrush x:Key="HoverBrush" Color="#14FFFFFF"/>
   <SolidColorBrush x:Key="SelectedBrush" Color="#337C97FF"/>
   <SolidColorBrush x:Key="DangerBrush" Color="#FFFF8B8B"/>
-  <SolidColorBrush x:Key="PreviewWellBrush" Color="#FF121318"/>
   <SolidColorBrush x:Key="ButtonBgBrush" Color="#1AFFFFFF"/>
   <SolidColorBrush x:Key="ButtonBorderBrush" Color="#22FFFFFF"/>
   <SolidColorBrush x:Key="SearchBgBrush" Color="#14000000"/>

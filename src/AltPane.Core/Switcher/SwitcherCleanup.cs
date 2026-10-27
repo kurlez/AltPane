@@ -2,38 +2,20 @@ namespace AltPane.Core.Switcher;
 
 public enum CleanupStep
 {
-    UnregisterThumbnail,
-    RedrawThumbnailSource,
-    ReturnBorrowedPreview,
-    ReleaseBorrowedForActivate,
     HideSwitcher,
     RestorePreviousForeground
 }
 
 /// <summary>
 /// What has to happen when the switcher goes away, in order.
-/// A thumbnail that is still registered while focus moves is what turns the
-/// source window black. Borrowed minimized windows go back before the host hides.
+/// Every monitor's instance hides. Cancelling then restores the previous foreground window.
 /// </summary>
 public static class SwitcherCleanup
 {
     public static IReadOnlyList<CleanupStep> Steps(bool activateSelection) =>
         activateSelection
-            ? new[]
-            {
-                CleanupStep.UnregisterThumbnail,
-                CleanupStep.RedrawThumbnailSource,
-                CleanupStep.ReleaseBorrowedForActivate,
-                CleanupStep.HideSwitcher
-            }
-            : new[]
-            {
-                CleanupStep.UnregisterThumbnail,
-                CleanupStep.RedrawThumbnailSource,
-                CleanupStep.ReturnBorrowedPreview,
-                CleanupStep.HideSwitcher,
-                CleanupStep.RestorePreviousForeground
-            };
+            ? new[] { CleanupStep.HideSwitcher }
+            : new[] { CleanupStep.HideSwitcher, CleanupStep.RestorePreviousForeground };
 
     public static bool IsForeignDeactivate(long foreground, long switcher, bool foregroundIsHint, bool holdingActivation)
     {

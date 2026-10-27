@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="AltPane"
         Width="560"
-        Height="920"
+        Height="840"
         MinWidth="480"
         MinHeight="560"
         WindowStyle="None"
@@ -52,15 +52,10 @@
           <ComboBox x:Name="SizeBox" Margin="0,0,0,10"/>
           <TextBlock x:Name="PlacementLabel" FontWeight="SemiBold" Margin="0,0,0,6"/>
           <ComboBox x:Name="PlacementBox" Margin="0,0,0,8"/>
-          <CheckBox x:Name="OtherMonitorsBox" Margin="0,0,0,2"/>
-          <TextBlock x:Name="OtherMonitorsNote" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="22,0,0,8"/>
           <CheckBox x:Name="MonitorBadgesBox" Margin="0,0,0,2"/>
           <TextBlock x:Name="MonitorBadgesNote" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="22,0,0,8"/>
           <CheckBox x:Name="MoveBox" Margin="0,0,0,2"/>
           <TextBlock x:Name="MoveNote" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="22,0,0,10"/>
-          <CheckBox x:Name="PreviewBox" Margin="0,0,0,6"/>
-          <CheckBox x:Name="PreviewMinimizedBox" Margin="22,0,0,2"/>
-          <TextBlock x:Name="PreviewMinimizedNote" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="22,0,0,10"/>
           <CheckBox x:Name="LoadBox" Margin="0,0,0,6"/>
           <TextBlock x:Name="SortLabel" FontWeight="SemiBold" Margin="0,4,0,6"/>
           <ComboBox x:Name="SortBox" Margin="0,0,0,10"/>

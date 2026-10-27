@@ -31,8 +31,6 @@ public static class WindowFrame
     /// <summary>Inner hairline. The opposite luminance of the accent, so the ring reads on light and dark desktops.</summary>
     public static string EdgeInnerHex(bool dark) => dark ? "#FF101114" : "#FFFFFFFF";
 
-    public static string PreviewWellHex(bool dark) => dark ? "#FF121318" : "#FFE6E7EC";
-
     /// <summary>COLORREF, 0x00BBGGRR, for DWMWA_BORDER_COLOR.</summary>
     public static int BorderColor(bool dark) => ColorRef(EdgeHex(dark));
 

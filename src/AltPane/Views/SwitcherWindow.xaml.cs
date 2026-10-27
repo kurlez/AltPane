@@ -63,6 +63,7 @@ internal sealed class SwitcherRow : INotifyPropertyChanged
     public bool ShowLoad { get; private set; }
     public string ToolTipText { get; private set; } = "";
     public string MonitorLabel { get; private set; } = "";
+    public string KillLabel { get; private set; } = "";
     public System.Windows.Media.Brush MonitorBrush { get; private set; } = System.Windows.Media.Brushes.Transparent;
     public System.Windows.Media.Brush MonitorTint { get; private set; } = System.Windows.Media.Brushes.Transparent;
     string _baseTip = "";
@@ -122,10 +123,17 @@ internal sealed class SwitcherRow : INotifyPropertyChanged
         }
     }
 
-    public void ApplyMonitor(bool show, WindowEntry entry)
+    public void SetKillLabel(string label)
     {
-        var visible = show && entry.MonitorNumber > 0;
-        var label = visible ? entry.MonitorNumber.ToString() : "";
+        if (KillLabel == label) return;
+        KillLabel = label;
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(KillLabel)));
+    }
+
+    public void ApplyMonitor(bool show, WindowEntry entry, int hostMonitor, string thisScreen)
+    {
+        var label = show ? MonitorBadge.Label(entry.MonitorNumber, hostMonitor, thisScreen) : "";
+        var visible = label.Length > 0;
         var tip = visible
             ? MonitorChrome.Format(entry.MonitorNumber, entry.MonitorWidth, entry.MonitorHeight, entry.MonitorPrimary, entry.MonitorFriendlyName)
             : "";
@@ -182,7 +190,6 @@ public sealed class SwitcherViewState
     public required string Hint { get; init; }
     public required string CountText { get; init; }
     public string? Status { get; init; }
-    public bool ShowPreview { get; init; }
     public bool SearchMode { get; init; }
     public required string EmptyText { get; init; }
     public required IReadOnlyDictionary<long, ImageSource> Icons { get; init; }
@@ -212,7 +219,6 @@ public partial class SwitcherWindow : Window
     readonly MenuItem _menuMax;
     readonly MenuItem _menuRestore;
     readonly MenuItem _menuKillTree;
-    readonly MenuItem _menuPreview;
     readonly MenuItem _menuLaunch;
     readonly MenuItem _menuAdmin;
     readonly MenuItem _menuLocation;
@@ -230,9 +236,9 @@ public partial class SwitcherWindow : Window
     nint _previousForeground;
     DateTime _shownAt;
     DateTime _suppressCancelUntil;
-    readonly HintOverlay _hints = new();
-    bool _showHints = true;
-    bool _showBadges = true;
+    DisplayBounds _host;
+    string _thisScreen = "";
+    bool _mouseGesture;
 
     public SwitcherWindow()
     {
@@ -243,25 +249,23 @@ public partial class SwitcherWindow : Window
         _menuMax = new MenuItem();
         _menuRestore = new MenuItem();
         _menuKillTree = new MenuItem();
-        _menuPreview = new MenuItem();
         _menuLaunch = new MenuItem();
         _menuAdmin = new MenuItem();
         _menuLocation = new MenuItem();
         _menuMove = new MenuItem();
         _menuStay = new MenuItem();
         _menuClose.Click += (_, _) => CloseRequested?.Invoke();
-        _menuLaunch.Click += (_, _) => CommitRequested?.Invoke();
-        _menuAdmin.Click += (_, _) => AdminLaunchRequested?.Invoke();
+        _menuLaunch.Click += (_, _) => { _mouseGesture = true; CommitRequested?.Invoke(); };
+        _menuAdmin.Click += (_, _) => { _mouseGesture = true; AdminLaunchRequested?.Invoke(); };
         _menuLocation.Click += (_, _) => OpenLocationRequested?.Invoke();
         _menuKill.Click += (_, _) => KillRequested?.Invoke();
         _menuKillTree.Click += (_, _) => KillTreeRequested?.Invoke();
-        _menuPreview.Click += (_, _) => PreviewRequested?.Invoke();
         _menuMin.Click += (_, _) => MinimizeRequested?.Invoke();
         _menuMax.Click += (_, _) => MaximizeRequested?.Invoke();
         _menuRestore.Click += (_, _) => RestoreRequested?.Invoke();
-        _menu = new ContextMenu { Items = { _menuLaunch, _menuAdmin, _menuLocation, _menuMove, _menuStay, _menuClose, _menuKill, _menuKillTree, _menuPreview, new Separator(), _menuMin, _menuMax, _menuRestore } };
-        _menuMove.Click += (_, _) => ForceMoveRequested?.Invoke();
-        _menuStay.Click += (_, _) => CommitInPlaceRequested?.Invoke();
+        _menu = new ContextMenu { Items = { _menuLaunch, _menuAdmin, _menuLocation, _menuMove, _menuStay, _menuClose, _menuKill, _menuKillTree, new Separator(), _menuMin, _menuMax, _menuRestore } };
+        _menuMove.Click += (_, _) => { _mouseGesture = true; ForceMoveRequested?.Invoke(); };
+        _menuStay.Click += (_, _) => { _mouseGesture = true; CommitInPlaceRequested?.Invoke(); };
         _menu.Opened += (_, _) => LocalizeMenu();
         WindowList.ItemsSource = _rows;
         WindowList.ContextMenu = _menu;
@@ -290,13 +294,7 @@ public partial class SwitcherWindow : Window
         {
             ApplyStaticText();
             if (!IsVisible) return;
-            SyncHints();
             LabelsRequested?.Invoke();
-        };
-        _hints.DisplayChanged += () =>
-        {
-            if (IsVisible) SyncHints(allowRelocate: true);
-            DisplaysChanged?.Invoke();
         };
     }
 
@@ -312,7 +310,7 @@ public partial class SwitcherWindow : Window
     public event Action? ForceMoveRequested;
     public event Action? ClearQueryRequested;
     public event Action? CancelRequested;
-    /// <summary>Runs on the UI thread before the switcher hides, so thumbnails can be released first.</summary>
+    /// <summary>Runs on the UI thread before this copy hides.</summary>
     public event Action? Releasing;
     public bool IsSearchMode => _searchMode;
     public int QueryCharCount => Volatile.Read(ref _queryChars);
@@ -332,14 +330,32 @@ public partial class SwitcherWindow : Window
     public event Action? KillTreeRequested;
     public event Action? SortCycleRequested;
     public event Action? MonitorFilterRequested;
-    public event Action? DisplaysChanged;
-    public event Action? HostMonitorChanged;
     public event Action? LabelsRequested;
-    public event Action? PreviewRequested;
     public event Action? MinimizeRequested;
     public event Action? MaximizeRequested;
     public event Action? RestoreRequested;
-    public event Action? LayoutChanged;
+
+    public DisplayBounds Host => _host;
+    public Func<nint, bool>? IsCompanion { get; set; }
+
+    public void BindMonitor(DisplayBounds monitor, string thisScreen)
+    {
+        _host = monitor;
+        if (!string.IsNullOrEmpty(thisScreen)) _thisScreen = thisScreen;
+    }
+
+    public void RememberForeground(nint hwnd) => _previousForeground = hwnd;
+
+    public bool TakeMouse()
+    {
+        var mouse = _mouseGesture;
+        _mouseGesture = false;
+        return mouse;
+    }
+
+    public void PushGuard() => _guard = true;
+
+    public void PopGuard() => _guard = false;
 
     public void Render(SwitcherViewState state)
     {
@@ -373,23 +389,21 @@ public partial class SwitcherWindow : Window
         EmptyText.Text = state.EmptyText;
         EmptyText.Visibility = string.IsNullOrEmpty(state.EmptyText) ? Visibility.Collapsed : Visibility.Visible;
 
-        PreviewColumn.Width = state.ShowPreview ? new GridLength(0.58, GridUnitType.Star) : new GridLength(0);
-        ListColumn.Width = state.ShowPreview ? new GridLength(0.42, GridUnitType.Star) : new GridLength(1, GridUnitType.Star);
-        PreviewRoot.Visibility = state.ShowPreview ? Visibility.Visible : Visibility.Collapsed;
-
         SyncRows(state);
+        var kill = Localizer.Current["action.kill"];
 
         for (var i = 0; i < _rows.Count && i < state.Filtered.Count; i++)
         {
             var row = _rows[i];
             if (row.Entry is not { } entry) continue;
+            row.SetKillLabel(kill);
             if (state.Indexes.TryGetValue(entry.Handle, out var index))
                 row.SetIndex(index);
             if (state.Icons.TryGetValue(entry.Handle, out var icon) && !ReferenceEquals(icon, row.Icon))
                 row.Icon = icon;
             var load = state.Loads.TryGetValue(entry.Handle, out var found) ? found : default;
             row.ApplyLoad(state.ShowLoad, load);
-            row.ApplyMonitor(state.ShowMonitorBadges, entry);
+            row.ApplyMonitor(state.ShowMonitorBadges, entry, _host.Number, _thisScreen);
         }
         for (var i = 0; i < state.Apps.Count; i++)
         {
@@ -407,46 +421,11 @@ public partial class SwitcherWindow : Window
             WindowList.ScrollIntoView(_rows[state.SelectedIndex]);
         _renderedSelection = state.SelectedIndex;
 
-        var selected = state.SelectedIndex >= 0 && state.SelectedIndex < state.Filtered.Count
-            ? state.Filtered[state.SelectedIndex]
-            : null;
         var selectedApp = state.SelectedIndex >= state.Filtered.Count
             && state.SelectedIndex < state.Filtered.Count + state.Apps.Count
             ? state.Apps[state.SelectedIndex - state.Filtered.Count]
             : (AppHit?)null;
-        PreviewTitle.Text = selected?.Title ?? selectedApp?.App.Name ?? "";
-        PreviewProcess.Text = selected is not null
-            ? $"{selected.DisplayProcessName}  ·  pid {selected.KillProcessId}"
-            : selectedApp is { } app
-                ? (app.SwitchHandle != 0 ? state.SwitchSubtitle : app.App.ProcessName)
-                : "";
-        var monitorLine = selected is not null && state.ShowMonitorBadges
-            ? MonitorChrome.Format(selected.MonitorNumber, selected.MonitorWidth, selected.MonitorHeight, selected.MonitorPrimary, selected.MonitorFriendlyName)
-            : "";
-        PreviewMonitor.Text = monitorLine;
-        PreviewMonitor.Visibility = string.IsNullOrEmpty(monitorLine) ? Visibility.Collapsed : Visibility.Visible;
-        var enabled = selected is not null;
-        MinButton.IsEnabled = enabled;
-        MaxButton.IsEnabled = enabled;
-        RestoreButton.IsEnabled = enabled;
-        CloseButton.IsEnabled = enabled;
-        KillButton.IsEnabled = enabled;
-        _menuPreview.IsEnabled = selected?.IsIconic == true;
         _menuAdmin.IsEnabled = selectedApp is { } launch && launch.SwitchHandle == 0 && launch.App.Kind != AppKind.Store;
-    }
-
-    public void SetPreviewMessage(string message)
-    {
-        PreviewPlaceholder.Text = message;
-        PreviewPlaceholder.Visibility = string.IsNullOrEmpty(message) ? Visibility.Collapsed : Visibility.Visible;
-    }
-
-    public void ShowStillPreview(ImageSource? image, string? badge)
-    {
-        CachedPreview.Source = image;
-        CachedPreview.Visibility = image is null ? Visibility.Collapsed : Visibility.Visible;
-        MinimizedBadgeText.Text = badge ?? "";
-        MinimizedBadge.Visibility = image is null || string.IsNullOrEmpty(badge) ? Visibility.Collapsed : Visibility.Visible;
     }
 
     public void SuppressCancel(int milliseconds) =>
@@ -463,24 +442,33 @@ public partial class SwitcherWindow : Window
         if (_holdingActivation > 0) _holdingActivation--;
     }
 
-    public void ShowFor(AppSettings settings, nint activeWindow)
+    /// <summary>
+    /// Place this instance on <see cref="Host"/> using that monitor's DPI.
+    /// Only the anchor activates. The others use SWP_NOACTIVATE so they do not steal the keyboard.
+    /// </summary>
+    public void Place(SwitcherSize size, bool activate)
     {
         _shownAt = DateTime.UtcNow;
-        var (width, height) = SwitcherMetrics.GetSize(settings.Size);
+        var (width, height) = SwitcherMetrics.GetSize(size);
         Width = width;
         Height = height;
         var reveal = !IsVisible;
         if (reveal) Opacity = 0;
+        ShowActivated = activate;
         if (!IsVisible) Show();
         UpdateLayout();
-        var area = MonitorUtil.GetWorkArea(settings.Placement, activeWindow);
-        var scaleX = area.DpiX / 96.0;
-        var scaleY = area.DpiY / 96.0;
+        var monitor = _host;
+        var scaleX = monitor.DpiX <= 0 ? 1d : monitor.DpiX / 96d;
+        var scaleY = monitor.DpiY <= 0 ? 1d : monitor.DpiY / 96d;
         var physicalW = Math.Max(1, (int)Math.Round(width * scaleX));
         var physicalH = Math.Max(1, (int)Math.Round(height * scaleY));
-        var centered = RectangleMath.Center(new RectangleMath.RectI(area.X, area.Y, area.Width, area.Height), physicalW, physicalH);
+        var centered = RectangleMath.Center(
+            new RectangleMath.RectI(monitor.X, monitor.Y, Math.Max(1, monitor.Width), Math.Max(1, monitor.Height)),
+            physicalW,
+            physicalH);
         var hwnd = new WindowInteropHelper(this).Handle;
-        NativeMethods.SetWindowPos(hwnd, new nint(-1), centered.X, centered.Y, centered.Width, centered.Height, 0x0040);
+        var flags = activate ? 0x0040u : 0x0040u | 0x0010u;
+        NativeMethods.SetWindowPos(hwnd, new nint(-1), centered.X, centered.Y, centered.Width, centered.Height, flags);
         if (PresentationSource.FromVisual(this)?.CompositionTarget is { } target)
         {
             var origin = target.TransformFromDevice.Transform(new Point(centered.X, centered.Y));
@@ -488,26 +476,14 @@ public partial class SwitcherWindow : Window
             Top = origin.Y;
         }
         if (reveal) Opacity = 1;
-        _previousForeground = NativeMethods.GetForegroundWindow();
-        HoldActivation();
-        try
-        {
-            Activate();
-            if (NativeMethods.GetForegroundWindow() != hwnd)
-                WindowActions.TryActivate(hwnd);
-        }
-        finally
-        {
-            ReleaseActivation();
-        }
-        _showHints = settings.ShowOtherMonitorHints;
-        _showBadges = settings.ShowMonitorBadges;
-        SyncHints(centered, allowRelocate: false);
+        if (!activate) return;
+        Activate();
+        if (NativeMethods.GetForegroundWindow() != hwnd)
+            WindowActions.TryActivate(hwnd);
     }
 
     public void HideSwitcher()
     {
-        _hints.Hide();
         if (IsVisible) Hide();
     }
 
@@ -537,7 +513,7 @@ public partial class SwitcherWindow : Window
     /// <summary>
     /// Take the foreground after the trigger key is released. SendInput has already run,
     /// which is what lets SetForegroundWindow succeed under the foreground lock.
-    /// A second attempt is posted so the search box still receives IME keys if the
+    /// The deck posts a second attempt so the search box still receives IME keys if the
     /// first activation lands before the window is ready.
     /// </summary>
     public void ClaimKeyboard()
@@ -554,38 +530,6 @@ public partial class SwitcherWindow : Window
         {
             ReleaseActivation();
         }
-        Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() =>
-        {
-            if (!IsVisible || !_searchMode) return;
-            HoldActivation();
-            try
-            {
-                var current = Handle;
-                if (current != 0 && NativeMethods.GetForegroundWindow() != current)
-                    WindowActions.TryActivate(current);
-                FocusSearch();
-            }
-            finally
-            {
-                ReleaseActivation();
-            }
-        }));
-    }
-
-    public bool TryGetThumbBounds(out RectangleMath.RectI bounds)
-    {
-        bounds = default;
-        if (!IsVisible || ThumbHost.ActualWidth < 4 || ThumbHost.ActualHeight < 4) return false;
-        var origin = ThumbHost.TranslatePoint(new Point(1, 1), this);
-        var dpi = VisualTreeHelper.GetDpi(this);
-        bounds = RectangleMath.DipToPhysical(
-            (int)Math.Round(origin.X),
-            (int)Math.Round(origin.Y),
-            Math.Max(1, (int)Math.Round(ThumbHost.ActualWidth - 2)),
-            Math.Max(1, (int)Math.Round(ThumbHost.ActualHeight - 2)),
-            dpi.DpiScaleX,
-            dpi.DpiScaleY);
-        return bounds.Width > 2 && bounds.Height > 2;
     }
 
     protected override void OnPreviewKeyDown(KeyEventArgs e)
@@ -713,7 +657,7 @@ public partial class SwitcherWindow : Window
         if (!SwitcherCleanup.ShouldDismiss(
                 (long)foreground,
                 (long)Handle,
-                _hints.IsOurWindow(foreground),
+                IsCompanion?.Invoke(foreground) == true,
                 _holdingActivation > 0,
                 (long)_previousForeground,
                 age,
@@ -733,117 +677,7 @@ public partial class SwitcherWindow : Window
         return 1;
     }
 
-    protected override void OnClosed(EventArgs e)
-    {
-        _hints.Dispose();
-        base.OnClosed(e);
-    }
-
-    void SyncHints(RectangleMath.RectI? known = null, bool allowRelocate = true)
-    {
-        if (!_showHints || !IsVisible)
-        {
-            _hints.Hide();
-            return;
-        }
-
-        var monitors = MonitorUtil.All();
-        int left, top, width, height;
-        if (known is { } placed)
-        {
-            left = placed.X;
-            top = placed.Y;
-            width = placed.Width;
-            height = placed.Height;
-        }
-        else if (NativeMethods.GetWindowRect(Handle, out var rect))
-        {
-            left = rect.Left;
-            top = rect.Top;
-            width = Math.Max(1, rect.Right - rect.Left);
-            height = Math.Max(1, rect.Bottom - rect.Top);
-        }
-        else
-        {
-            _hints.Hide();
-            return;
-        }
-
-        var host = OtherMonitorHints.HostIndex(monitors, left, top, width, height);
-        if (host < 0 && allowRelocate && monitors.Count > 0)
-        {
-            MoveToMonitor(monitors[0]);
-            return;
-        }
-
-        var plans = OtherMonitorHints.Plan(monitors, host);
-        _hints.Show(plans, monitors, MoveToMonitor, colorCode: _showBadges && monitors.Count >= 2);
-    }
-
-    public bool TryGetHostMonitor(out DisplayBounds monitor)
-    {
-        monitor = default;
-        var monitors = MonitorUtil.All();
-        if (monitors.Count == 0 || Handle == 0) return false;
-        if (!NativeMethods.GetWindowRect(Handle, out var rect)) return false;
-        var width = Math.Max(1, rect.Right - rect.Left);
-        var height = Math.Max(1, rect.Bottom - rect.Top);
-        var host = OtherMonitorHints.HostIndex(monitors, rect.Left, rect.Top, width, height);
-        if (host < 0 || host >= monitors.Count) return false;
-        monitor = monitors[host];
-        return true;
-    }
-
-    public int HostMonitorNumber()
-    {
-        var monitors = MonitorUtil.All();
-        if (monitors.Count == 0 || Handle == 0) return 0;
-        if (!NativeMethods.GetWindowRect(Handle, out var rect)) return 0;
-        var width = Math.Max(1, rect.Right - rect.Left);
-        var height = Math.Max(1, rect.Bottom - rect.Top);
-        var host = OtherMonitorHints.HostIndex(monitors, rect.Left, rect.Top, width, height);
-        return host >= 0 && host < monitors.Count ? monitors[host].Number : 0;
-    }
-
-    void MoveToMonitor(int index)
-    {
-        var monitors = MonitorUtil.All();
-        if (index < 0 || index >= monitors.Count) return;
-        MoveToMonitor(monitors[index]);
-    }
-
-    void MoveToMonitor(DisplayBounds monitor)
-    {
-        HoldActivation();
-        var scaleX = monitor.DpiX <= 0 ? 1d : monitor.DpiX / 96d;
-        var scaleY = monitor.DpiY <= 0 ? 1d : monitor.DpiY / 96d;
-        var physicalW = Math.Max(1, (int)Math.Round(Width * scaleX));
-        var physicalH = Math.Max(1, (int)Math.Round(Height * scaleY));
-        var centered = RectangleMath.Center(
-            new RectangleMath.RectI(monitor.X, monitor.Y, monitor.Width, monitor.Height),
-            physicalW,
-            physicalH);
-        var hwnd = Handle;
-        NativeMethods.SetWindowPos(hwnd, new nint(-1), centered.X, centered.Y, centered.Width, centered.Height, 0x0010 | 0x0040);
-        if (PresentationSource.FromVisual(this)?.CompositionTarget is { } target)
-        {
-            var origin = target.TransformFromDevice.Transform(new Point(centered.X, centered.Y));
-            Left = origin.X;
-            Top = origin.Y;
-        }
-        try
-        {
-            if (NativeMethods.GetForegroundWindow() != hwnd)
-                Activate();
-            if (_searchMode) FocusSearch();
-        }
-        finally
-        {
-            ReleaseActivation();
-        }
-        SyncHints(centered, allowRelocate: false);
-        HostMonitorChanged?.Invoke();
-    }
+    protected override void OnClosed(EventArgs e) => base.OnClosed(e);
 
     protected override void OnClosing(CancelEventArgs e)
     {
@@ -857,27 +691,14 @@ public partial class SwitcherWindow : Window
         base.OnClosing(e);
     }
 
-    protected override void OnDpiChanged(DpiScale oldDpi, DpiScale newDpi)
-    {
-        base.OnDpiChanged(oldDpi, newDpi);
-        LayoutChanged?.Invoke();
-    }
-
-    protected override void OnRenderSizeChanged(SizeChangedInfo sizeInfo)
-    {
-        base.OnRenderSizeChanged(sizeInfo);
-        LayoutChanged?.Invoke();
-    }
-
     void ApplyStaticText()
     {
         var loc = Localizer.Current;
         SearchPlaceholder.Text = loc["search.placeholder"];
-        MinButton.Content = loc["action.minimize"];
-        MaxButton.Content = loc["action.maximize"];
-        RestoreButton.Content = loc["action.restore"];
-        CloseButton.Content = loc["action.close"];
-        KillButton.Content = loc["action.kill"];
+        _thisScreen = loc["monitor.thisScreen"];
+        var kill = loc["action.kill"];
+        foreach (var row in _rows)
+            row.SetKillLabel(row.IsApp ? "" : kill);
         DisplayFilterButton.Content = loc["monitor.only"];
         DisplayFilterButton.ToolTip = loc["monitor.onlyTip"];
         LocalizeMenu();
@@ -896,7 +717,6 @@ public partial class SwitcherWindow : Window
         _menuClose.Header = loc["menu.close"];
         _menuKill.Header = loc["menu.kill"];
         _menuKillTree.Header = loc["menu.killTree"];
-        _menuPreview.Header = loc["menu.preview"];
         _menuMin.Header = loc["menu.minimize"];
         _menuMax.Header = loc["menu.maximize"];
         _menuRestore.Header = loc["menu.restore"];
@@ -914,7 +734,6 @@ public partial class SwitcherWindow : Window
         _menuClose.Visibility = window;
         _menuKill.Visibility = window;
         _menuKillTree.Visibility = window;
-        _menuPreview.Visibility = window;
         _menuMin.Visibility = window;
         _menuMax.Visibility = window;
         _menuRestore.Visibility = window;
@@ -1023,8 +842,9 @@ public partial class SwitcherWindow : Window
         state.Icons.TryGetValue(entry.Handle, out var icon);
         state.Indexes.TryGetValue(entry.Handle, out var index);
         var row = new SwitcherRow(entry, icon ?? IconLoader.Letter(entry.Title), index ?? "");
+        row.SetKillLabel(Localizer.Current["action.kill"]);
         row.ApplyLoad(state.ShowLoad, default);
-        row.ApplyMonitor(state.ShowMonitorBadges, entry);
+        row.ApplyMonitor(state.ShowMonitorBadges, entry, _host.Number, _thisScreen);
         _rows.Insert(rowIndex, row);
     }
 
@@ -1101,9 +921,30 @@ public partial class SwitcherWindow : Window
     void Item_Click(object sender, MouseButtonEventArgs e)
     {
         if (RowFrom(sender) is not { } row) return;
+        if (IsKillClick(e.OriginalSource))
+        {
+            if (row.Entry is { } kill)
+            {
+                Hovered?.Invoke(kill.Handle);
+                KillRequested?.Invoke();
+            }
+            e.Handled = true;
+            return;
+        }
         if (row.Entry is { } entry) Invoked?.Invoke(entry.Handle);
         else if (row.AppId is { } id) AppInvoked?.Invoke(id);
         e.Handled = true;
+    }
+
+    static bool IsKillClick(object? source)
+    {
+        var element = source as DependencyObject;
+        while (element is not null)
+        {
+            if (element is FrameworkElement { Tag: "kill" }) return true;
+            element = VisualTreeHelper.GetParent(element);
+        }
+        return false;
     }
 
     void List_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)

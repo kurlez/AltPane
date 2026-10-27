@@ -19,40 +19,6 @@ public struct NativePoint
 }
 
 [StructLayout(LayoutKind.Sequential)]
-public struct NativeSize
-{
-    public int Cx;
-    public int Cy;
-}
-
-/// <summary>
-/// DWM_THUMBNAIL_PROPERTIES. Explicit padding keeps the BOOL fields 4-byte aligned
-/// after the opacity byte. Native size on Windows x64 is 48.
-/// </summary>
-[StructLayout(LayoutKind.Sequential)]
-public struct DwmThumbnailProperties
-{
-    public uint dwFlags;
-    public NativeRect rcDestination;
-    public NativeRect rcSource;
-    public byte opacity;
-    public byte pad1;
-    public byte pad2;
-    public byte pad3;
-    public int fVisible;
-    public int fSourceClientAreaOnly;
-}
-
-public static class DwmThumbnailFlags
-{
-    public const uint RectDestination = 0x00000001;
-    public const uint RectSource = 0x00000002;
-    public const uint Opacity = 0x00000004;
-    public const uint Visible = 0x00000008;
-    public const uint SourceClientAreaOnly = 0x00000010;
-}
-
-[StructLayout(LayoutKind.Sequential)]
 public struct NativeKeyboardInput
 {
     public ushort VirtualKey;

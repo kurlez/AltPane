@@ -15,20 +15,6 @@ public static class RectangleMath
         return new RectI(x, y, w, h);
     }
 
-    public static RectI FitContain(RectI destination, int sourceWidth, int sourceHeight)
-    {
-        if (sourceWidth <= 0 || sourceHeight <= 0 || destination.Width <= 0 || destination.Height <= 0)
-            return destination;
-        var scale = Math.Min(destination.Width / (double)sourceWidth, destination.Height / (double)sourceHeight);
-        var w = Math.Max(1, (int)Math.Round(sourceWidth * scale));
-        var h = Math.Max(1, (int)Math.Round(sourceHeight * scale));
-        w = Math.Min(w, destination.Width);
-        h = Math.Min(h, destination.Height);
-        var x = destination.X + (destination.Width - w) / 2;
-        var y = destination.Y + (destination.Height - h) / 2;
-        return new RectI(x, y, w, h);
-    }
-
     public static RectI DipToPhysical(int dipX, int dipY, int dipWidth, int dipHeight, double scaleX, double scaleY)
     {
         scaleX = scaleX <= 0 ? 1 : scaleX;
@@ -45,8 +31,8 @@ public static class SwitcherMetrics
 {
     public static (int Width, int Height) GetSize(SwitcherSize size) => size switch
     {
-        SwitcherSize.Compact => (760, 460),
-        SwitcherSize.Large => (1180, 720),
-        _ => (980, 580)
+        SwitcherSize.Compact => (420, 480),
+        SwitcherSize.Large => (640, 760),
+        _ => (520, 620)
     };
 }

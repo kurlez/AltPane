@@ -33,19 +33,24 @@ public class SettingsMigrationTests
         Assert.True(loaded.Settings.StickySwitcher);
         Assert.True(loaded.Settings.ShowLoad);
         Assert.True(loaded.Settings.LaunchApps);
-        Assert.True(loaded.Settings.ShowOtherMonitorHints);
         Assert.True(loaded.Settings.ShowMonitorBadges);
         Assert.True(loaded.Settings.MoveToSwitcherMonitor);
         Assert.True(loaded.Settings.UseEverything);
         Assert.False(loaded.Settings.IndexPath);
         Assert.False(loaded.Settings.QuickTapSwitches);
-        Assert.False(loaded.Settings.ShowPreview);
         Assert.True(loaded.Settings.StartWithWindows);
         Assert.True(loaded.Settings.WelcomeShown);
         Assert.Equal(AppTheme.Dark, loaded.Settings.Theme);
         Assert.Equal(new[] { "Spotify" }, loaded.Settings.ExcludedProcesses);
         Assert.Equal(VirtualKeys.Space, loaded.Settings.Hotkey!.VirtualKey);
         Assert.Equal(ModifierKeys.Control | ModifierKeys.Alt, loaded.Settings.Hotkey.Modifiers);
+
+        SettingsStore.Save(path, loaded.Settings);
+        var saved = File.ReadAllText(path);
+        Assert.DoesNotContain("showPreview", saved, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("previewMinimized", saved, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("showOtherMonitorHints", saved, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(AppSettings.CurrentSchema, SettingsStore.Load(path).Settings.Version);
 
         var captured = new HookInput
         {

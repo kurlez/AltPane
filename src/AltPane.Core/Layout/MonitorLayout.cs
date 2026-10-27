@@ -1,5 +1,30 @@
 namespace AltPane.Core.Layout;
 
+/// <summary>
+/// A monitor in physical pixels. <see cref="X"/> and <see cref="Width"/> are the work area.
+/// <see cref="ScreenX"/> is the full display, used to place windows.
+/// <see cref="Number"/> is the Windows GDI display index when those numbers are unique, otherwise left to right.
+/// </summary>
+public readonly record struct DisplayBounds(
+    int X,
+    int Y,
+    int Width,
+    int Height,
+    int DpiX,
+    int DpiY,
+    int Number,
+    string Name,
+    bool Primary = false,
+    int ScreenX = 0,
+    int ScreenY = 0,
+    int ScreenWidth = 0,
+    int ScreenHeight = 0,
+    string FriendlyName = "")
+{
+    public int CenterX => X + Width / 2;
+    public int CenterY => Y + Height / 2;
+}
+
 public readonly record struct MonitorColor(byte R, byte G, byte B);
 
 /// <summary>
@@ -46,6 +71,38 @@ public static class MonitorLayout
         if (digits < rest.Length && rest[digits] != '\\') return null;
         if (!int.TryParse(rest[..digits], out var number) || number <= 0 || number > 64) return null;
         return number;
+    }
+
+    /// <summary>
+    /// Index of the work area that contains the center of the rect.
+    /// Otherwise the nearest work area. Empty list or a non-positive size returns -1.
+    /// </summary>
+    public static int HostIndex(IReadOnlyList<DisplayBounds> monitors, int left, int top, int width, int height)
+    {
+        if (monitors.Count == 0 || width <= 0 || height <= 0) return -1;
+        var cx = left + width / 2;
+        var cy = top + height / 2;
+        for (var i = 0; i < monitors.Count; i++)
+        {
+            var monitor = monitors[i];
+            if (cx >= monitor.X && cy >= monitor.Y && cx < monitor.X + monitor.Width && cy < monitor.Y + monitor.Height)
+                return i;
+        }
+
+        var best = 0;
+        var bestDistance = long.MaxValue;
+        for (var i = 0; i < monitors.Count; i++)
+        {
+            var dx = (long)monitors[i].CenterX - cx;
+            var dy = (long)monitors[i].CenterY - cy;
+            var distance = dx * dx + dy * dy;
+            if (distance < bestDistance)
+            {
+                bestDistance = distance;
+                best = i;
+            }
+        }
+        return best;
     }
 
     public static int Compare(DisplayBounds a, DisplayBounds b)
