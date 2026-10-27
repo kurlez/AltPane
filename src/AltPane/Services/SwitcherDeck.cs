@@ -238,6 +238,12 @@ internal sealed class SwitcherDeck
 
     public void NoteKeyboard(SwitcherWindow window) => _keyboard = window;
 
+    public void SetHoverHighlight(bool enabled)
+    {
+        foreach (var window in All())
+            window.HoverHighlight = enabled;
+    }
+
     public void ClearClick() => _click = null;
 
     public DisplayBounds? TakeMoveTarget()

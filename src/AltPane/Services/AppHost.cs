@@ -16,6 +16,7 @@ internal sealed class AppHost : IDisposable
     Timer? _footprint;
     readonly TrayController _tray;
     SettingsWindow? _settingsWindow;
+    AboutWindow? _aboutWindow;
     bool _recording;
     bool _disposed;
     bool _migrated;
@@ -112,9 +113,24 @@ internal sealed class AppHost : IDisposable
         }
 
         _hotkeys.RequestCancel();
-        _settingsWindow = new SettingsWindow(Settings, UpdateSettings, recording => _recording = recording);
+        _settingsWindow = new SettingsWindow(Settings, UpdateSettings, recording => _recording = recording, ShowAbout);
         _settingsWindow.Show();
         _settingsWindow.Activate();
+    }
+
+    public void ShowAbout()
+    {
+        if (_aboutWindow is { IsVisible: true })
+        {
+            _aboutWindow.Activate();
+            return;
+        }
+
+        _hotkeys.RequestCancel();
+        _aboutWindow = new AboutWindow();
+        _aboutWindow.Closed += (_, _) => _aboutWindow = null;
+        _aboutWindow.Show();
+        _aboutWindow.Activate();
     }
 
     public void TogglePause()
@@ -175,6 +191,7 @@ internal sealed class AppHost : IDisposable
         try { _presenter.ForceClose(); } catch { }
         try { _apps.Dispose(); } catch { }
         try { _settingsWindow?.Close(); } catch { }
+        try { _aboutWindow?.Close(); } catch { }
         try { _tray.Dispose(); } catch { }
         AppLog.Info("AltPane stopped.");
     }

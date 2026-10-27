@@ -248,7 +248,6 @@ public partial class SwitcherWindow : Window
     readonly MenuItem _menuDemote;
     readonly MenuItem _menuRestorePriority;
     bool _menuForApp;
-    Point _lastScreen = new(double.NaN, double.NaN);
     int _renderedSelection = -2;
     bool _internalEdit;
     int _compositionChars;
@@ -337,6 +336,29 @@ public partial class SwitcherWindow : Window
     }
 
     public nint Handle => new WindowInteropHelper(this).Handle;
+    public static readonly DependencyProperty HoverHighlightProperty = DependencyProperty.Register(
+        nameof(HoverHighlight),
+        typeof(bool),
+        typeof(SwitcherWindow),
+        new PropertyMetadata(false));
+
+    /// <summary>
+    /// When false, a row under the cursor keeps its normal background.
+    /// Selection highlight is separate and stays visible.
+    /// </summary>
+    public bool HoverHighlight
+    {
+        get => (bool)GetValue(HoverHighlightProperty);
+        set => SetValue(HoverHighlightProperty, value);
+    }
+
+    /// <summary>
+    /// Screen coordinates of a move. False means the move must not select.
+    /// Clicks do not ask this.
+    /// </summary>
+    public Func<double, double, bool>? AllowHover { get; set; }
+
+    public event Action<int>? WheelRequested;
     public event Action<long>? Hovered;
     public event Action<long>? Invoked;
     public event Action<string>? AppHovered;
@@ -974,8 +996,7 @@ public partial class SwitcherWindow : Window
     void Item_MouseMove(object sender, MouseEventArgs e)
     {
         var screen = PointToScreen(e.GetPosition(this));
-        if (Math.Abs(screen.X - _lastScreen.X) < 1 && Math.Abs(screen.Y - _lastScreen.Y) < 1) return;
-        _lastScreen = screen;
+        if (AllowHover?.Invoke(screen.X, screen.Y) != true) return;
         if (RowFrom(sender) is not { } row) return;
         if (row.Entry is { } entry) Hovered?.Invoke(entry.Handle);
         else if (row.AppId is { } id) AppHovered?.Invoke(id);
@@ -1029,7 +1050,9 @@ public partial class SwitcherWindow : Window
 
     void Window_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
     {
-        NavigateRequested?.Invoke(e.Delta > 0 ? -1 : 1);
+        // The keyboard hook does not see wheel messages. Every monitor's window
+        // raises the raw delta; the presenter turns notches into selection steps.
+        WheelRequested?.Invoke(e.Delta);
         e.Handled = true;
     }
 

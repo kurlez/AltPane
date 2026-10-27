@@ -1,0 +1,65 @@
+<Window x:Class="AltPane.AboutWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="关于 AltPane"
+        Width="460"
+        Height="560"
+        MinWidth="400"
+        MinHeight="420"
+        WindowStyle="None"
+        ResizeMode="CanResize"
+        WindowStartupLocation="CenterScreen"
+        Background="{DynamicResource SettingsBgBrush}"
+        Foreground="{DynamicResource TextPrimaryBrush}"
+        FontFamily="Segoe UI, Microsoft YaHei UI, Microsoft YaHei, sans-serif"
+        SnapsToDevicePixels="True"
+        UseLayoutRounding="True">
+  <Border Background="{DynamicResource SettingsBgBrush}" BorderBrush="{DynamicResource WindowEdgeBrush}" BorderThickness="1" SnapsToDevicePixels="True">
+    <Grid>
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="*"/>
+        <RowDefinition Height="Auto"/>
+      </Grid.RowDefinitions>
+      <DockPanel x:Name="TitleBar" Background="{DynamicResource SurfaceBrush}" MouseLeftButtonDown="Title_Drag" Height="44">
+        <Button DockPanel.Dock="Right" Width="44" Content="×" FontSize="16"
+                Background="Transparent" BorderThickness="0" Foreground="{DynamicResource TextPrimaryBrush}" Click="Close_Click" Cursor="Hand"/>
+        <TextBlock Text="关于" VerticalAlignment="Center" Margin="16,0" FontSize="14" FontWeight="SemiBold"/>
+      </DockPanel>
+      <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="24,20">
+        <StackPanel>
+          <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
+            <Image x:Name="AppIcon" Width="48" Height="48" Margin="0,0,14,0" RenderOptions.BitmapScalingMode="HighQuality"/>
+            <StackPanel VerticalAlignment="Center">
+              <TextBlock Text="AltPane" FontSize="22" FontWeight="SemiBold"/>
+              <TextBlock x:Name="VersionText" Margin="0,4,0,0" Foreground="{DynamicResource TextSecondaryBrush}"/>
+            </StackPanel>
+          </StackPanel>
+          <TextBlock TextWrapping="Wrap" Margin="0,0,0,16"
+                     Text="一个 Windows 桌面窗口切换器。运行期间接管 Alt+Tab，在每台显示器上列出可以切换的窗口。"/>
+          <TextBlock FontWeight="SemiBold" Margin="0,0,0,4" Text="项目"/>
+          <TextBlock Margin="0,0,0,2">
+            <Hyperlink NavigateUri="https://github.com/kurlez/AltPane" RequestNavigate="Link_Navigate" Foreground="{DynamicResource AccentBrush}">https://github.com/kurlez/AltPane</Hyperlink>
+          </TextBlock>
+          <TextBlock Margin="0,0,0,14">
+            <Hyperlink NavigateUri="https://github.com/kurlez/AltPane/issues" RequestNavigate="Link_Navigate" Foreground="{DynamicResource AccentBrush}">问题反馈</Hyperlink>
+          </TextBlock>
+          <TextBlock FontWeight="SemiBold" Margin="0,0,0,4" Text="许可证"/>
+          <TextBlock TextWrapping="Wrap" Margin="0,0,0,14" Foreground="{DynamicResource TextSecondaryBrush}"
+                     Text="MIT 许可证。Copyright (c) 2026 Wenfeng Liu。"/>
+          <TextBlock FontWeight="SemiBold" Margin="0,0,0,4" Text="运行时"/>
+          <TextBlock x:Name="RuntimeText" TextWrapping="Wrap" Margin="0,0,0,14" Foreground="{DynamicResource TextSecondaryBrush}"/>
+          <TextBlock FontWeight="SemiBold" Margin="0,0,0,4" Text="设置与日志"/>
+          <TextBlock x:Name="FolderText" TextWrapping="Wrap" Margin="0,0,0,8" Foreground="{DynamicResource TextSecondaryBrush}"/>
+          <Button x:Name="OpenFolderButton" Content="打开文件夹" Style="{DynamicResource ActionButton}" HorizontalAlignment="Left" Margin="0,0,0,16" Click="OpenFolder_Click"/>
+          <TextBlock FontWeight="SemiBold" Margin="0,0,0,4" Text="致谢"/>
+          <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource TextSecondaryBrush}"
+                     Text="界面受到 Alt-Tab Terminator 的启发。本项目与 NTWind 以及该商业软件没有关联。搜索已安装程序时可以使用 Everything（voidtools）。"/>
+        </StackPanel>
+      </ScrollViewer>
+      <Border Grid.Row="2" BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="0,1,0,0" Padding="16">
+        <Button Content="关闭" Style="{DynamicResource ActionButton}" HorizontalAlignment="Right" MinWidth="88" IsCancel="True" Click="Close_Click"/>
+      </Border>
+    </Grid>
+  </Border>
+</Window>

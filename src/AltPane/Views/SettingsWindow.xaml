@@ -120,7 +120,8 @@
             <Button x:Name="CancelButton" Style="{DynamicResource ActionButton}" Margin="0,0,8,0" MinWidth="88" IsCancel="True" Click="Cancel_Click"/>
             <Button x:Name="SaveButton" Style="{DynamicResource ActionButton}" MinWidth="88" IsDefault="True" Click="Save_Click"/>
           </StackPanel>
-          <TextBlock x:Name="VersionText" VerticalAlignment="Center" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12"/>
+          <Button x:Name="AboutButton" Content="关于" Style="{DynamicResource ActionButton}" VerticalAlignment="Center" Click="About_Click"/>
+          <TextBlock x:Name="VersionText" VerticalAlignment="Center" Margin="12,0,0,0" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12"/>
         </DockPanel>
       </Border>
     </Grid>

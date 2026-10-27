@@ -14,17 +14,19 @@ public partial class SettingsWindow : Window
     readonly AppSettings _original;
     readonly Action<AppSettings> _save;
     readonly Action<bool> _recordingChanged;
+    readonly Action? _showAbout;
     AppSettings _draft;
     bool _loading;
     bool _recording;
     bool _saved;
 
-    public SettingsWindow(AppSettings current, Action<AppSettings> save, Action<bool> recordingChanged)
+    public SettingsWindow(AppSettings current, Action<AppSettings> save, Action<bool> recordingChanged, Action? showAbout = null)
     {
         _original = Copy(current);
         _draft = Copy(current);
         _save = save;
         _recordingChanged = recordingChanged;
+        _showAbout = showAbout;
         InitializeComponent();
         ThemeBox.SelectionChanged += ThemeBox_SelectionChanged;
         LanguageBox.SelectionChanged += LanguageBox_SelectionChanged;
@@ -33,7 +35,8 @@ public partial class SettingsWindow : Window
         Closed += (_, _) => ThemeService.Changed -= OnThemeChanged;
         MaxHeight = SystemParameters.WorkArea.Height * 0.92;
         var version = typeof(SettingsWindow).Assembly.GetName().Version;
-        VersionText.Text = "AltPane " + (version?.ToString(3) ?? "0.4.2");
+        VersionText.Text = "AltPane " + (version?.ToString(3) ?? "0.4.3");
+        AboutButton.Visibility = _showAbout is null ? Visibility.Collapsed : Visibility.Visible;
         LoadDraft();
         Localizer.Current.LanguageChanged += (_, _) =>
         {
@@ -379,6 +382,8 @@ public partial class SettingsWindow : Window
     }
 
     void Close_Click(object sender, RoutedEventArgs e) => Cancel_Click(sender, e);
+
+    void About_Click(object sender, RoutedEventArgs e) => _showAbout?.Invoke();
 
     void Admin_Click(object sender, RoutedEventArgs e)
     {

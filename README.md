@@ -43,7 +43,7 @@ Publishing steps, including winget and a future SignPath signature, are in [RELE
 | Cancel | Esc when the search box is empty, a second Esc after the first one cleared the query, or click outside every copy. While an IME is composing, Esc cancels the composition and nothing else |
 | Clear search | Esc, when the search box has text. The previous window is selected again if it is still listed. Focus stays in the search box |
 | Switch without moving | Shift+Enter, or the context menu. Plain Enter moves onto the copy you clicked, or the display under the mouse |
-| Move the selection | Tab, Shift+Tab, arrow keys, Home, End, Page Up, Page Down, mouse wheel. These work after the trigger key is released |
+| Move the selection | Tab, Shift+Tab, arrow keys, Home, End, Page Up, Page Down, and the mouse wheel. One wheel notch, or 120 of accumulated precision-touchpad delta, moves one row and stops on the first and last row. The selected row stays in view. These work after the trigger key is released |
 | Filter or find an app | Type, with or without holding the trigger. Backspace edits the query. Initials and pinyin match Chinese names (`wx`, `weixin`, and `yinyue` for 音乐). An empty box does not list the whole app catalog |
 | Search with an IME | Release the trigger key. The search box is focused, so a Chinese IME can compose. Ctrl+F, or a click on the search box, does the same while the key is still held. Enter confirms |
 | Close the window | Delete, the Close button, the context menu, or middle-click a row |
@@ -52,7 +52,7 @@ Publishing steps, including winget and a future SignPath signature, are in [RELE
 | Minimize / maximize / restore | Ctrl+M, Ctrl+Shift+M, Ctrl+R, or the context menu |
 | Pin the selected app | Ctrl+Shift+P, or the context menu. It stays in the main list and still follows recent use |
 | Demote the selected app | Ctrl+Shift+B, or the context menu. It stays under Rarely used. Ctrl+Shift+U restores the default |
-| Select under the pointer | Hover a row |
+| Select under the pointer | Hover a row. After the keyboard or the wheel moves the selection, that highlight stays off until the input has been idle for about 600 ms and the cursor actually moves. A cursor already resting on a row when the switcher opens does not select it. Clicking still selects |
 | Activate with the mouse | Click a row |
 
 A very fast Alt+Tab, released before the window is drawn, leaves the switcher open in the default sticky mode. Settings has “Still switch on a very quick tap” for the old behavior: that tap activates the previous window without flashing the switcher. Classic mode (sticky off) always does that.

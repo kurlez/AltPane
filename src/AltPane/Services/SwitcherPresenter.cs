@@ -37,6 +37,9 @@ internal sealed class SwitcherPresenter
     bool _searchMode;
     bool _statusSticky;
     SystemLoad _system;
+    readonly HoverGate _hover = new();
+    readonly WheelNavigator _wheel = new();
+    bool _hoverHighlight;
 
     public SwitcherPresenter(Func<AppSettings> settings)
     {
@@ -143,11 +146,14 @@ internal sealed class SwitcherPresenter
         window.QueryEdited += text =>
         {
             _deck.NoteKeyboard(window);
+            NoteNavigation();
             _session?.SetQuery(text);
             Hotkeys?.SyncQueryLength(text?.Length ?? 0);
             SyncSearch();
             Refresh();
         };
+        window.AllowHover = AllowHover;
+        window.WheelRequested += OnWheel;
         window.NavigateRequested += Nudge;
         window.SpaceRequested += OnSpace;
         window.CloseRequested += CloseSelected;
@@ -189,15 +195,18 @@ internal sealed class SwitcherPresenter
                 Build(open.Delta);
                 break;
             case UiOp.Cycle cycle:
+                NoteNavigation();
                 _session?.Move(cycle.Delta);
                 if (_deck.IsVisible) Refresh();
                 break;
             case UiOp.AppendQuery append:
+                NoteNavigation();
                 _session?.AppendQuery(append.Text);
                 SyncSearch();
                 if (_deck.IsVisible) Refresh();
                 break;
             case UiOp.Backspace:
+                NoteNavigation();
                 _session?.Backspace();
                 SyncSearch();
                 if (_deck.IsVisible) Refresh();
@@ -205,6 +214,7 @@ internal sealed class SwitcherPresenter
             case UiOp.ClearQuery:
                 if (_session?.ClearQuery() == true)
                 {
+                    NoteNavigation();
                     Hotkeys?.SyncQueryLength(0);
                     SyncSearch();
                     if (_deck.IsVisible)
@@ -215,14 +225,17 @@ internal sealed class SwitcherPresenter
                 }
                 break;
             case UiOp.Home:
+                NoteNavigation();
                 _session?.SelectFirst();
                 if (_deck.IsVisible) Refresh();
                 break;
             case UiOp.End:
+                NoteNavigation();
                 _session?.SelectLast();
                 if (_deck.IsVisible) Refresh();
                 break;
             case UiOp.Page page:
+                NoteNavigation();
                 _session?.Page(page.Direction);
                 if (_deck.IsVisible) Refresh();
                 break;
@@ -299,6 +312,7 @@ internal sealed class SwitcherPresenter
         _searchMode = snap.SearchMode;
         var settings = _settings();
         _deck.Prepare(settings, _restore);
+        NoteOpened();
         _deck.Render(BuildState());
         _deck.Reveal();
         var rows = _session?.All.Count ?? 0;
@@ -649,12 +663,76 @@ internal sealed class SwitcherPresenter
     void Nudge(int delta)
     {
         if (_session is null) return;
+        NoteNavigation();
         if (delta == int.MinValue) _session.SelectFirst();
         else if (delta == int.MaxValue) _session.SelectLast();
         else if (Math.Abs(delta) >= SwitcherSession.PageSize) _session.Page(Math.Sign(delta));
         else _session.Move(delta);
         DisarmIfSelectionChanged();
         if (_deck.IsVisible) Refresh();
+    }
+
+    /// <summary>
+    /// One accumulator for every monitor. A partial touchpad delta still counts
+    /// as selection input, so a scroll under a stationary cursor cannot reselect.
+    /// </summary>
+    void OnWheel(int delta)
+    {
+        var steps = _wheel.Consume(delta);
+        if (steps == 0)
+        {
+            if (delta != 0) NoteNavigation();
+            return;
+        }
+        if (_session is null) return;
+        NoteNavigation();
+        _session.Move(steps);
+        DisarmIfSelectionChanged();
+        if (_deck.IsVisible) Refresh();
+    }
+
+    bool AllowHover(double x, double y)
+    {
+        // GetCursorPos, not the event point. A scroll or redraw reports MouseMove
+        // while the pointer is still, and the event point can disagree with the
+        // cursor by a DPI scale.
+        var (cx, cy) = CursorPoint();
+        if (double.IsNaN(cx))
+        {
+            cx = x;
+            cy = y;
+        }
+        var allow = _hover.NoteMouseMove(Environment.TickCount64, cx, cy);
+        if (allow && !_hoverHighlight) ShowHover(true);
+        return allow;
+    }
+
+    void NoteOpened()
+    {
+        _wheel.Reset();
+        var (x, y) = CursorPoint();
+        _hover.NoteOpened(x, y);
+        ShowHover(false);
+    }
+
+    void NoteNavigation()
+    {
+        var (x, y) = CursorPoint();
+        _hover.NoteNavigation(Environment.TickCount64, x, y);
+        ShowHover(false);
+    }
+
+    void ShowHover(bool enabled)
+    {
+        _hoverHighlight = enabled;
+        _deck.SetHoverHighlight(enabled);
+    }
+
+    static (double X, double Y) CursorPoint()
+    {
+        if (!NativeMethods.GetCursorPos(out var point))
+            return (double.NaN, double.NaN);
+        return (point.X, point.Y);
     }
 
     void CloseSelected()
@@ -977,6 +1055,7 @@ internal sealed class SwitcherPresenter
         if (!wasVisible) return;
         Refresh();
         _deck.Reveal();
+        _deck.SetHoverHighlight(_hoverHighlight);
     }
 
     void QueueIcons()
