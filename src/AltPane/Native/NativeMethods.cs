@@ -60,6 +60,16 @@ internal struct Margins
 internal delegate bool EnumWindowsProc(nint hwnd, nint lParam);
 internal delegate nint LowLevelKeyboardProc(int nCode, nint wParam, nint lParam);
 
+[UnmanagedFunctionPointer(CallingConvention.Winapi)]
+internal delegate void WinEventProc(
+    nint hWinEventHook,
+    uint eventType,
+    nint hwnd,
+    int idObject,
+    int idChild,
+    uint idEventThread,
+    uint dwmsEventTime);
+
 internal static class NativeMethods
 {
     public const int WhKeyboardLl = 13;
@@ -311,6 +321,59 @@ internal static class NativeMethods
 
     [DllImport("user32.dll")]
     public static extern bool GetWindowRect(nint hwnd, out NativeRect rect);
+
+    public const uint PmRemove = 0x0001;
+    public const uint WmQuit = 0x0012;
+    public const uint QsAllInput = 0x04FF;
+    public const nint HwndBottom = 1;
+    public const uint SwpShowWindow = 0x0040;
+    public const uint DibRgbColors = 0;
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool PeekMessage(out NativeMsg lpMsg, nint hWnd, uint wMsgFilterMin, uint wMsgFilterMax, uint wRemoveMsg);
+
+    [DllImport("user32.dll")]
+    public static extern bool TranslateMessage(ref NativeMsg lpMsg);
+
+    [DllImport("user32.dll")]
+    public static extern nint DispatchMessage(ref NativeMsg lpMsg);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool PostThreadMessage(uint idThread, uint msg, nint wParam, nint lParam);
+
+    [DllImport("user32.dll")]
+    public static extern uint MsgWaitForMultipleObjects(uint nCount, nint pHandles, bool bWaitAll, uint dwMilliseconds, uint dwWakeMask);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool GetIconInfo(nint hIcon, out IconInfo piconinfo);
+
+    [DllImport("gdi32.dll", SetLastError = true)]
+    public static extern int GetDIBits(nint hdc, nint hbm, uint start, uint cLines, byte[]? lpvBits, ref BitmapInfo lpbmi, uint usage);
+
+    [DllImport("user32.dll")]
+    public static extern nint GetDC(nint hwnd);
+
+    [DllImport("user32.dll")]
+    public static extern int ReleaseDC(nint hwnd, nint hdc);
+
+    [DllImport("gdi32.dll")]
+    public static extern bool DeleteObject(nint ho);
+
+    [DllImport("kernel32.dll")]
+    public static extern nint GetCurrentProcess();
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool SetProcessWorkingSetSize(nint hProcess, nint dwMinimumWorkingSetSize, nint dwMaximumWorkingSetSize);
+
+    [DllImport("user32.dll")]
+    public static extern bool GetLastInputInfo(ref LastInputInfo plii);
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct LastInputInfo
+{
+    public uint cbSize;
+    public uint dwTime;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -352,6 +415,53 @@ internal struct MemoryStatusEx
     public ulong ullTotalVirtual;
     public ulong ullAvailVirtual;
     public ulong ullAvailExtendedVirtual;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct NativeMsg
+{
+    public nint hwnd;
+    public uint message;
+    public nint wParam;
+    public nint lParam;
+    public uint time;
+    public int ptX;
+    public int ptY;
+    public uint privateData;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct IconInfo
+{
+    [MarshalAs(UnmanagedType.Bool)]
+    public bool Icon;
+    public uint HotspotX;
+    public uint HotspotY;
+    public nint Mask;
+    public nint Color;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct BitmapInfoHeader
+{
+    public int Size;
+    public int Width;
+    public int Height;
+    public short Planes;
+    public short BitCount;
+    public int Compression;
+    public int SizeImage;
+    public int XPelsPerMeter;
+    public int YPelsPerMeter;
+    public int ClrUsed;
+    public int ClrImportant;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct BitmapInfo
+{
+    public BitmapInfoHeader Header;
+    public uint Colors;
 }
 
 [StructLayout(LayoutKind.Sequential)]

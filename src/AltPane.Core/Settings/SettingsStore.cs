@@ -78,9 +78,13 @@ public static class SettingsStore
         if (!Enum.IsDefined(settings.Size)) settings.Size = SwitcherSize.Comfortable;
         if (!Enum.IsDefined(settings.Placement)) settings.Placement = SwitcherPlacement.MouseCursor;
         if (!Enum.IsDefined(settings.Language)) settings.Language = AppLanguage.System;
-        if (!Enum.IsDefined(settings.SortMode)) settings.SortMode = LoadSortMode.StableGrouped;
+        if (!Enum.IsDefined(settings.SortMode)) settings.SortMode = LoadSortMode.FocusTime;
+        if (settings.FocusThresholdMinutes < 1 || settings.FocusThresholdMinutes > 24 * 60)
+            settings.FocusThresholdMinutes = 10;
         settings.ExcludedProcesses = ProcessNames.NormalizeList(settings.ExcludedProcesses);
         settings.ExcludedApps = NormalizeNames(settings.ExcludedApps);
+        settings.PinnedApps = ProcessNames.NormalizeList(settings.PinnedApps);
+        settings.DemotedApps = ProcessNames.NormalizeList(settings.DemotedApps);
         settings.EverythingExcludedPaths = NormalizeNames(settings.EverythingExcludedPaths);
         if (string.IsNullOrWhiteSpace(settings.EverythingExtensions))
             settings.EverythingExtensions = "exe,lnk,url,appref-ms";

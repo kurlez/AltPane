@@ -67,7 +67,12 @@ internal sealed class HotkeyService : IDisposable
             _snap = _snap with { QueryLength = Math.Max(0, length) };
     }
 
-    public void RequestOpenFromTray() => Enqueue(GestureTransitions.OpenSticky);
+    public void RequestOpenFromTray()
+    {
+        if (!_presenter.IsSwitcherVisible)
+            OpenTiming.Mark();
+        Enqueue(GestureTransitions.OpenSticky);
+    }
 
     public void RequestSearchMode() => Enqueue(state =>
         GestureTransitions.Apply(state, HookResult.EnterSearch(), null, PhysicallyDown(state.LatchedTrigger), ModifierKeys.None));
@@ -191,6 +196,8 @@ internal sealed class HotkeyService : IDisposable
             AppLog.Info(
                 $"hook vk=0x{vk:X2} {(isDown ? "down" : "up")} repeat={repeat} win={mods.Win} alt={mods.Alt} ctrl={mods.Ctrl} shift={mods.Shift} capture={settings.CaptureWinTab} open={input.SwitcherOpen} search={input.SearchMode} query={input.HasSearchQuery} ime={input.ImeComposing} -> {result.Command}");
         }
+        if (result.Command == HookCommand.Cycle && !snapshotWasOpen)
+            OpenTiming.Mark();
         var kind = HotkeyLogic.Match(hotkey, settings.CaptureWinTab, vk, mods);
         var consumedWinChord = isDown && !repeat && kind == ChordKind.WinTab && result.Command == HookCommand.Cycle;
         var win = WinChordGuard.OnKey(_win, vk, isDown, consumedWinChord);

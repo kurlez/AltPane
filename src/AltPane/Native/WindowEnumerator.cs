@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Text;
 using AltPane.Core.Actions;
+using AltPane.Core.Apps;
 using AltPane.Core.Filtering;
 using AltPane.Core.Models;
 
@@ -23,25 +24,19 @@ internal interface IVirtualDesktopManager
 
 internal static class WindowEnumerator
 {
+    const int PathCacheLimit = 2048;
+    static readonly object PathGate = new();
+    static readonly Dictionary<(int Pid, long Start), string> Paths = new();
+
+    [ThreadStatic] static StringBuilder? TextBuffer;
+    [ThreadStatic] static StringBuilder? ClassBuffer;
+    [ThreadStatic] static StringBuilder? PathBuffer;
+    [ThreadStatic] static IVirtualDesktopManager? Desktop;
+    [ThreadStatic] static bool DesktopAttempted;
+
     public static List<WindowEntry> Enumerate(AppSettings settings)
     {
-        var context = new FilterContext
-        {
-            CurrentProcessId = Environment.ProcessId,
-            IncludeOtherVirtualDesktops = settings.IncludeOtherVirtualDesktops,
-            ExcludedProcessNames = settings.ExcludedProcesses
-        };
-
-        IVirtualDesktopManager? desktops = null;
-        try
-        {
-            desktops = TryDesktopManager();
-        }
-        catch (Exception ex)
-        {
-            AppLog.Error(ex);
-        }
-
+        var context = Context(settings);
         IReadOnlyList<LiveMonitor> monitors;
         try
         {
@@ -58,8 +53,7 @@ internal static class WindowEnumerator
         {
             try
             {
-                var candidate = ReadCandidate(hwnd, desktops);
-                if (!WindowFilter.ShouldInclude(candidate, context)) return true;
+                if (!TryAccept(hwnd, context, out var candidate)) return true;
                 found.Add(ToEntry(candidate, found.Count, monitors));
             }
             catch (Exception ex)
@@ -68,42 +62,53 @@ internal static class WindowEnumerator
             }
             return true;
         });
-
-        try
-        {
-            NativeMethods.EnumWindows(callback, 0);
-        }
-        finally
-        {
-            if (desktops is not null && Marshal.IsComObject(desktops))
-                Marshal.ReleaseComObject(desktops);
-        }
-
-        AppLog.Info($"Enumerated {found.Count} switchable windows.");
+        NativeMethods.EnumWindows(callback, 0);
+        if (AppLog.Verbose)
+            AppLog.Info($"Enumerated {found.Count} switchable windows.");
         return found;
     }
 
-    static WindowCandidate ReadCandidate(nint hwnd, IVirtualDesktopManager? desktops)
+    public static bool TryRead(nint hwnd, AppSettings settings, IReadOnlyList<LiveMonitor> monitors, int originalIndex, out WindowEntry entry)
     {
+        entry = null!;
+        if (hwnd == 0 || !NativeMethods.IsWindow(hwnd)) return false;
+        if (!TryAccept(hwnd, Context(settings), out var candidate)) return false;
+        entry = ToEntry(candidate, originalIndex, monitors);
+        return true;
+    }
+
+    static FilterContext Context(AppSettings settings) => new()
+    {
+        CurrentProcessId = Environment.ProcessId,
+        IncludeOtherVirtualDesktops = settings.IncludeOtherVirtualDesktops,
+        ExcludedProcessNames = settings.ExcludedProcesses
+    };
+
+    static bool TryAccept(nint hwnd, FilterContext context, out WindowCandidate candidate)
+    {
+        candidate = new WindowCandidate();
+        if (hwnd == 0 || !NativeMethods.IsWindowVisible(hwnd)) return false;
         NativeMethods.GetWindowThreadProcessId(hwnd, out var pid);
-        var path = QueryProcessPath((int)pid);
-        var process = string.IsNullOrEmpty(path) ? "" : Path.GetFileNameWithoutExtension(path);
         var root = NativeMethods.GetAncestor(hwnd, NativeMethods.GaRootOwner);
         if (root == 0) root = hwnd;
-        return new WindowCandidate
+        var partial = new WindowCandidate
         {
             Handle = hwnd,
-            Title = ReadText(hwnd),
+            Title = ReadText(hwnd).Trim(),
             ClassName = ReadClass(hwnd),
-            ProcessName = process,
             ProcessId = (int)pid,
             OwnerHandle = NativeMethods.GetWindow(hwnd, NativeMethods.GwOwner),
             RootOwnerHandle = root,
             ExStyle = NativeMethods.GetWindowLongPtr(hwnd, NativeMethods.GwlExStyle),
-            IsVisible = NativeMethods.IsWindowVisible(hwnd),
+            IsVisible = true,
             CloakFlags = ReadCloak(hwnd),
-            VirtualDesktopSame = DesktopState(hwnd, desktops)
+            VirtualDesktopSame = DesktopState(hwnd)
         };
+        if (!WindowFilter.NeedsProcess(partial, context)) return false;
+        var path = QueryProcessPath((int)pid);
+        var process = string.IsNullOrEmpty(path) ? "" : Path.GetFileNameWithoutExtension(path);
+        candidate = partial with { ProcessName = process };
+        return WindowFilter.ShouldInclude(candidate, context);
     }
 
     static WindowEntry ToEntry(WindowCandidate candidate, int index, IReadOnlyList<LiveMonitor> monitors)
@@ -130,6 +135,7 @@ internal static class WindowEnumerator
         if (iconPath.Length == 0)
             iconPath = QueryProcessPath(candidate.ProcessId);
 
+        var named = hostedName ?? candidate.ProcessName;
         var hwnd = (nint)candidate.Handle;
         var hit = MonitorLocator.Locate(hwnd, monitors);
         return new WindowEntry
@@ -139,7 +145,7 @@ internal static class WindowEnumerator
             ClassName = candidate.ClassName,
             ProcessName = candidate.ProcessName,
             HostedProcessName = hostedName,
-            DisplayProcessName = ProcessNames.DisplayName(candidate.ProcessName, hostedName),
+            DisplayProcessName = AppDisplayNames.Resolve(named, iconPath),
             ProcessId = candidate.ProcessId,
             HostedProcessId = hostedPid,
             KillProcessId = ProcessActionPolicy.ResolveKillProcessId(candidate.ProcessName, candidate.ProcessId, hostedPid),
@@ -172,8 +178,24 @@ internal static class WindowEnumerator
         return found;
     }
 
-    static int DesktopState(nint hwnd, IVirtualDesktopManager? desktops)
+    static IVirtualDesktopManager? DesktopManager()
     {
+        if (DesktopAttempted) return Desktop;
+        DesktopAttempted = true;
+        try
+        {
+            Desktop = TryDesktopManager();
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error(ex);
+        }
+        return Desktop;
+    }
+
+    static int DesktopState(nint hwnd)
+    {
+        var desktops = DesktopManager();
         if (desktops is null) return -1;
         try
         {
@@ -195,14 +217,16 @@ internal static class WindowEnumerator
 
     static string ReadText(nint hwnd)
     {
-        var buffer = new StringBuilder(1024);
+        var buffer = TextBuffer ??= new StringBuilder(1024);
+        buffer.Clear();
         NativeMethods.GetWindowText(hwnd, buffer, buffer.Capacity);
         return buffer.ToString();
     }
 
     static string ReadClass(nint hwnd)
     {
-        var buffer = new StringBuilder(256);
+        var buffer = ClassBuffer ??= new StringBuilder(256);
+        buffer.Clear();
         NativeMethods.GetClassName(hwnd, buffer, buffer.Capacity);
         return buffer.ToString();
     }
@@ -214,9 +238,28 @@ internal static class WindowEnumerator
         if (handle == 0) return "";
         try
         {
-            var buffer = new StringBuilder(1024);
+            var timed = NativeMethods.GetProcessTimes(handle, out var start, out _, out _, out _);
+            if (timed)
+            {
+                lock (PathGate)
+                {
+                    if (Paths.TryGetValue((pid, start), out var cached))
+                        return cached;
+                }
+            }
+
+            var buffer = PathBuffer ??= new StringBuilder(1024);
+            buffer.Clear();
+            buffer.EnsureCapacity(1024);
             var size = buffer.Capacity;
-            return NativeMethods.QueryFullProcessImageName(handle, 0, buffer, ref size) ? buffer.ToString() : "";
+            var path = NativeMethods.QueryFullProcessImageName(handle, 0, buffer, ref size) ? buffer.ToString() : "";
+            if (!timed) return path;
+            lock (PathGate)
+            {
+                if (Paths.Count > PathCacheLimit) Paths.Clear();
+                Paths[(pid, start)] = path;
+            }
+            return path;
         }
         finally
         {

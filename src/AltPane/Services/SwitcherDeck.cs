@@ -95,6 +95,19 @@ internal sealed class SwitcherDeck
             window.Render(state);
     }
 
+    public void EnsureCreated()
+    {
+        foreach (var window in All())
+            window.EnsureHwnd();
+    }
+
+    public void RevealOffscreen()
+    {
+        if (_shown.Count == 0) return;
+        foreach (var window in _shown)
+            window.PlaceOffscreen(_size);
+    }
+
     public void Reveal()
     {
         if (_shown.Count == 0) return;

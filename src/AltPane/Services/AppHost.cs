@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Windows.Threading;
 using AltPane.Core.Localization;
 using AltPane.Core.Models;
 using AltPane.Core.Settings;
@@ -11,8 +12,8 @@ internal sealed class AppHost : IDisposable
     readonly string _settingsPath = SettingsStore.DefaultPath();
     readonly SwitcherPresenter _presenter;
     readonly HotkeyService _hotkeys;
-    readonly ForegroundTracker _foreground;
     readonly AppIndexService _apps;
+    Timer? _footprint;
     readonly TrayController _tray;
     SettingsWindow? _settingsWindow;
     bool _recording;
@@ -36,7 +37,6 @@ internal sealed class AppHost : IDisposable
         _apps = new AppIndexService(() => Settings);
         _presenter.UseApps(_apps);
         _hotkeys = new HotkeyService(_presenter, () => Settings, () => _recording, System.Windows.Application.Current.Dispatcher);
-        _foreground = new ForegroundTracker(_presenter.Activations);
         _presenter.Hotkeys = _hotkeys;
         _presenter.Notify += message => _tray?.Balloon(message);
         _presenter.PersistRequested += TrySave;
@@ -50,6 +50,8 @@ internal sealed class AppHost : IDisposable
 
     public void Start()
     {
+        _presenter.StartWindowCache();
+        _presenter.CreateWindows();
         _apps.Start();
         _tray.Show();
         if (!Settings.OverridePaused && !_hotkeys.Install())
@@ -61,6 +63,41 @@ internal sealed class AppHost : IDisposable
             _tray.Balloon(Localizer.Current["tray.welcome.body"], Localizer.Current["tray.welcome.title"]);
             Settings.WelcomeShown = true;
             TrySave();
+        }
+
+        System.Windows.Application.Current?.Dispatcher.BeginInvoke(WarmAndTrim, DispatcherPriority.ApplicationIdle);
+        _footprint = new Timer(_ =>
+        {
+            try
+            {
+                AppLog.Info($"working set periodic {ProcessFootprint.Megabytes()} MB");
+            }
+            catch (Exception ex)
+            {
+                AppLog.Error(ex);
+            }
+        }, null, TimeSpan.FromMinutes(30), TimeSpan.FromMinutes(30));
+    }
+
+    void WarmAndTrim()
+    {
+        try
+        {
+            _presenter.Warm();
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error(ex);
+        }
+
+        try
+        {
+            ProcessFootprint.Trim();
+            AppLog.Info($"working set startup {ProcessFootprint.Megabytes()} MB");
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error(ex);
         }
     }
 
@@ -133,7 +170,8 @@ internal sealed class AppHost : IDisposable
         _disposed = true;
         try { SystemEvents.UserPreferenceChanged -= OnPreference; } catch { }
         try { _hotkeys.Uninstall(); } catch (Exception ex) { AppLog.Error(ex); }
-        try { _foreground.Dispose(); } catch (Exception ex) { AppLog.Error(ex); }
+        try { _footprint?.Dispose(); } catch (Exception ex) { AppLog.Error(ex); }
+        try { _presenter.DisposeWindowCache(); } catch (Exception ex) { AppLog.Error(ex); }
         try { _presenter.ForceClose(); } catch { }
         try { _apps.Dispose(); } catch { }
         try { _settingsWindow?.Close(); } catch { }
@@ -161,6 +199,7 @@ internal sealed class AppHost : IDisposable
         if (Settings.OverridePaused) _hotkeys.Uninstall();
         else if (!_hotkeys.Install()) _tray.Balloon(Localizer.Current["settings.hookFailed"]);
         SettingsStore.Save(_settingsPath, Settings);
+        _presenter.InvalidateWindowCache();
         _apps.ApplySettings();
         _tray.Rebuild();
     }

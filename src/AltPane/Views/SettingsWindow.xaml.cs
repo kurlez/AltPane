@@ -33,7 +33,7 @@ public partial class SettingsWindow : Window
         Closed += (_, _) => ThemeService.Changed -= OnThemeChanged;
         MaxHeight = SystemParameters.WorkArea.Height * 0.92;
         var version = typeof(SettingsWindow).Assembly.GetName().Version;
-        VersionText.Text = "AltPane " + (version?.ToString(3) ?? "0.4.1");
+        VersionText.Text = "AltPane " + (version?.ToString(3) ?? "0.4.2");
         LoadDraft();
         Localizer.Current.LanguageChanged += (_, _) =>
         {
@@ -64,6 +64,8 @@ public partial class SettingsWindow : Window
         IndexPathBox.IsChecked = _draft.IndexPath;
         ExclusionBox.Text = string.Join(Environment.NewLine, _draft.ExcludedProcesses);
         ExcludedAppsBox.Text = string.Join(Environment.NewLine, _draft.ExcludedApps);
+        PinnedBox.Text = string.Join(Environment.NewLine, _draft.PinnedApps ?? new List<string>());
+        DemotedBox.Text = string.Join(Environment.NewLine, _draft.DemotedApps ?? new List<string>());
         Select(ThemeBox, _draft.Theme);
         Select(LanguageBox, _draft.Language);
         Select(SizeBox, _draft.Size);
@@ -76,6 +78,7 @@ public partial class SettingsWindow : Window
         EverythingExcludeBox.Text = string.Join(Environment.NewLine, _draft.EverythingExcludedPaths ?? new List<string>());
         UpdateEverythingStatus();
         Select(SortBox, _draft.SortMode);
+        Select(ThresholdBox, _draft.FocusThresholdMinutes);
         var admin = Admin.IsRunningAsAdmin();
         AdminButton.IsEnabled = !admin;
         AdminButton.Content = admin ? Localizer.Current["settings.alreadyAdmin"] : Localizer.Current["settings.restartAdmin"];
@@ -115,6 +118,12 @@ public partial class SettingsWindow : Window
         EverythingSiteButton.Content = loc["settings.everythingSite"];
         LoadBox.Content = loc["settings.showLoad"];
         SortLabel.Text = loc["settings.sort"];
+        ThresholdLabel.Text = loc["settings.focusThreshold"];
+        ThresholdHint.Text = loc["settings.focusThresholdHint"];
+        PinnedLabel.Text = loc["settings.pinnedApps"];
+        PinnedHint.Text = loc["settings.pinnedAppsHint"];
+        DemotedLabel.Text = loc["settings.demotedApps"];
+        DemotedHint.Text = loc["settings.demotedAppsHint"];
         ConfirmKillBox.Content = loc["settings.confirmKill"];
         KillTreeBox.Content = loc["settings.killTree"];
         DesktopBox.Content = loc["settings.desktops"];
@@ -163,12 +172,23 @@ public partial class SettingsWindow : Window
         }, _draft.Placement);
         Fill(SortBox, new (LoadSortMode, string)[]
         {
-            (LoadSortMode.StableGrouped, loc["settings.sort.stable"]),
+            (LoadSortMode.FocusTime, loc["settings.sort.stable"]),
             (LoadSortMode.Recent, loc["settings.sort.recent"]),
             (LoadSortMode.Initial, loc["settings.sort.initial"]),
             (LoadSortMode.Cpu, loc["settings.sort.cpu"]),
             (LoadSortMode.Memory, loc["settings.sort.memory"])
         }, _draft.SortMode);
+        var threshold = _draft.FocusThresholdMinutes;
+        var presets = new List<(int Value, string Label)>
+        {
+            (1, loc["settings.threshold.1"]),
+            (5, loc["settings.threshold.5"]),
+            (10, loc["settings.threshold.10"]),
+            (30, loc["settings.threshold.30"])
+        };
+        if (presets.TrueForAll(item => item.Value != threshold))
+            presets.Add((threshold, loc.Format("settings.threshold.custom", threshold)));
+        Fill(ThresholdBox, presets, threshold);
     }
 
     static void Fill<T>(System.Windows.Controls.ComboBox box, IEnumerable<(T Value, string Label)> items, T selected) where T : struct
@@ -305,6 +325,7 @@ public partial class SettingsWindow : Window
         _draft.ConfirmEndTask = ConfirmKillBox.IsChecked == true;
         _draft.EndTaskKillsTree = KillTreeBox.IsChecked == true;
         _draft.SortMode = Read(SortBox, _draft.SortMode);
+        _draft.FocusThresholdMinutes = Read(ThresholdBox, _draft.FocusThresholdMinutes);
         _draft.IncludeOtherVirtualDesktops = DesktopBox.IsChecked == true;
         _draft.StartWithWindows = StartupBox.IsChecked == true;
         _draft.OverridePaused = PauseBox.IsChecked == true;
@@ -329,6 +350,12 @@ public partial class SettingsWindow : Window
             .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
             .ToList();
         _draft.ExcludedApps = ExcludedAppsBox.Text
+            .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+            .ToList();
+        _draft.PinnedApps = PinnedBox.Text
+            .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+            .ToList();
+        _draft.DemotedApps = DemotedBox.Text
             .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
             .ToList();
         _draft.WelcomeShown = _original.WelcomeShown;
@@ -450,6 +477,7 @@ public partial class SettingsWindow : Window
         WelcomeShown = source.WelcomeShown,
         ShowLoad = source.ShowLoad,
         SortMode = source.SortMode,
+        FocusThresholdMinutes = source.FocusThresholdMinutes,
         ConfirmEndTask = source.ConfirmEndTask,
         EndTaskKillsTree = source.EndTaskKillsTree,
         LaunchApps = source.LaunchApps,
@@ -457,7 +485,9 @@ public partial class SettingsWindow : Window
         IndexStoreApps = source.IndexStoreApps,
         IndexDesktop = source.IndexDesktop,
         IndexPath = source.IndexPath,
-        ExcludedApps = new List<string>(source.ExcludedApps ?? new List<string>())
+        ExcludedApps = new List<string>(source.ExcludedApps ?? new List<string>()),
+        PinnedApps = new List<string>(source.PinnedApps ?? new List<string>()),
+        DemotedApps = new List<string>(source.DemotedApps ?? new List<string>())
     };
 
     sealed class Choice<T>

@@ -21,12 +21,19 @@ internal sealed class SwitcherPresenter
     readonly LoadSampler _sampler = new();
     readonly KillArm _arm = new();
     readonly ActivationMru _activations = new();
+    readonly WindowListCache _windows;
     int _displayCount = -1;
     DispatcherTimer? _prune;
     SwitcherSession? _session;
     nint _restore;
     string? _status;
     int _iconGeneration;
+    long _enumerationMs;
+    bool _warmed;
+    bool _suspendOpen;
+    UiOp.Open? _deferredOpen;
+    GestureSnapshot _deferredSnap;
+    bool _deferredFinish;
     bool _searchMode;
     bool _statusSticky;
     SystemLoad _system;
@@ -37,6 +44,7 @@ internal sealed class SwitcherPresenter
         _deck = new SwitcherDeck();
         _deck.Attach(Bind);
         _deck.DisplaysChanged += OnDisplaysChanged;
+        _windows = new WindowListCache(_activations, _settings);
         _sampler.Updated += update => _deck.Dispatcher.BeginInvoke(() => ApplyLoad(update));
         _statusTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2.6) };
         _statusTimer.Tick += (_, _) =>
@@ -50,6 +58,24 @@ internal sealed class SwitcherPresenter
 
     public HotkeyService? Hotkeys { get; set; }
     public ActivationMru Activations => _activations;
+
+    public void StartWindowCache() => _windows.Start();
+
+    public void InvalidateWindowCache() => _windows.Invalidate();
+
+    public void DisposeWindowCache() => _windows.Dispose();
+
+    /// <summary>
+    /// Build one hidden switcher per monitor before the first hotkey.
+    /// A later open calls Show and SetWindowPos on these windows.
+    /// Prepare rebinds each monitor's DPI, including after a DPI change.
+    /// The window objects themselves are replaced only when the monitor set changes.
+    /// </summary>
+    public void CreateWindows()
+    {
+        _deck.Prepare(_settings(), 0, captureForeground: false);
+        _deck.EnsureCreated();
+    }
     public bool PendingShow { get; private set; }
     public bool IsSwitcherVisible => _deck.IsVisible;
     public bool IsImeComposing => _deck.IsImeComposing;
@@ -129,6 +155,9 @@ internal sealed class SwitcherPresenter
         window.KillTreeRequested += () => KillSelected(true);
         window.SortCycleRequested += CycleSort;
         window.MonitorFilterRequested += ToggleMonitorFilter;
+        window.PinRequested += () => SetAppPriority(AppPriorityLists.Pin);
+        window.DemoteRequested += () => SetAppPriority(AppPriorityLists.Demote);
+        window.RestorePriorityRequested += () => SetAppPriority(AppPriorityLists.Restore);
         window.LabelsRequested += () =>
         {
             if (_deck.IsVisible) Refresh();
@@ -148,6 +177,12 @@ internal sealed class SwitcherPresenter
 
     public void Apply(UiOp op)
     {
+        if (_suspendOpen && op is UiOp.Open deferred)
+        {
+            _deferredOpen = deferred;
+            return;
+        }
+
         switch (op)
         {
             case UiOp.Open open:
@@ -225,6 +260,15 @@ internal sealed class SwitcherPresenter
             case UiOp.SpaceAction:
                 OnSpace();
                 break;
+            case UiOp.PinApp:
+                SetAppPriority(AppPriorityLists.Pin);
+                break;
+            case UiOp.DemoteApp:
+                SetAppPriority(AppPriorityLists.Demote);
+                break;
+            case UiOp.RestorePriority:
+                SetAppPriority(AppPriorityLists.Restore);
+                break;
             case UiOp.AdminLaunch:
                 LaunchAdmin();
                 break;
@@ -238,13 +282,28 @@ internal sealed class SwitcherPresenter
 
     public void FinishFrame(GestureSnapshot snap)
     {
-        if (!PendingShow || !snap.SwitcherOpen) return;
+        if (_suspendOpen)
+        {
+            _deferredSnap = snap;
+            _deferredFinish = true;
+            return;
+        }
+
+        if (!PendingShow || !snap.SwitcherOpen)
+        {
+            OpenTiming.Clear();
+            return;
+        }
+
         PendingShow = false;
         _searchMode = snap.SearchMode;
         var settings = _settings();
         _deck.Prepare(settings, _restore);
         _deck.Render(BuildState());
         _deck.Reveal();
+        var rows = _session?.All.Count ?? 0;
+        if (OpenTiming.TryConsume(out var visibleMs))
+            AppLog.Info($"open hotkey→visible {visibleMs} ms, enumeration {_enumerationMs} ms, rows {rows}");
         if (snap.SearchMode) _deck.ClaimKeyboard();
         QueueIcons();
         SyncSampler();
@@ -252,6 +311,7 @@ internal sealed class SwitcherPresenter
 
     public WindowEntry? TakeForQuickCommit()
     {
+        OpenTiming.Clear();
         var selected = _session?.Selected;
         ReleaseLiveSurface();
         PendingShow = false;
@@ -274,6 +334,7 @@ internal sealed class SwitcherPresenter
         if (moveTo is { } host
             && !WindowMover.TryMoveTo((nint)entry.Handle, host, MonitorUtil.All()))
             AppLog.Info($"Could not move 0x{entry.Handle:X} onto the switcher's display. Activating it where it is.");
+        _windows.ArmActivation(entry.Handle);
         if (!WindowActions.TryActivate((nint)entry.Handle))
             Notify?.Invoke(Localizer.Current["activate.failed"]);
     }
@@ -284,24 +345,29 @@ internal sealed class SwitcherPresenter
         _deck.ForceClose();
     }
 
-    void Build(int delta)
+    void Build(int delta, bool captureForeground = true)
     {
-        var clock = AppLog.Verbose ? System.Diagnostics.Stopwatch.StartNew() : null;
         ReleaseLiveSurface();
-        _restore = NativeMethods.GetForegroundWindow();
+        if (captureForeground)
+            _restore = NativeMethods.GetForegroundWindow();
         List<WindowEntry> entries;
+        var clock = System.Diagnostics.Stopwatch.StartNew();
         try
         {
-            entries = WindowEnumerator.Enumerate(_settings());
+            var captured = _windows.Capture(_settings());
+            entries = captured.Entries;
+            _enumerationMs = captured.EnumerationMilliseconds;
         }
         catch (Exception ex)
         {
             AppLog.Error(ex);
             entries = new List<WindowEntry>();
+            _enumerationMs = clock.ElapsedMilliseconds;
         }
 
         _session = new SwitcherSession(entries);
-        _session.SetOrderContext((long)_restore, Activations.Rank);
+        var priority = _windows.Priority(_settings());
+        _session.SetOrderContext((long)_restore, Activations.Rank, priority.Tier, priority.IsShort);
         _session.SetSortMode(_settings().SortMode);
         var opening = StableGroupedOrder.OpeningIndex(_session.SortMode, _session.ResultCount, delta);
         if (opening is int index)
@@ -320,8 +386,9 @@ internal sealed class SwitcherPresenter
         foreach (var entry in entries)
         {
             live.Add(entry.Handle);
-            if (!_icons.ContainsKey(entry.Handle))
-                _icons[entry.Handle] = IconLoader.Letter(entry.Title);
+            if (_icons.ContainsKey(entry.Handle)) continue;
+            var cached = IconLoader.Cached(entry.IconPath, 0);
+            _icons[entry.Handle] = cached ?? IconLoader.Letter(entry.Title);
         }
         if (_icons.Count != live.Count)
         {
@@ -335,8 +402,64 @@ internal sealed class SwitcherPresenter
         _displayCount = -1;
         PendingShow = true;
         _iconGeneration++;
-        if (clock is not null)
-            AppLog.Info($"open enumerated {entries.Count} windows in {clock.ElapsedMilliseconds} ms");
+    }
+
+    /// <summary>
+    /// Exercise Show, layout, and icon decode once while the process is idle.
+    /// The window is placed off-screen and does not take focus. A real Alt+Tab
+    /// that arrives while this is showing is replayed afterwards.
+    /// </summary>
+    public void Warm()
+    {
+        if (_warmed) return;
+        _warmed = true;
+        if (_deck.IsVisible || PendingShow || _session is not null)
+        {
+            AppLog.Info("warmup skipped because the switcher is already open");
+            return;
+        }
+
+        _suspendOpen = true;
+        var savedRestore = _restore;
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var rows = 0;
+        try
+        {
+            Build(0, captureForeground: false);
+            rows = _session?.All.Count ?? 0;
+            _deck.Prepare(_settings(), 0, captureForeground: false);
+            if (_session is not null)
+                _deck.Render(BuildState());
+            _deck.RevealOffscreen();
+            QueueIcons();
+            _deck.HideAll();
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error(ex);
+        }
+        finally
+        {
+            ReleaseLiveSurface();
+            _session = null;
+            PendingShow = false;
+            _searchMode = false;
+            _status = null;
+            _arm.Clear();
+            _restore = savedRestore;
+            _suspendOpen = false;
+        }
+
+        AppLog.Info($"warmup off-screen {clock.ElapsedMilliseconds} ms, rows {rows}");
+        var open = _deferredOpen;
+        var finish = _deferredFinish;
+        var snap = _deferredSnap;
+        _deferredOpen = null;
+        _deferredFinish = false;
+        if (open is not null)
+            Build(open.Delta);
+        if (finish)
+            FinishFrame(snap);
     }
 
     void ReleaseLiveSurface()
@@ -348,6 +471,7 @@ internal sealed class SwitcherPresenter
 
     void DismissSwitcher()
     {
+        OpenTiming.Clear();
         ReleaseLiveSurface();
         PendingShow = false;
         _searchMode = false;
@@ -389,7 +513,15 @@ internal sealed class SwitcherPresenter
 
     void ReloadApps()
     {
+        _windows.RestampNames();
         if (_session is null) return;
+        foreach (var entry in _session.All)
+        {
+            var process = string.IsNullOrWhiteSpace(entry.HostedProcessName) ? entry.ProcessName : entry.HostedProcessName;
+            var name = AppDisplayNames.Resolve(process, entry.IconPath);
+            if (!string.Equals(entry.DisplayProcessName, name, StringComparison.Ordinal))
+                entry.DisplayProcessName = name;
+        }
         ApplyCatalog(resetClock: false);
         if (_deck.IsVisible) Refresh();
     }
@@ -501,6 +633,7 @@ internal sealed class SwitcherPresenter
 
     void Cancel()
     {
+        OpenTiming.Clear();
         ReleaseLiveSurface();
         var restore = _restore;
         var wasVisible = _deck.IsVisible;
@@ -592,16 +725,42 @@ internal sealed class SwitcherPresenter
             SchedulePrune(selected.Handle);
     }
 
+    void SetAppPriority(Action<AppSettings, string> apply)
+    {
+        var selected = _session?.Selected;
+        if (selected is null) return;
+        var key = AppIdentity.Key(selected);
+        if (key.Length == 0) return;
+        var settings = _settings();
+        var pinnedBefore = AppPriorityLists.IsPinned(settings.PinnedApps, key);
+        var demotedBefore = AppPriorityLists.IsDemoted(settings.PinnedApps, settings.DemotedApps, key);
+        apply(settings, key);
+        try { PersistRequested?.Invoke(); }
+        catch (Exception ex) { AppLog.Error(ex); }
+        var priority = _windows.Priority(settings);
+        if (_session is null) return;
+        _session.SetPriority(priority.Tier, priority.IsShort);
+        var loc = Localizer.Current;
+        var message = AppPriorityLists.IsPinned(settings.PinnedApps, key)
+            ? loc["priority.pinned"]
+            : AppPriorityLists.IsUserDemoted(settings.DemotedApps, key)
+                ? loc["priority.demoted"]
+                : loc["priority.restored"];
+        if (pinnedBefore || demotedBefore || message.Length > 0)
+            ShowStatus(message);
+        if (_deck.IsVisible) Refresh();
+    }
+
     void CycleSort()
     {
         var settings = _settings();
         settings.SortMode = settings.SortMode switch
         {
-            LoadSortMode.StableGrouped => LoadSortMode.Recent,
+            LoadSortMode.FocusTime => LoadSortMode.Recent,
             LoadSortMode.Recent => LoadSortMode.Initial,
             LoadSortMode.Initial => LoadSortMode.Cpu,
             LoadSortMode.Cpu => LoadSortMode.Memory,
-            _ => LoadSortMode.StableGrouped
+            _ => LoadSortMode.FocusTime
         };
         _session?.SetSortMode(settings.SortMode);
         try { PersistRequested?.Invoke(); }
@@ -732,15 +891,13 @@ internal sealed class SwitcherPresenter
             SystemText = systemText,
             SortText = loc[settings.SortMode switch
             {
-                LoadSortMode.StableGrouped => "sort.stable",
+                LoadSortMode.FocusTime => "sort.stable",
                 LoadSortMode.Initial => "sort.initial",
                 LoadSortMode.Cpu => "sort.cpu",
                 LoadSortMode.Memory => "sort.memory",
                 _ => "sort.recent"
             }],
-            GroupSections = _session?.SortMode == LoadSortMode.StableGrouped
-                ? StableGroupedOrder.Sections(filtered)
-                : Array.Empty<string>(),
+            GroupSections = _session?.Sections(loc["tier.infrequent"]) ?? Array.Empty<string>(),
             Indexes = _session?.Indexes ?? new Dictionary<long, string>(),
             AppIndexes = AppIndexLabels(appCount),
             EmptyText = EmptyMessage(loc, settings, filtered.Count, allCount),
@@ -793,6 +950,18 @@ internal sealed class SwitcherPresenter
 
     void OnDisplaysChanged()
     {
+        _windows.Invalidate();
+        var wasVisible = _deck.IsVisible;
+        try
+        {
+            _deck.Prepare(_settings(), _restore, captureForeground: false);
+            _deck.EnsureCreated();
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error(ex);
+        }
+
         if (_session is null) return;
         var live = MonitorUtil.Live();
         _displayCount = live.Count;
@@ -805,8 +974,7 @@ internal sealed class SwitcherPresenter
             var number = _deck.HostMonitorNumber();
             if (number > 0) _session.SetMonitorFilter(number);
         }
-        if (!_deck.IsVisible) return;
-        _deck.Prepare(_settings(), _restore, captureForeground: false);
+        if (!wasVisible) return;
         Refresh();
         _deck.Reveal();
     }
@@ -814,31 +982,117 @@ internal sealed class SwitcherPresenter
     void QueueIcons()
     {
         var generation = ++_iconGeneration;
-        _deck.Dispatcher.BeginInvoke(() =>
+        if (_session is null) return;
+        var windows = new List<(long Handle, string Path)>(_session.All.Count);
+        foreach (var entry in _session.All)
+            windows.Add((entry.Handle, entry.IconPath ?? ""));
+        var apps = new List<(string Id, string Path, int Index, string Launch)>(_session.AppHits.Count);
+        foreach (var hit in _session.AppHits)
         {
-            if (generation != _iconGeneration || _session is null) return;
-            foreach (var entry in _session.All.ToList())
+            var path = string.IsNullOrWhiteSpace(hit.App.IconLocation) ? hit.App.ResolvedPath : hit.App.IconLocation;
+            apps.Add((hit.App.Id, path ?? "", hit.App.IconIndex, hit.App.LaunchPath ?? ""));
+        }
+
+        ThreadPool.QueueUserWorkItem(_ =>
+        {
+            var memo = new Dictionary<string, IconLoader.IconPixels?>(StringComparer.OrdinalIgnoreCase);
+            var windowPixels = new List<(long Handle, string Path, int Index, IconLoader.IconPixels Pixels)>();
+            var windowReady = new List<(long Handle, System.Windows.Media.ImageSource Icon)>();
+            foreach (var item in windows)
+                TakeIcon(item.Path, 0, memo, icon => windowReady.Add((item.Handle, icon)), pixels => windowPixels.Add((item.Handle, item.Path, 0, pixels)));
+
+            var appPixels = new List<(string Id, string Path, int Index, IconLoader.IconPixels Pixels)>();
+            var appReady = new List<(string Id, System.Windows.Media.ImageSource Icon)>();
+            foreach (var item in apps)
             {
-                if (generation != _iconGeneration) return;
-                try
+                var cached = IconLoader.Cached(item.Path, item.Index) ?? IconLoader.Cached(item.Launch, 0);
+                if (cached is not null)
                 {
-                    var icon = IconLoader.TryGetIcon(entry);
-                    if (icon is not null) _icons[entry.Handle] = icon;
+                    appReady.Add((item.Id, cached));
+                    continue;
                 }
-                catch (Exception ex)
-                {
-                    AppLog.Error(ex);
-                }
+                if (DecodeOnce(item.Path, item.Index, memo, out var pixels))
+                    appPixels.Add((item.Id, item.Path, item.Index, pixels));
+                else if (DecodeOnce(item.Launch, 0, memo, out var fallback))
+                    appPixels.Add((item.Id, item.Launch, 0, fallback));
             }
-            foreach (var hit in _session.AppHits.ToList())
+
+            _deck.Dispatcher.BeginInvoke(() =>
             {
-                if (generation != _iconGeneration) return;
-                var path = string.IsNullOrWhiteSpace(hit.App.IconLocation) ? hit.App.ResolvedPath : hit.App.IconLocation;
-                var icon = IconLoader.TryGetFileIcon(path, hit.App.IconIndex) ?? IconLoader.TryGetFileIcon(hit.App.LaunchPath, 0);
-                if (icon is not null) _appIcons[hit.App.Id] = icon;
-            }
-            if (_deck.IsVisible) Refresh();
-        }, DispatcherPriority.Background);
+                ApplyDecoded(generation, windowPixels, windowReady, (handle, source) => _icons[handle] = source);
+                foreach (var item in appPixels)
+                {
+                    var source = IconLoader.Freeze(item.Pixels);
+                    if (source is null) continue;
+                    IconLoader.Store(item.Path, item.Index, source);
+                    if (generation == _iconGeneration)
+                        _appIcons[item.Id] = source;
+                }
+                if (generation == _iconGeneration)
+                {
+                    foreach (var item in appReady)
+                        _appIcons[item.Id] = item.Icon;
+                }
+                if (generation == _iconGeneration && _deck.IsVisible)
+                    Refresh();
+            }, DispatcherPriority.Background);
+        });
+    }
+
+    static void TakeIcon(
+        string path,
+        int index,
+        Dictionary<string, IconLoader.IconPixels?> memo,
+        Action<System.Windows.Media.ImageSource> addReady,
+        Action<IconLoader.IconPixels> addPixels)
+    {
+        var cached = IconLoader.Cached(path, index);
+        if (cached is not null)
+        {
+            addReady(cached);
+            return;
+        }
+        if (DecodeOnce(path, index, memo, out var pixels))
+            addPixels(pixels);
+    }
+
+    static bool DecodeOnce(string path, int index, Dictionary<string, IconLoader.IconPixels?> memo, out IconLoader.IconPixels pixels)
+    {
+        pixels = default;
+        if (string.IsNullOrWhiteSpace(path)) return false;
+        var key = index == 0 ? path : path + "\n" + index.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        if (memo.TryGetValue(key, out var existing))
+        {
+            if (existing is not { } hit) return false;
+            pixels = hit;
+            return true;
+        }
+        if (!IconLoader.TryDecode(path, index, out pixels))
+        {
+            memo[key] = null;
+            return false;
+        }
+        memo[key] = pixels;
+        return true;
+    }
+
+    void ApplyDecoded(
+        int generation,
+        List<(long Handle, string Path, int Index, IconLoader.IconPixels Pixels)> decoded,
+        List<(long Handle, System.Windows.Media.ImageSource Icon)> ready,
+        Action<long, System.Windows.Media.ImageSource> assign)
+    {
+        foreach (var item in decoded)
+        {
+            var source = IconLoader.Freeze(item.Pixels);
+            if (source is null) continue;
+            IconLoader.Store(item.Path, item.Index, source);
+            if (generation == _iconGeneration)
+                assign(item.Handle, source);
+        }
+        if (generation != _iconGeneration) return;
+        foreach (var item in ready)
+            assign(item.Handle, item.Icon);
     }
 
     void OnSpace() => Hotkeys?.RequestCommit();

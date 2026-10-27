@@ -24,6 +24,8 @@ public sealed class SwitcherSession
     long _queryAnchor;
     long _foreground;
     Func<long, int>? _mruRank;
+    Func<WindowEntry, UsageTier>? _tierOf;
+    Func<WindowEntry, bool>? _demoted;
     LoadSortMode _sort = LoadSortMode.Recent;
 
     public IReadOnlyDictionary<long, string> Indexes => _index;
@@ -169,7 +171,7 @@ public sealed class SwitcherSession
 
     public void SetSortMode(LoadSortMode mode)
     {
-        if (!Enum.IsDefined(mode)) mode = LoadSortMode.StableGrouped;
+        if (!Enum.IsDefined(mode)) mode = LoadSortMode.FocusTime;
         if (mode == _sort) return;
         _sort = mode;
         CaptureOrder();
@@ -181,13 +183,36 @@ public sealed class SwitcherSession
     /// handle (lower is more recent). Applied before the order is frozen. Calling
     /// this again recaptures the order.
     /// </summary>
-    public void SetOrderContext(long foregroundHandle, Func<long, int>? mruRank)
+    public void SetOrderContext(
+        long foregroundHandle,
+        Func<long, int>? mruRank,
+        Func<WindowEntry, UsageTier>? tierOf = null,
+        Func<WindowEntry, bool>? demoted = null)
     {
         _foreground = foregroundHandle;
         _mruRank = mruRank;
+        _tierOf = tierOf;
+        _demoted = demoted;
         CaptureOrder();
         Recompute(resetSelection: false);
     }
+
+    /// <summary>
+    /// Recompute stable-grouped tiers after an explicit pin, demote, or restore.
+    /// Background usage changes do not call this, so an open list stays put.
+    /// </summary>
+    public void SetPriority(Func<WindowEntry, UsageTier>? tierOf, Func<WindowEntry, bool>? demoted)
+    {
+        _tierOf = tierOf;
+        _demoted = demoted;
+        CaptureOrder();
+        Recompute(resetSelection: false);
+    }
+
+    public string[] Sections(string infrequentHeading) =>
+        _sort == LoadSortMode.FocusTime
+            ? StableGroupedOrder.Sections(_filtered, _tierOf, infrequentHeading)
+            : Array.Empty<string>();
 
     /// <summary>
     /// Stores new CPU and memory figures. The row order captured at open, or by the last
@@ -278,7 +303,7 @@ public sealed class SwitcherSession
         var ordered = _sort switch
         {
             LoadSortMode.Initial => InitialOrder.Sort(_all),
-            LoadSortMode.StableGrouped => StableGroupedOrder.Arrange(_all, _foreground, _mruRank),
+            LoadSortMode.FocusTime => StableGroupedOrder.Arrange(_all, _foreground, _mruRank, _tierOf, _demoted),
             LoadSortMode.Recent => StableGroupedOrder.ByRecent(_all, _foreground, _mruRank),
             _ => LoadSorter.Sort(
                 _all,
@@ -290,7 +315,7 @@ public sealed class SwitcherSession
         _frozen.Clear();
         _index.Clear();
         _appCodes.Clear();
-        var codes = _sort == LoadSortMode.StableGrouped
+        var codes = _sort == LoadSortMode.FocusTime
             ? NameIndex.AssignGrouped(ordered.Select(InitialOrder.AppName).ToArray())
             : AssignPerWindow(ordered);
         for (var i = 0; i < ordered.Count; i++)

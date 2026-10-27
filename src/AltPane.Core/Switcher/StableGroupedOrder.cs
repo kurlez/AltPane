@@ -3,28 +3,28 @@ using AltPane.Core.Models;
 namespace AltPane.Core.Switcher;
 
 /// <summary>
-/// Stable grouped order. Row 0 is the window that was active just before the one
-/// in front when the switcher opened, so Alt+Tab and Enter return to it. The
-/// foreground window stays in the list, inside its application group, at its
-/// recent-use place in that group. Hiding it would drop the window the user was
-/// just looking at; native Alt+Tab keeps it too.
-/// Other windows are grouped by <see cref="InitialOrder.AppName"/>. Groups follow
-/// that name's initial (Latin A–Z, Chinese by pinyin, then digits and symbols)
-/// and, for the same initial, the name itself, so a group's place does not jump
-/// between opens. Inside a group, most recent use wins, then Z-order
-/// (<see cref="WindowEntry.OriginalIndex"/>, smaller is closer to the front).
-/// The pinned row is the one exception to contiguity: the rest of its application
-/// stays in the alphabetical group.
+/// Focus-time order, the default. Row 0 is the most recent user-activated window
+/// that is not in the short tier, other than the one in front, so Alt+Tab and
+/// Enter return to it. The foreground window stays in the list.
+/// The main tier is pinned apps and apps at or above the focus threshold, including
+/// apps with no usage yet. Those windows follow most recent user activation, then
+/// Z-order. A pin keeps an app in this tier; it does not jump ahead of a more
+/// recently used window. The short tier (under the threshold, or demoted) is always
+/// last, under the "rarely used" separator, and is also ordered by recent use.
+/// A short-tier window never takes row 0 while a main-tier window exists.
+/// With no activation history, both tiers follow Z-order.
 /// </summary>
 public static class StableGroupedOrder
 {
     public static List<WindowEntry> Arrange(
         IReadOnlyList<WindowEntry> items,
         long foregroundHandle,
-        Func<long, int>? mruRank)
+        Func<long, int>? mruRank,
+        Func<WindowEntry, UsageTier>? tierOf = null,
+        Func<WindowEntry, bool>? isDemoted = null)
     {
-        var ordered = Group(items, foregroundHandle, mruRank);
-        var previous = Previous(items, foregroundHandle, mruRank);
+        var ordered = Group(items, foregroundHandle, mruRank, tierOf);
+        var previous = Previous(items, foregroundHandle, mruRank, entry => IsShort(entry, tierOf) || isDemoted?.Invoke(entry) == true);
         if (previous is null) return ordered;
         var index = ordered.FindIndex(window => window.Handle == previous.Handle);
         if (index <= 0) return ordered;
@@ -33,50 +33,35 @@ public static class StableGroupedOrder
         return ordered;
     }
 
-    /// <summary>Grouped order before the previous window is pulled to row 0.</summary>
+    /// <summary>Focus-time order before the previous window is pulled to row 0.</summary>
     public static List<WindowEntry> Group(
         IReadOnlyList<WindowEntry> items,
         long foregroundHandle,
-        Func<long, int>? mruRank)
+        Func<long, int>? mruRank,
+        Func<WindowEntry, UsageTier>? tierOf = null)
     {
-        var groups = new Dictionary<string, List<int>>(StringComparer.OrdinalIgnoreCase);
-        var names = new List<string>();
-        for (var i = 0; i < items.Count; i++)
+        _ = foregroundHandle;
+        var order = new List<int>(items.Count);
+        for (var i = 0; i < items.Count; i++) order.Add(i);
+        order.Sort((a, b) =>
         {
-            var name = InitialOrder.AppName(items[i]);
-            if (!groups.TryGetValue(name, out var list))
-            {
-                list = new List<int>();
-                groups[name] = list;
-                names.Add(name);
-            }
-            list.Add(i);
-        }
-
-        foreach (var list in groups.Values)
-        {
-            list.Sort((a, b) => CompareInside(items, a, b, foregroundHandle, mruRank));
-        }
-
-        names.Sort(static (a, b) =>
-        {
-            var byInitial = InitialOrder.Compare(InitialOrder.OfName(a, 0), InitialOrder.OfName(b, 0));
-            if (byInitial != 0) return byInitial;
-            return string.Compare(a, b, StringComparison.OrdinalIgnoreCase);
+            var tier = Band(items[a], tierOf).CompareTo(Band(items[b], tierOf));
+            if (tier != 0) return tier;
+            var rank = Mru(items[a].Handle, mruRank).CompareTo(Mru(items[b].Handle, mruRank));
+            if (rank != 0) return rank;
+            var z = items[a].OriginalIndex.CompareTo(items[b].OriginalIndex);
+            if (z != 0) return z;
+            return a.CompareTo(b);
         });
-
-        var ordered = new List<WindowEntry>(items.Count);
-        foreach (var name in names)
-        {
-            foreach (var index in groups[name])
-                ordered.Add(items[index]);
-        }
-        return ordered;
+        var result = new List<WindowEntry>(order.Count);
+        foreach (var index in order)
+            result.Add(items[index]);
+        return result;
     }
 
     /// <summary>
     /// Pure most-recent order. The foreground window is first. Everyone else follows
-    /// the activation history, then Z-order. No groups and no pinned row.
+    /// the activation history, then Z-order. No tiers.
     /// </summary>
     public static List<WindowEntry> ByRecent(
         IReadOnlyList<WindowEntry> items,
@@ -101,42 +86,52 @@ public static class StableGroupedOrder
     }
 
     /// <summary>
-    /// A heading on the first visible row of each contiguous application run.
-    /// Empty when the name is blank, so a row without an application stays compact.
+    /// A heading when the application name changes, and the rare-use label on the
+    /// first short-tier row. Empty when the name is blank and the tier does not change.
     /// </summary>
-    public static string[] Sections(IReadOnlyList<WindowEntry> filtered)
+    public static string[] Sections(IReadOnlyList<WindowEntry> filtered, Func<WindowEntry, UsageTier>? tierOf = null, string infrequentHeading = "")
     {
         var sections = new string[filtered.Count];
         for (var i = 0; i < filtered.Count; i++)
         {
             var name = InitialOrder.AppName(filtered[i]);
-            if (string.IsNullOrWhiteSpace(name)
-                || (i > 0 && string.Equals(name, InitialOrder.AppName(filtered[i - 1]), StringComparison.OrdinalIgnoreCase)))
+            var tier = tierOf?.Invoke(filtered[i]) ?? UsageTier.Frequent;
+            var previousTier = i > 0 && tierOf is not null ? tierOf(filtered[i - 1]) : (UsageTier?)null;
+            var startsInfrequent = tier == UsageTier.Infrequent && previousTier != UsageTier.Infrequent && infrequentHeading.Length > 0;
+            var sameGroup = i > 0 && string.Equals(name, InitialOrder.AppName(filtered[i - 1]), StringComparison.OrdinalIgnoreCase);
+            if (string.IsNullOrWhiteSpace(name) || sameGroup)
             {
-                sections[i] = "";
+                sections[i] = startsInfrequent ? infrequentHeading : "";
                 continue;
             }
-            sections[i] = name;
+            sections[i] = startsInfrequent ? infrequentHeading + "  ·  " + name : name;
         }
         return sections;
     }
 
     /// <summary>
-    /// Stable grouped already starts on the previous window, so a forward open
+    /// Focus time already starts on the previous window, so a forward open
     /// stays on row 0. A reverse chord selects the last row. Other modes return
     /// null and the caller applies its usual move.
     /// </summary>
     public static int? OpeningIndex(LoadSortMode mode, int count, int delta)
     {
-        if (mode != LoadSortMode.StableGrouped) return null;
+        if (mode != LoadSortMode.FocusTime) return null;
         if (count <= 0) return -1;
         return delta < 0 ? count - 1 : 0;
     }
 
+    static bool IsShort(WindowEntry entry, Func<WindowEntry, UsageTier>? tierOf) =>
+        tierOf is not null && tierOf(entry) == UsageTier.Infrequent;
+
+    static int Band(WindowEntry entry, Func<WindowEntry, UsageTier>? tierOf) =>
+        IsShort(entry, tierOf) ? 1 : 0;
+
     static WindowEntry? Previous(
         IReadOnlyList<WindowEntry> items,
         long foregroundHandle,
-        Func<long, int>? mruRank)
+        Func<long, int>? mruRank,
+        Func<WindowEntry, bool>? skip)
     {
         WindowEntry? best = null;
         var bestRank = int.MaxValue;
@@ -146,6 +141,7 @@ public static class StableGroupedOrder
         {
             var entry = items[i];
             if (foregroundHandle != 0 && entry.Handle == foregroundHandle) continue;
+            if (skip?.Invoke(entry) == true) continue;
             var rank = Mru(entry.Handle, mruRank);
             var z = entry.OriginalIndex;
             var better = best is null
@@ -159,21 +155,6 @@ public static class StableGroupedOrder
             bestInput = i;
         }
         return best;
-    }
-
-    static int CompareInside(
-        IReadOnlyList<WindowEntry> items,
-        int left,
-        int right,
-        long foregroundHandle,
-        Func<long, int>? mruRank)
-    {
-        var rank = RecentRank(items[left], foregroundHandle, mruRank)
-            .CompareTo(RecentRank(items[right], foregroundHandle, mruRank));
-        if (rank != 0) return rank;
-        var z = items[left].OriginalIndex.CompareTo(items[right].OriginalIndex);
-        if (z != 0) return z;
-        return left.CompareTo(right);
     }
 
     static int RecentRank(WindowEntry entry, long foregroundHandle, Func<long, int>? mruRank)

@@ -90,15 +90,16 @@ public static class WindowFilter
         "ApplicationManager_DesktopShellWindow"
     };
 
-    public static bool ShouldInclude(WindowCandidate candidate, FilterContext context)
+    /// <summary>
+    /// False when the window is already rejected without knowing its process.
+    /// The open path uses this to skip OpenProcess on windows that cannot appear.
+    /// </summary>
+    public static bool NeedsProcess(WindowCandidate candidate, FilterContext context)
     {
         if (candidate.Handle == 0 || !candidate.IsVisible) return false;
         if (context.CurrentProcessId != 0 && candidate.ProcessId == context.CurrentProcessId) return false;
         if (DeniedClasses.Contains(candidate.ClassName ?? "")) return false;
-
-        // DWM_CLOAKED_APP: suspended / ghost UWP frames. Never an Alt+Tab target.
         if ((candidate.CloakFlags & WinStyles.CloakApp) != 0) return false;
-        // DWM_CLOAKED_SHELL: typically a window on another virtual desktop.
         if (candidate.CloakFlags != 0 && !context.IncludeOtherVirtualDesktops) return false;
         if (!context.IncludeOtherVirtualDesktops && candidate.VirtualDesktopSame == 0) return false;
 
@@ -106,13 +107,17 @@ public static class WindowFilter
         var appWindow = (ex & WinStyles.WsExAppWindow) != 0;
         if ((ex & WinStyles.WsExToolWindow) != 0 && !appWindow) return false;
         if ((ex & WinStyles.WsExNoActivate) != 0 && !appWindow) return false;
-
         var owned = candidate.RootOwnerHandle != 0
             ? candidate.RootOwnerHandle != candidate.Handle
             : candidate.OwnerHandle != 0;
         if (owned && !appWindow) return false;
-
         if (string.IsNullOrWhiteSpace(candidate.Title)) return false;
+        return true;
+    }
+
+    public static bool ShouldInclude(WindowCandidate candidate, FilterContext context)
+    {
+        if (!NeedsProcess(candidate, context)) return false;
         if (ProcessNames.IsExcluded(candidate.ProcessName, context.ExcludedProcessNames)) return false;
         if (ProcessNames.IsExcluded(candidate.HostedProcessName, context.ExcludedProcessNames)) return false;
         return true;

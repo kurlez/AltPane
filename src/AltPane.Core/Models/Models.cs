@@ -50,7 +50,14 @@ public enum LoadSortMode
     Cpu,
     Memory,
     Initial,
-    StableGrouped
+    /// <summary>
+    /// Main list by decayed focus time, then most recent user activation.
+    /// Apps under the threshold, and demoted apps, stay last.
+    /// <see cref="StableGrouped"/> is the same value so a schema 6 file that
+    /// stored that name still loads.
+    /// </summary>
+    FocusTime,
+    StableGrouped = FocusTime
 }
 
 /// <summary>
@@ -82,7 +89,7 @@ public sealed class WindowEntry
     public required string ClassName { get; init; }
     public required string ProcessName { get; init; }
     public string? HostedProcessName { get; init; }
-    public required string DisplayProcessName { get; init; }
+    public required string DisplayProcessName { get; set; }
     public required int ProcessId { get; init; }
     public int HostedProcessId { get; init; }
     public required int KillProcessId { get; init; }
@@ -97,6 +104,29 @@ public sealed class WindowEntry
     public int MonitorHeight { get; set; }
     public bool MonitorPrimary { get; set; }
     public string MonitorFriendlyName { get; set; } = "";
+
+    public WindowEntry Copy() => new()
+    {
+        Handle = Handle,
+        Title = Title,
+        ClassName = ClassName,
+        ProcessName = ProcessName,
+        HostedProcessName = HostedProcessName,
+        DisplayProcessName = DisplayProcessName,
+        ProcessId = ProcessId,
+        HostedProcessId = HostedProcessId,
+        KillProcessId = KillProcessId,
+        KillProcessName = KillProcessName,
+        IconPath = IconPath,
+        IsIconic = IsIconic,
+        IsZoomed = IsZoomed,
+        OriginalIndex = OriginalIndex,
+        MonitorNumber = MonitorNumber,
+        MonitorWidth = MonitorWidth,
+        MonitorHeight = MonitorHeight,
+        MonitorPrimary = MonitorPrimary,
+        MonitorFriendlyName = MonitorFriendlyName
+    };
 }
 
 public sealed class HotkeyChord
@@ -122,8 +152,12 @@ public sealed class AppSettings
     /// 6 makes stable grouped the default. A stored initial-letter sort, which was the
     /// default, moves to stable grouped. An explicit recent, CPU, or memory choice stays.
     /// Choosing initial letter again after this upgrade keeps it.
+    /// 7 turns that stable grouped mode into focus time (<see cref="LoadSortMode.FocusTime"/>).
+    /// It adds <see cref="PinnedApps"/>, <see cref="DemotedApps"/>, and
+    /// <see cref="FocusThresholdMinutes"/> (10 when missing). A stored stable-grouped
+    /// sort loads as focus time. Recent, app name, CPU, and memory stay.
     /// </summary>
-    public const int CurrentSchema = 6;
+    public const int CurrentSchema = 7;
 
     public int Version { get; set; } = CurrentSchema;
     public HotkeyChord? Hotkey { get; set; } = HotkeyChord.AltTab();
@@ -141,7 +175,12 @@ public sealed class AppSettings
     public bool IncludeOtherVirtualDesktops { get; set; }
     public bool WelcomeShown { get; set; }
     public bool ShowLoad { get; set; } = true;
-    public LoadSortMode SortMode { get; set; } = LoadSortMode.StableGrouped;
+    public LoadSortMode SortMode { get; set; } = LoadSortMode.FocusTime;
+    /// <summary>
+    /// Decayed focus minutes an app needs to stay in the main list. Entering takes
+    /// this much; leaving takes 80 percent, so a small change does not flap.
+    /// </summary>
+    public int FocusThresholdMinutes { get; set; } = 10;
     public bool ConfirmEndTask { get; set; } = true;
     public bool EndTaskKillsTree { get; set; } = true;
     /// <summary>
@@ -162,6 +201,13 @@ public sealed class AppSettings
     /// <summary>Executables on PATH. Off by default because system directories are noisy.</summary>
     public bool IndexPath { get; set; }
     public List<string> ExcludedApps { get; set; } = new();
+    /// <summary>
+    /// Process names kept in the main list. A pin overrides a demotion and the
+    /// focus threshold. Inside that list, order is still most recent use.
+    /// </summary>
+    public List<string> PinnedApps { get; set; } = new();
+    /// <summary>Process names kept under Rarely used. Built-in VPN and tray tools are demoted too.</summary>
+    public List<string> DemotedApps { get; set; } = new();
     /// <summary>When true (the default), a chosen window on another monitor is moved onto the switcher's monitor.</summary>
     public bool MoveToSwitcherMonitor { get; set; } = true;
     /// <summary>When true (the default), a search with no built-in hit also asks Everything, if it is running.</summary>
@@ -182,8 +228,11 @@ public sealed class AppSettings
         Language = AppLanguage.System,
         ExcludedProcesses = new List<string>(),
         ExcludedApps = new List<string>(),
+        PinnedApps = new List<string>(),
+        DemotedApps = new List<string>(),
         ShowLoad = true,
-        SortMode = LoadSortMode.StableGrouped,
+        SortMode = LoadSortMode.FocusTime,
+        FocusThresholdMinutes = 10,
         ConfirmEndTask = true,
         EndTaskKillsTree = true,
         StickySwitcher = true,

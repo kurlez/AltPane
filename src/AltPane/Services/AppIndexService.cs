@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Runtime.InteropServices;
 using AltPane.Core.Apps;
 using AltPane.Core.Models;
 using AltPane.Core.Settings;
@@ -201,6 +202,7 @@ internal sealed class AppIndexService : IDisposable
             if (usage is not null) _usage = usage;
         }
         if (save) ScheduleSave();
+        AppDisplayNames.Replace(all);
         Updated?.Invoke();
     }
 
@@ -347,24 +349,49 @@ internal sealed class AppIndexService : IDisposable
             {
                 var type = Type.GetTypeFromProgID("Shell.Application");
                 if (type is null) return;
-                dynamic shell = Activator.CreateInstance(type)!;
-                dynamic folder = shell.NameSpace("shell:AppsFolder");
-                if (folder is null) return;
-                foreach (dynamic item in folder.Items())
+                dynamic? shell = null;
+                dynamic? folder = null;
+                dynamic? items = null;
+                try
                 {
-                    string name;
-                    string path;
+                    shell = Activator.CreateInstance(type);
+                    if (shell is null) return;
+                    folder = shell.NameSpace("shell:AppsFolder");
+                    if (folder is null) return;
+                    items = folder.Items();
+                    if (items is null) return;
+                    var held = new List<object>();
                     try
                     {
-                        name = item.Name;
-                        path = item.Path;
+                        foreach (dynamic item in items)
+                        {
+                            held.Add(item);
+                            string name;
+                            string path;
+                            try
+                            {
+                                name = item.Name;
+                                path = item.Path;
+                            }
+                            catch
+                            {
+                                continue;
+                            }
+                            if (!string.IsNullOrWhiteSpace(name) && !string.IsNullOrWhiteSpace(path))
+                                found.Add(AppCatalog.Create(name, path, AppKind.Store, AppSource.Store, "", "", "", "", 0));
+                        }
                     }
-                    catch
+                    finally
                     {
-                        continue;
+                        foreach (var item in held)
+                            ReleaseCom(item);
                     }
-                    if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(path)) continue;
-                    found.Add(AppCatalog.Create(name, path, AppKind.Store, AppSource.Store, "", "", "", "", 0));
+                }
+                finally
+                {
+                    ReleaseCom(items);
+                    ReleaseCom(folder);
+                    ReleaseCom(shell);
                 }
             }
             catch (Exception ex)
@@ -380,6 +407,20 @@ internal sealed class AppIndexService : IDisposable
         else if (error is not null)
             AppLog.Error(error);
         return found.ToArray();
+    }
+
+    static void ReleaseCom(object? value)
+    {
+        if (value is null) return;
+        try
+        {
+            if (Marshal.IsComObject(value))
+                Marshal.FinalReleaseComObject(value);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error(ex);
+        }
     }
 
     static IEnumerable<string> StartMenuRoots()

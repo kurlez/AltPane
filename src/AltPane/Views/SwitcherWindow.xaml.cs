@@ -26,7 +26,7 @@ internal sealed class SwitcherRow : INotifyPropertyChanged
         Entry = entry;
         _icon = icon;
         Title = entry.Title;
-        Subtitle = string.IsNullOrWhiteSpace(entry.DisplayProcessName) ? entry.ProcessName : entry.DisplayProcessName;
+        _subtitle = string.IsNullOrWhiteSpace(entry.DisplayProcessName) ? entry.ProcessName : entry.DisplayProcessName;
         IndexLabel = index;
         _section = section ?? "";
     }
@@ -36,7 +36,7 @@ internal sealed class SwitcherRow : INotifyPropertyChanged
         AppHit = hit;
         _icon = icon;
         Title = hit.App.Name;
-        Subtitle = subtitle;
+        _subtitle = subtitle;
         _section = section ?? "";
         Badge = badge;
         IndexLabel = index;
@@ -47,7 +47,16 @@ internal sealed class SwitcherRow : INotifyPropertyChanged
     public bool IsApp => AppHit is not null;
     public string? AppId => AppHit?.App.Id;
     public string Title { get; }
-    public string Subtitle { get; }
+    string _subtitle = "";
+    public string Subtitle => _subtitle;
+
+    public void SetSubtitle(string? subtitle)
+    {
+        subtitle ??= "";
+        if (_subtitle == subtitle) return;
+        _subtitle = subtitle;
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Subtitle)));
+    }
     string _section = "";
     public string Section => _section;
     public string Badge { get; } = "";
@@ -235,6 +244,9 @@ public partial class SwitcherWindow : Window
     readonly MenuItem _menuLocation;
     readonly MenuItem _menuMove;
     readonly MenuItem _menuStay;
+    readonly MenuItem _menuPin;
+    readonly MenuItem _menuDemote;
+    readonly MenuItem _menuRestorePriority;
     bool _menuForApp;
     Point _lastScreen = new(double.NaN, double.NaN);
     int _renderedSelection = -2;
@@ -265,7 +277,13 @@ public partial class SwitcherWindow : Window
         _menuLocation = new MenuItem();
         _menuMove = new MenuItem();
         _menuStay = new MenuItem();
+        _menuPin = new MenuItem();
+        _menuDemote = new MenuItem();
+        _menuRestorePriority = new MenuItem();
         _menuClose.Click += (_, _) => CloseRequested?.Invoke();
+        _menuPin.Click += (_, _) => PinRequested?.Invoke();
+        _menuDemote.Click += (_, _) => DemoteRequested?.Invoke();
+        _menuRestorePriority.Click += (_, _) => RestorePriorityRequested?.Invoke();
         _menuLaunch.Click += (_, _) => { _mouseGesture = true; CommitRequested?.Invoke(); };
         _menuAdmin.Click += (_, _) => { _mouseGesture = true; AdminLaunchRequested?.Invoke(); };
         _menuLocation.Click += (_, _) => OpenLocationRequested?.Invoke();
@@ -274,7 +292,16 @@ public partial class SwitcherWindow : Window
         _menuMin.Click += (_, _) => MinimizeRequested?.Invoke();
         _menuMax.Click += (_, _) => MaximizeRequested?.Invoke();
         _menuRestore.Click += (_, _) => RestoreRequested?.Invoke();
-        _menu = new ContextMenu { Items = { _menuLaunch, _menuAdmin, _menuLocation, _menuMove, _menuStay, _menuClose, _menuKill, _menuKillTree, new Separator(), _menuMin, _menuMax, _menuRestore } };
+        _menu = new ContextMenu
+        {
+            Items =
+            {
+                _menuPin, _menuDemote, _menuRestorePriority, new Separator(),
+                _menuLaunch, _menuAdmin, _menuLocation, _menuMove, _menuStay,
+                _menuClose, _menuKill, _menuKillTree, new Separator(),
+                _menuMin, _menuMax, _menuRestore
+            }
+        };
         _menuMove.Click += (_, _) => { _mouseGesture = true; ForceMoveRequested?.Invoke(); };
         _menuStay.Click += (_, _) => { _mouseGesture = true; CommitInPlaceRequested?.Invoke(); };
         _menu.Opened += (_, _) => LocalizeMenu();
@@ -345,6 +372,9 @@ public partial class SwitcherWindow : Window
     public event Action? MinimizeRequested;
     public event Action? MaximizeRequested;
     public event Action? RestoreRequested;
+    public event Action? PinRequested;
+    public event Action? DemoteRequested;
+    public event Action? RestorePriorityRequested;
 
     public DisplayBounds Host => _host;
     public Func<nint, bool>? IsCompanion { get; set; }
@@ -411,6 +441,7 @@ public partial class SwitcherWindow : Window
             if (state.Indexes.TryGetValue(entry.Handle, out var index))
                 row.SetIndex(index);
             row.SetSection(i < state.GroupSections.Count ? state.GroupSections[i] : "");
+            row.SetSubtitle(string.IsNullOrWhiteSpace(entry.DisplayProcessName) ? entry.ProcessName : entry.DisplayProcessName);
             if (state.Icons.TryGetValue(entry.Handle, out var icon) && !ReferenceEquals(icon, row.Icon))
                 row.Icon = icon;
             var load = state.Loads.TryGetValue(entry.Handle, out var found) ? found : default;
@@ -458,7 +489,13 @@ public partial class SwitcherWindow : Window
     /// Place this instance on <see cref="Host"/> using that monitor's DPI.
     /// Only the anchor activates. The others use SWP_NOACTIVATE so they do not steal the keyboard.
     /// </summary>
-    public void Place(SwitcherSize size, bool activate)
+    public void EnsureHwnd() => _ = new WindowInteropHelper(this).EnsureHandle();
+
+    public void PlaceOffscreen(SwitcherSize size) => Place(size, activate: false, offscreen: true);
+
+    public void Place(SwitcherSize size, bool activate) => Place(size, activate, offscreen: false);
+
+    void Place(SwitcherSize size, bool activate, bool offscreen)
     {
         _shownAt = DateTime.UtcNow;
         var (width, height) = SwitcherMetrics.GetSize(size);
@@ -466,7 +503,7 @@ public partial class SwitcherWindow : Window
         Height = height;
         var reveal = !IsVisible;
         if (reveal) Opacity = 0;
-        ShowActivated = activate;
+        ShowActivated = false;
         if (!IsVisible) Show();
         UpdateLayout();
         var monitor = _host;
@@ -474,12 +511,19 @@ public partial class SwitcherWindow : Window
         var scaleY = monitor.DpiY <= 0 ? 1d : monitor.DpiY / 96d;
         var physicalW = Math.Max(1, (int)Math.Round(width * scaleX));
         var physicalH = Math.Max(1, (int)Math.Round(height * scaleY));
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (offscreen)
+        {
+            NativeMethods.SetWindowPos(hwnd, NativeMethods.HwndBottom, -32000, -32000, physicalW, physicalH, NativeMethods.SwpNoActivate | NativeMethods.SwpShowWindow);
+            return;
+        }
+
+        ShowActivated = activate;
         var centered = RectangleMath.Center(
             new RectangleMath.RectI(monitor.X, monitor.Y, Math.Max(1, monitor.Width), Math.Max(1, monitor.Height)),
             physicalW,
             physicalH);
-        var hwnd = new WindowInteropHelper(this).Handle;
-        var flags = activate ? 0x0040u : 0x0040u | 0x0010u;
+        var flags = activate ? NativeMethods.SwpShowWindow : NativeMethods.SwpShowWindow | NativeMethods.SwpNoActivate;
         NativeMethods.SetWindowPos(hwnd, new nint(-1), centered.X, centered.Y, centered.Width, centered.Height, flags);
         if (PresentationSource.FromVisual(this)?.CompositionTarget is { } target)
         {
@@ -738,6 +782,9 @@ public partial class SwitcherWindow : Window
         _menuLocation.Header = loc["launch.location"];
         _menuMove.Header = loc["menu.moveHere"];
         _menuStay.Header = loc["menu.stay"];
+        _menuPin.Header = loc["menu.pin"];
+        _menuDemote.Header = loc["menu.demote"];
+        _menuRestorePriority.Header = loc["menu.restorePriority"];
         var app = _menuForApp ? Visibility.Visible : Visibility.Collapsed;
         var window = _menuForApp ? Visibility.Collapsed : Visibility.Visible;
         _menuLaunch.Visibility = app;
@@ -749,6 +796,9 @@ public partial class SwitcherWindow : Window
         _menuMin.Visibility = window;
         _menuMax.Visibility = window;
         _menuRestore.Visibility = window;
+        _menuPin.Visibility = window;
+        _menuDemote.Visibility = window;
+        _menuRestorePriority.Visibility = window;
     }
 
     void SyncRows(SwitcherViewState state)

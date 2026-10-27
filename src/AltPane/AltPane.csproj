@@ -12,6 +12,11 @@
     <RootNamespace>AltPane</RootNamespace>
     <AssemblyName>AltPane</AssemblyName>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <!-- TieredPGO speeds the hotkey path after startup. ReadyToRun compiles this
+         assembly for Windows publish. InvariantGlobalization stays off: the UI
+         and pinyin follow CurrentUICulture. -->
+    <TieredPGO>true</TieredPGO>
+    <PublishReadyToRun>true</PublishReadyToRun>
     <!-- WPF reads PerMonitorV2 from app.manifest. WinForms also flags that as WFAC010. -->
     <NoWarn>$(NoWarn);WFAC010</NoWarn>
   </PropertyGroup>

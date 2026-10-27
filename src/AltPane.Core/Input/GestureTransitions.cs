@@ -26,6 +26,9 @@ public abstract record UiOp
     public sealed record BringToFront : UiOp;
     public sealed record SpaceAction : UiOp;
     public sealed record ClearQuery : UiOp;
+    public sealed record PinApp : UiOp;
+    public sealed record DemoteApp : UiOp;
+    public sealed record RestorePriority : UiOp;
 }
 
 /// <summary>
@@ -169,6 +172,12 @@ public static class GestureTransitions
                 return state.SwitcherOpen ? new(state, new UiOp.SpaceAction()) : new(state, null);
             case HookCommand.AdminLaunch:
                 return state.SwitcherOpen ? new(state, new UiOp.AdminLaunch()) : new(state, null);
+            case HookCommand.PinApp:
+                return state.SwitcherOpen ? new(state, new UiOp.PinApp()) : new(state, null);
+            case HookCommand.DemoteApp:
+                return state.SwitcherOpen ? new(state, new UiOp.DemoteApp()) : new(state, null);
+            case HookCommand.RestorePriority:
+                return state.SwitcherOpen ? new(state, new UiOp.RestorePriority()) : new(state, null);
             default:
                 return new(state, null);
         }

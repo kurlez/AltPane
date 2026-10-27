@@ -14,6 +14,10 @@ namespace AltPane.Core.Settings;
 /// The deserializer ignores those keys. Saving writes the file without them.
 /// Schema 6 moves the initial-letter sort (the previous default, including files
 /// that schema 4 forced onto it) to stable grouped. Recent, CPU, and memory stay.
+/// Schema 7 keeps that mode and changes what it does: focus time, with empty pin
+/// and demote lists and a 10 minute threshold when those keys are missing. A stored
+/// stable-grouped value is the same mode. An explicit recent, app name, CPU, or
+/// memory choice is not rewritten.
 /// </summary>
 public static class SettingsMigration
 {
@@ -48,7 +52,7 @@ public static class SettingsMigration
 
         if (stored < 6 && settings.SortMode == LoadSortMode.Initial)
         {
-            settings.SortMode = LoadSortMode.StableGrouped;
+            settings.SortMode = LoadSortMode.FocusTime;
             changed = true;
         }
 

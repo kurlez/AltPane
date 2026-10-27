@@ -23,7 +23,10 @@ public enum HookCommand
     SpaceAction,
     ReleaseHold,
     AdminLaunch,
-    ClearQuery
+    ClearQuery,
+    PinApp,
+    DemoteApp,
+    RestorePriority
 }
 
 public readonly record struct HookResult(HookCommand Command, int Delta, bool LatchGesture, bool ClearAwaitingRelease, int MoveChoice = -1)
@@ -49,6 +52,9 @@ public readonly record struct HookResult(HookCommand Command, int Delta, bool La
     public static HookResult ReleaseHold() => new(HookCommand.ReleaseHold, 0, false, false);
     public static HookResult AdminLaunch() => new(HookCommand.AdminLaunch, 0, false, false);
     public static HookResult ClearQuery() => new(HookCommand.ClearQuery, 0, false, false);
+    public static HookResult Pin() => new(HookCommand.PinApp, 0, false, false);
+    public static HookResult Demote() => new(HookCommand.DemoteApp, 0, false, false);
+    public static HookResult RestorePriority() => new(HookCommand.RestorePriority, 0, false, false);
 }
 
 public readonly record struct HookInput
@@ -178,6 +184,9 @@ public static class HookInterpreter
                 case VirtualKeys.M when input.Modifiers.Shift: return HookResult.Maximize();
                 case VirtualKeys.M: return HookResult.Minimize();
                 case VirtualKeys.R: return HookResult.Restore();
+                case VirtualKeys.P when input.Modifiers.Shift && !input.IsRepeat: return HookResult.Pin();
+                case VirtualKeys.B when input.Modifiers.Shift && !input.IsRepeat: return HookResult.Demote();
+                case VirtualKeys.U when input.Modifiers.Shift && !input.IsRepeat: return HookResult.RestorePriority();
                 default: return HookResult.Swallow();
             }
         }
@@ -210,6 +219,9 @@ public static class HookInterpreter
                 case VirtualKeys.M when input.Modifiers.Shift && !input.IsRepeat: return HookResult.Maximize();
                 case VirtualKeys.M when !input.IsRepeat: return HookResult.Minimize();
                 case VirtualKeys.R when !input.IsRepeat: return HookResult.Restore();
+                case VirtualKeys.P when input.Modifiers.Shift && !input.IsRepeat: return HookResult.Pin();
+                case VirtualKeys.B when input.Modifiers.Shift && !input.IsRepeat: return HookResult.Demote();
+                case VirtualKeys.U when input.Modifiers.Shift && !input.IsRepeat: return HookResult.RestorePriority();
             }
         }
 

@@ -141,4 +141,15 @@ public class WindowFilterTests
     [Fact]
     public void Includes_minimized_windows_represented_as_visible() =>
         Assert.True(WindowFilter.ShouldInclude(Ok(), Ctx()));
+
+    [Fact]
+    public void Process_lookup_is_skipped_once_the_window_is_already_rejected()
+    {
+        Assert.True(WindowFilter.NeedsProcess(Ok(), Ctx()));
+        Assert.False(WindowFilter.NeedsProcess(Ok() with { IsVisible = false }, Ctx()));
+        Assert.False(WindowFilter.NeedsProcess(Ok() with { ClassName = "Shell_TrayWnd" }, Ctx()));
+        Assert.False(WindowFilter.NeedsProcess(Ok() with { ExStyle = WinStyles.WsExToolWindow }, Ctx()));
+        Assert.True(WindowFilter.NeedsProcess(Ok() with { ProcessName = "notepad" }, Ctx(false, "notepad")));
+        Assert.False(WindowFilter.ShouldInclude(Ok() with { ProcessName = "notepad" }, Ctx(false, "notepad")));
+    }
 }

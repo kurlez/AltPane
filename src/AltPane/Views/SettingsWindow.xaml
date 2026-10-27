@@ -58,7 +58,18 @@
           <TextBlock x:Name="MoveNote" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="22,0,0,10"/>
           <CheckBox x:Name="LoadBox" Margin="0,0,0,6"/>
           <TextBlock x:Name="SortLabel" FontWeight="SemiBold" Margin="0,4,0,6"/>
-          <ComboBox x:Name="SortBox" Margin="0,0,0,10"/>
+          <ComboBox x:Name="SortBox" Margin="0,0,0,8"/>
+          <TextBlock x:Name="ThresholdLabel" FontWeight="SemiBold" Margin="0,0,0,4"/>
+          <TextBlock x:Name="ThresholdHint" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,6"/>
+          <ComboBox x:Name="ThresholdBox" Margin="0,0,0,10"/>
+          <TextBlock x:Name="PinnedLabel" FontWeight="SemiBold" Margin="0,0,0,4"/>
+          <TextBlock x:Name="PinnedHint" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,6"/>
+          <TextBox x:Name="PinnedBox" AcceptsReturn="True" Height="56" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
+                   FontFamily="Cascadia Mono, Consolas, Segoe UI" Padding="8" Margin="0,0,0,10"/>
+          <TextBlock x:Name="DemotedLabel" FontWeight="SemiBold" Margin="0,0,0,4"/>
+          <TextBlock x:Name="DemotedHint" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,6"/>
+          <TextBox x:Name="DemotedBox" AcceptsReturn="True" Height="56" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
+                   FontFamily="Cascadia Mono, Consolas, Segoe UI" Padding="8" Margin="0,0,0,10"/>
           <CheckBox x:Name="ConfirmKillBox" Margin="0,0,0,6"/>
           <CheckBox x:Name="KillTreeBox" Margin="0,0,0,6"/>
           <CheckBox x:Name="DesktopBox" Margin="0,0,0,6"/>

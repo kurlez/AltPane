@@ -36,4 +36,7 @@ public static class VirtualKeys
     public const int M = 0x4D;
     public const int R = 0x52;
     public const int A = 0x41;
+    public const int B = 0x42;
+    public const int P = 0x50;
+    public const int U = 0x55;
 }

@@ -49,34 +49,43 @@ public class StableGroupedOrderTests
     }
 
     [Fact]
-    public void Groups_follow_pinyin_and_latin_initials_with_digits_and_symbols_after()
+    public void Main_tier_follows_recent_use_and_the_short_tier_stays_last()
     {
-        var wechat = Win(1, 0, "微信");
-        var chrome = Win(2, 1, "Chrome");
-        var notes = Win(3, 2, "记事本");
-        var seven = Win(4, 3, "7-Zip");
-        var marks = Win(5, 4, "***");
-        var code = Win(6, 5, "Code");
+        var code = Win(1, 5, "Code");
+        var chrome = Win(2, 0, "Chrome");
+        var notes = Win(3, 1, "Notes");
+        var vpn = Win(4, 2, "CorpLink");
+        var mru = new ActivationMru();
+        mru.Note(notes.Handle);
+        mru.Note(vpn.Handle);
+        mru.Note(chrome.Handle);
+        mru.Note(code.Handle);
 
-        var grouped = StableGroupedOrder.Group(
-            new[] { wechat, seven, notes, marks, chrome, code },
-            foregroundHandle: 0,
-            mruRank: null);
+        UsageTier Tier(WindowEntry entry) =>
+            entry.ProcessName is "Notes" or "CorpLink" ? UsageTier.Infrequent : UsageTier.Frequent;
 
-        Assert.Equal(
-            new[] { "Chrome", "Code", "记事本", "微信", "***", "7-Zip" },
-            grouped.Select(window => window.DisplayProcessName));
+        var ordered = StableGroupedOrder.Arrange(
+            new[] { vpn, notes, chrome, code },
+            foregroundHandle: chrome.Handle,
+            mru.Rank,
+            Tier,
+            entry => Tier(entry) == UsageTier.Infrequent);
+
+        Assert.Equal(new[] { code.Handle, chrome.Handle, vpn.Handle, notes.Handle }, ordered.Select(window => window.Handle));
+        Assert.Equal(code.Handle, ordered[0].Handle);
+        Assert.NotEqual("CorpLink", ordered[0].ProcessName);
     }
 
     [Fact]
-    public void Within_a_group_most_recent_use_beats_z_order()
+    public void Most_recent_use_beats_z_order_inside_a_tier()
     {
         var older = Win(1, 0, "Chrome");
         var newer = Win(2, 9, "Chrome");
-        var foreground = Win(3, 1, "Chrome");
+        var foreground = Win(3, 1, "Notes");
         var mru = new ActivationMru();
         mru.Note(older.Handle);
         mru.Note(newer.Handle);
+        mru.Note(foreground.Handle);
 
         var grouped = StableGroupedOrder.Group(
             new[] { older, newer, foreground },
@@ -87,11 +96,11 @@ public class StableGroupedOrderTests
     }
 
     [Fact]
-    public void Without_mru_a_group_follows_z_order()
+    public void Without_mru_windows_follow_z_order_and_the_previous_row_skips_the_foreground()
     {
         var front = Win(1, 0, "Chrome");
         var mid = Win(2, 2, "Chrome");
-        var back = Win(3, 5, "Chrome");
+        var back = Win(3, 5, "Code");
         var other = Win(4, 1, "Notes");
 
         var grouped = StableGroupedOrder.Group(
@@ -103,7 +112,7 @@ public class StableGroupedOrderTests
             foregroundHandle: front.Handle,
             mruRank: null);
 
-        Assert.Equal(new[] { front.Handle, mid.Handle, back.Handle, other.Handle }, grouped.Select(window => window.Handle));
+        Assert.Equal(new[] { front.Handle, other.Handle, mid.Handle, back.Handle }, grouped.Select(window => window.Handle));
         Assert.Equal(other.Handle, arranged[0].Handle);
         Assert.Equal(new[] { front.Handle, mid.Handle, back.Handle }, arranged.Skip(1).Select(window => window.Handle));
     }
@@ -219,7 +228,18 @@ public class StableGroupedOrderTests
 
         var kept = Load("""{ "version": 6, "sortMode": "Initial" }""");
         Assert.Equal(LoadSortMode.Initial, kept.Settings.SortMode);
-        Assert.False(kept.Migrated);
+        Assert.True(kept.Migrated);
+        Assert.Equal(10, kept.Settings.FocusThresholdMinutes);
+
+        var grouped = Load("""{ "version": 6, "sortMode": "StableGrouped" }""");
+        Assert.Equal(LoadSortMode.FocusTime, grouped.Settings.SortMode);
+        Assert.Empty(grouped.Settings.PinnedApps);
+        Assert.Empty(grouped.Settings.DemotedApps);
+
+        var current = Load("""{ "version": 7, "sortMode": "Initial", "focusThresholdMinutes": 5 }""");
+        Assert.Equal(LoadSortMode.Initial, current.Settings.SortMode);
+        Assert.Equal(5, current.Settings.FocusThresholdMinutes);
+        Assert.False(current.Migrated);
     }
 
     static SettingsLoadResult Load(string json)
