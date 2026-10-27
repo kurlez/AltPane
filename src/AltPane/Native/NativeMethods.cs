@@ -161,6 +161,19 @@ internal static class NativeMethods
     public static extern nint GetForegroundWindow();
 
     [DllImport("user32.dll")]
+    public static extern nint SetWinEventHook(
+        uint eventMin,
+        uint eventMax,
+        nint hmodWinEventProc,
+        WinEventProc lpfnWinEventProc,
+        uint idProcess,
+        uint idThread,
+        uint dwFlags);
+
+    [DllImport("user32.dll")]
+    public static extern bool UnhookWinEvent(nint hWinEventHook);
+
+    [DllImport("user32.dll")]
     public static extern bool SetForegroundWindow(nint hWnd);
 
     [DllImport("user32.dll")]

@@ -11,6 +11,7 @@ internal sealed class AppHost : IDisposable
     readonly string _settingsPath = SettingsStore.DefaultPath();
     readonly SwitcherPresenter _presenter;
     readonly HotkeyService _hotkeys;
+    readonly ForegroundTracker _foreground;
     readonly AppIndexService _apps;
     readonly TrayController _tray;
     SettingsWindow? _settingsWindow;
@@ -35,6 +36,7 @@ internal sealed class AppHost : IDisposable
         _apps = new AppIndexService(() => Settings);
         _presenter.UseApps(_apps);
         _hotkeys = new HotkeyService(_presenter, () => Settings, () => _recording, System.Windows.Application.Current.Dispatcher);
+        _foreground = new ForegroundTracker(_presenter.Activations);
         _presenter.Hotkeys = _hotkeys;
         _presenter.Notify += message => _tray?.Balloon(message);
         _presenter.PersistRequested += TrySave;
@@ -131,6 +133,7 @@ internal sealed class AppHost : IDisposable
         _disposed = true;
         try { SystemEvents.UserPreferenceChanged -= OnPreference; } catch { }
         try { _hotkeys.Uninstall(); } catch (Exception ex) { AppLog.Error(ex); }
+        try { _foreground.Dispose(); } catch (Exception ex) { AppLog.Error(ex); }
         try { _presenter.ForceClose(); } catch { }
         try { _apps.Dispose(); } catch { }
         try { _settingsWindow?.Close(); } catch { }

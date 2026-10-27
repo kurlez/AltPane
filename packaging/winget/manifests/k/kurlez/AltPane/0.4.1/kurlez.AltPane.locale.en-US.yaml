@@ -1,25 +1,25 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
 
 PackageIdentifier: kurlez.AltPane
-PackageVersion: 0.4.0
+PackageVersion: 0.4.1
 PackageLocale: en-US
 Publisher: kurlez
 PublisherUrl: https://github.com/kurlez
 PackageName: AltPane
 PackageUrl: https://github.com/kurlez/AltPane
 License: MIT
-LicenseUrl: https://github.com/kurlez/AltPane/blob/v0.4.0/LICENSE
+LicenseUrl: https://github.com/kurlez/AltPane/blob/v0.4.1/LICENSE
 Copyright: Copyright (c) 2026 Wenfeng Liu
 ShortDescription: A modern Alt+Tab replacement for Windows.
 Description: |-
   AltPane replaces the Windows Alt+Tab switcher while it is running.
-  It lists open windows on every monitor and can launch installed apps from the same search box.
+  It lists open windows on every monitor. The default order is stable grouped: the previous window is first, and the rest are grouped by application.
 Moniker: altpane
 Tags:
   - alt-tab
   - window-switcher
   - task-switcher
   - windows
-ReleaseNotesUrl: https://github.com/kurlez/AltPane/releases/tag/v0.4.0
+ReleaseNotesUrl: https://github.com/kurlez/AltPane/releases/tag/v0.4.1
 ManifestType: defaultLocale
 ManifestVersion: 1.6.0

@@ -12,6 +12,8 @@ namespace AltPane.Core.Settings;
 /// that existed in v0.1 are never rewritten.
 /// Schema 5 removes showPreview, previewMinimized, and showOtherMonitorHints.
 /// The deserializer ignores those keys. Saving writes the file without them.
+/// Schema 6 moves the initial-letter sort (the previous default, including files
+/// that schema 4 forced onto it) to stable grouped. Recent, CPU, and memory stay.
 /// </summary>
 public static class SettingsMigration
 {
@@ -41,6 +43,12 @@ public static class SettingsMigration
         if (stored < 4)
         {
             settings.SortMode = LoadSortMode.Initial;
+            changed = true;
+        }
+
+        if (stored < 6 && settings.SortMode == LoadSortMode.Initial)
+        {
+            settings.SortMode = LoadSortMode.StableGrouped;
             changed = true;
         }
 

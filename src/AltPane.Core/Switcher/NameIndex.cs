@@ -131,6 +131,63 @@ public static class NameIndex
     }
 
     /// <summary>
+    /// One code per application, then a 2, 3, … suffix for later windows of that
+    /// application in list order. The first window keeps the bare code, so typing
+    /// it selects the first window of the group. CJK names still keep every
+    /// pinyin initial.
+    /// </summary>
+    public static string[] AssignGrouped(IReadOnlyList<string> appNames)
+    {
+        var unique = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var name in appNames)
+        {
+            var key = name ?? "";
+            if (seen.Add(key)) unique.Add(key);
+        }
+
+        var coded = new CodedName[unique.Count];
+        for (var i = 0; i < unique.Count; i++)
+            coded[i] = Describe(unique[i]);
+        var assigned = Assign(coded);
+        var byName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (var i = 0; i < unique.Count; i++)
+        {
+            byName[unique[i]] = assigned[i];
+            if (!string.IsNullOrEmpty(assigned[i])) taken.Add(assigned[i]);
+        }
+
+        var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var codes = new string[appNames.Count];
+        for (var i = 0; i < appNames.Count; i++)
+        {
+            var key = appNames[i] ?? "";
+            var code = byName.TryGetValue(key, out var found) ? found : "";
+            counts.TryGetValue(key, out var seenCount);
+            seenCount++;
+            counts[key] = seenCount;
+            if (seenCount == 1)
+            {
+                codes[i] = code;
+                continue;
+            }
+
+            var suffix = seenCount;
+            string next;
+            do
+            {
+                next = code.Length == 0 ? suffix.ToString() : code + suffix;
+                suffix++;
+            }
+            while (taken.Contains(next));
+            taken.Add(next);
+            codes[i] = next;
+        }
+        return codes;
+    }
+
+    /// <summary>
     /// A code for one new row. Existing badges are left alone.
     /// </summary>
     public static string AssignOne(CodedName stream, IReadOnlyCollection<string> taken)

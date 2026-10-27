@@ -21,13 +21,14 @@ internal sealed class SwitcherRow : INotifyPropertyChanged
 {
     ImageSource _icon;
 
-    public SwitcherRow(WindowEntry entry, ImageSource icon, string index)
+    public SwitcherRow(WindowEntry entry, ImageSource icon, string index, string section = "")
     {
         Entry = entry;
         _icon = icon;
         Title = entry.Title;
         Subtitle = string.IsNullOrWhiteSpace(entry.DisplayProcessName) ? entry.ProcessName : entry.DisplayProcessName;
         IndexLabel = index;
+        _section = section ?? "";
     }
 
     public SwitcherRow(AppHit hit, ImageSource icon, string section, string badge, string subtitle, string index)
@@ -36,7 +37,7 @@ internal sealed class SwitcherRow : INotifyPropertyChanged
         _icon = icon;
         Title = hit.App.Name;
         Subtitle = subtitle;
-        Section = section;
+        _section = section ?? "";
         Badge = badge;
         IndexLabel = index;
     }
@@ -47,7 +48,8 @@ internal sealed class SwitcherRow : INotifyPropertyChanged
     public string? AppId => AppHit?.App.Id;
     public string Title { get; }
     public string Subtitle { get; }
-    public string Section { get; } = "";
+    string _section = "";
+    public string Section => _section;
     public string Badge { get; } = "";
     public string IndexLabel { get; private set; } = "";
 
@@ -56,6 +58,14 @@ internal sealed class SwitcherRow : INotifyPropertyChanged
         if (IndexLabel == index) return;
         IndexLabel = index ?? "";
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IndexLabel)));
+    }
+
+    public void SetSection(string? section)
+    {
+        section ??= "";
+        if (_section == section) return;
+        _section = section;
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Section)));
     }
     public string LoadText { get; private set; } = "";
     public double BarWidth { get; private set; }
@@ -197,6 +207,7 @@ public sealed class SwitcherViewState
     public bool ShowLoad { get; init; }
     public string SystemText { get; init; } = "";
     public string SortText { get; init; } = "";
+    public IReadOnlyList<string> GroupSections { get; init; } = Array.Empty<string>();
     public IReadOnlyList<AppHit> Apps { get; init; } = Array.Empty<AppHit>();
     public IReadOnlyDictionary<long, string> Indexes { get; init; } = new Dictionary<long, string>();
     public IReadOnlyList<string> AppIndexes { get; init; } = Array.Empty<string>();
@@ -399,6 +410,7 @@ public partial class SwitcherWindow : Window
             row.SetKillLabel(kill);
             if (state.Indexes.TryGetValue(entry.Handle, out var index))
                 row.SetIndex(index);
+            row.SetSection(i < state.GroupSections.Count ? state.GroupSections[i] : "");
             if (state.Icons.TryGetValue(entry.Handle, out var icon) && !ReferenceEquals(icon, row.Icon))
                 row.Icon = icon;
             var load = state.Loads.TryGetValue(entry.Handle, out var found) ? found : default;
@@ -841,7 +853,8 @@ public partial class SwitcherWindow : Window
         var entry = state.Filtered[filteredIndex];
         state.Icons.TryGetValue(entry.Handle, out var icon);
         state.Indexes.TryGetValue(entry.Handle, out var index);
-        var row = new SwitcherRow(entry, icon ?? IconLoader.Letter(entry.Title), index ?? "");
+        var section = filteredIndex < state.GroupSections.Count ? state.GroupSections[filteredIndex] : "";
+        var row = new SwitcherRow(entry, icon ?? IconLoader.Letter(entry.Title), index ?? "", section);
         row.SetKillLabel(Localizer.Current["action.kill"]);
         row.ApplyLoad(state.ShowLoad, default);
         row.ApplyMonitor(state.ShowMonitorBadges, entry, _host.Number, _thisScreen);

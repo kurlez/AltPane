@@ -22,6 +22,8 @@ public sealed class SwitcherSession
     DateTime _usageUtc = DateTime.UnixEpoch;
     string _query = "";
     long _queryAnchor;
+    long _foreground;
+    Func<long, int>? _mruRank;
     LoadSortMode _sort = LoadSortMode.Recent;
 
     public IReadOnlyDictionary<long, string> Indexes => _index;
@@ -167,9 +169,22 @@ public sealed class SwitcherSession
 
     public void SetSortMode(LoadSortMode mode)
     {
-        if (!Enum.IsDefined(mode)) mode = LoadSortMode.Initial;
+        if (!Enum.IsDefined(mode)) mode = LoadSortMode.StableGrouped;
         if (mode == _sort) return;
         _sort = mode;
+        CaptureOrder();
+        Recompute(resetSelection: false);
+    }
+
+    /// <summary>
+    /// The window that was in front when the switcher opened, and a rank for each
+    /// handle (lower is more recent). Applied before the order is frozen. Calling
+    /// this again recaptures the order.
+    /// </summary>
+    public void SetOrderContext(long foregroundHandle, Func<long, int>? mruRank)
+    {
+        _foreground = foregroundHandle;
+        _mruRank = mruRank;
         CaptureOrder();
         Recompute(resetSelection: false);
     }
@@ -260,26 +275,37 @@ public sealed class SwitcherSession
 
     void CaptureOrder()
     {
-        var ordered = _sort == LoadSortMode.Initial
-            ? InitialOrder.Sort(_all)
-            : LoadSorter.Sort(
+        var ordered = _sort switch
+        {
+            LoadSortMode.Initial => InitialOrder.Sort(_all),
+            LoadSortMode.StableGrouped => StableGroupedOrder.Arrange(_all, _foreground, _mruRank),
+            LoadSortMode.Recent => StableGroupedOrder.ByRecent(_all, _foreground, _mruRank),
+            _ => LoadSorter.Sort(
                 _all,
                 _sort,
                 entry => entry.OriginalIndex,
                 entry => LoadFor(entry.Handle).ProcessCount > 0 ? LoadFor(entry.Handle).CpuPercent : null,
-                entry => LoadFor(entry.Handle).WorkingSetBytes);
+                entry => LoadFor(entry.Handle).WorkingSetBytes)
+        };
         _frozen.Clear();
         _index.Clear();
         _appCodes.Clear();
-        var streams = new CodedName[ordered.Count];
-        for (var i = 0; i < ordered.Count; i++)
-            streams[i] = NameIndex.Describe(InitialOrder.AppName(ordered[i]));
-        var codes = NameIndex.Assign(streams);
+        var codes = _sort == LoadSortMode.StableGrouped
+            ? NameIndex.AssignGrouped(ordered.Select(InitialOrder.AppName).ToArray())
+            : AssignPerWindow(ordered);
         for (var i = 0; i < ordered.Count; i++)
         {
             _frozen.Add(ordered[i].Handle);
             _index[ordered[i].Handle] = codes[i];
         }
+    }
+
+    static string[] AssignPerWindow(List<WindowEntry> ordered)
+    {
+        var streams = new CodedName[ordered.Count];
+        for (var i = 0; i < ordered.Count; i++)
+            streams[i] = NameIndex.Describe(InitialOrder.AppName(ordered[i]));
+        return NameIndex.Assign(streams);
     }
 
     HashSet<string> TakenCodes()

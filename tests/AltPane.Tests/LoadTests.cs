@@ -253,7 +253,7 @@ public class LoadSortAndKillTests
         File.WriteAllText(legacy, """{ "theme": "Dark" }""");
         var old = SettingsStore.Load(legacy);
         Assert.True(old.Settings.ShowLoad);
-        Assert.Equal(LoadSortMode.Initial, old.Settings.SortMode);
+        Assert.Equal(LoadSortMode.StableGrouped, old.Settings.SortMode);
         Assert.True(old.Settings.ConfirmEndTask);
         Assert.True(old.Settings.EndTaskKillsTree);
         Assert.True(old.Settings.StickySwitcher);

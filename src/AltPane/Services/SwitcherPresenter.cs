@@ -20,6 +20,7 @@ internal sealed class SwitcherPresenter
     readonly DispatcherTimer _statusTimer;
     readonly LoadSampler _sampler = new();
     readonly KillArm _arm = new();
+    readonly ActivationMru _activations = new();
     int _displayCount = -1;
     DispatcherTimer? _prune;
     SwitcherSession? _session;
@@ -48,6 +49,7 @@ internal sealed class SwitcherPresenter
     }
 
     public HotkeyService? Hotkeys { get; set; }
+    public ActivationMru Activations => _activations;
     public bool PendingShow { get; private set; }
     public bool IsSwitcherVisible => _deck.IsVisible;
     public bool IsImeComposing => _deck.IsImeComposing;
@@ -299,8 +301,16 @@ internal sealed class SwitcherPresenter
         }
 
         _session = new SwitcherSession(entries);
+        _session.SetOrderContext((long)_restore, Activations.Rank);
         _session.SetSortMode(_settings().SortMode);
-        if (delta != 0) _session.Move(delta);
+        var opening = StableGroupedOrder.OpeningIndex(_session.SortMode, _session.ResultCount, delta);
+        if (opening is int index)
+        {
+            if (index <= 0) _session.SelectFirst();
+            else _session.SelectLast();
+        }
+        else if (delta != 0)
+            _session.Move(delta);
         ApplyCatalog(resetClock: true);
         _searchMode = false;
         _status = null;
@@ -587,10 +597,11 @@ internal sealed class SwitcherPresenter
         var settings = _settings();
         settings.SortMode = settings.SortMode switch
         {
-            LoadSortMode.Initial => LoadSortMode.Recent,
-            LoadSortMode.Recent => LoadSortMode.Cpu,
+            LoadSortMode.StableGrouped => LoadSortMode.Recent,
+            LoadSortMode.Recent => LoadSortMode.Initial,
+            LoadSortMode.Initial => LoadSortMode.Cpu,
             LoadSortMode.Cpu => LoadSortMode.Memory,
-            _ => LoadSortMode.Initial
+            _ => LoadSortMode.StableGrouped
         };
         _session?.SetSortMode(settings.SortMode);
         try { PersistRequested?.Invoke(); }
@@ -721,11 +732,15 @@ internal sealed class SwitcherPresenter
             SystemText = systemText,
             SortText = loc[settings.SortMode switch
             {
+                LoadSortMode.StableGrouped => "sort.stable",
                 LoadSortMode.Initial => "sort.initial",
                 LoadSortMode.Cpu => "sort.cpu",
                 LoadSortMode.Memory => "sort.memory",
                 _ => "sort.recent"
             }],
+            GroupSections = _session?.SortMode == LoadSortMode.StableGrouped
+                ? StableGroupedOrder.Sections(filtered)
+                : Array.Empty<string>(),
             Indexes = _session?.Indexes ?? new Dictionary<long, string>(),
             AppIndexes = AppIndexLabels(appCount),
             EmptyText = EmptyMessage(loc, settings, filtered.Count, allCount),

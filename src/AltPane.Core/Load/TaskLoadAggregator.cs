@@ -98,7 +98,7 @@ public static class LoadSorter
         Func<T, double?> cpu,
         Func<T, long> memory)
     {
-        if (mode is LoadSortMode.Recent or LoadSortMode.Initial || items.Count < 2)
+        if (mode is LoadSortMode.Recent or LoadSortMode.Initial or LoadSortMode.StableGrouped || items.Count < 2)
             return items.ToList();
 
         var ranked = new List<(T Item, double Cpu, long Memory, int Order)>(items.Count);

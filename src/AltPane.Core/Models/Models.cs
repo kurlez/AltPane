@@ -49,7 +49,8 @@ public enum LoadSortMode
     Recent,
     Cpu,
     Memory,
-    Initial
+    Initial,
+    StableGrouped
 }
 
 /// <summary>
@@ -118,8 +119,11 @@ public sealed class AppSettings
     /// 4 makes initial-letter order the window-list default.
     /// 5 drops live preview, minimized-preview restore, and the other-monitor reminder.
     /// The switcher is shown on every monitor. Those keys are ignored and not written back.
+    /// 6 makes stable grouped the default. A stored initial-letter sort, which was the
+    /// default, moves to stable grouped. An explicit recent, CPU, or memory choice stays.
+    /// Choosing initial letter again after this upgrade keeps it.
     /// </summary>
-    public const int CurrentSchema = 5;
+    public const int CurrentSchema = 6;
 
     public int Version { get; set; } = CurrentSchema;
     public HotkeyChord? Hotkey { get; set; } = HotkeyChord.AltTab();
@@ -137,7 +141,7 @@ public sealed class AppSettings
     public bool IncludeOtherVirtualDesktops { get; set; }
     public bool WelcomeShown { get; set; }
     public bool ShowLoad { get; set; } = true;
-    public LoadSortMode SortMode { get; set; } = LoadSortMode.Initial;
+    public LoadSortMode SortMode { get; set; } = LoadSortMode.StableGrouped;
     public bool ConfirmEndTask { get; set; } = true;
     public bool EndTaskKillsTree { get; set; } = true;
     /// <summary>
@@ -179,7 +183,7 @@ public sealed class AppSettings
         ExcludedProcesses = new List<string>(),
         ExcludedApps = new List<string>(),
         ShowLoad = true,
-        SortMode = LoadSortMode.Initial,
+        SortMode = LoadSortMode.StableGrouped,
         ConfirmEndTask = true,
         EndTaskKillsTree = true,
         StickySwitcher = true,
