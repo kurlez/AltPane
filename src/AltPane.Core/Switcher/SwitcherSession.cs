@@ -13,7 +13,7 @@ public sealed class SwitcherSession
     List<WindowEntry> _filtered;
     readonly List<long> _frozen = new();
     readonly Dictionary<long, string> _index = new();
-    int _nextIndex;
+    readonly Dictionary<string, string> _appCodes = new(StringComparer.OrdinalIgnoreCase);
     List<AppHit> _apps = new();
     IReadOnlyList<AppEntry> _catalog = Array.Empty<AppEntry>();
     IReadOnlyDictionary<string, LaunchMemory> _usage = new Dictionary<string, LaunchMemory>();
@@ -26,7 +26,12 @@ public sealed class SwitcherSession
 
     public IReadOnlyDictionary<long, string> Indexes => _index;
     public string IndexForHandle(long handle) => _index.TryGetValue(handle, out var code) ? code : "";
-    public string IndexForApp(int index) => RowIndex.Code(_nextIndex + Math.Max(0, index));
+    public string IndexForApp(int index)
+    {
+        if (index < 0 || index >= _apps.Count) return "";
+        var id = _apps[index].App.Id ?? "";
+        return _appCodes.TryGetValue(id, out var code) ? code : "";
+    }
     int _monitorFilter;
 
     public SwitcherSession(IEnumerable<WindowEntry> windows)
@@ -189,7 +194,7 @@ public sealed class SwitcherSession
         if (entry is null || _all.Any(window => window.Handle == entry.Handle)) return false;
         _all.Add(entry);
         _frozen.Add(entry.Handle);
-        _index[entry.Handle] = RowIndex.Code(_nextIndex++);
+        _index[entry.Handle] = NameIndex.AssignOne(NameIndex.Describe(InitialOrder.AppName(entry)), TakenCodes());
         Recompute(resetSelection: false);
         return true;
     }
@@ -265,12 +270,31 @@ public sealed class SwitcherSession
                 entry => LoadFor(entry.Handle).WorkingSetBytes);
         _frozen.Clear();
         _index.Clear();
-        _nextIndex = 0;
-        foreach (var entry in ordered)
+        _appCodes.Clear();
+        var streams = new CodedName[ordered.Count];
+        for (var i = 0; i < ordered.Count; i++)
+            streams[i] = NameIndex.Describe(InitialOrder.AppName(ordered[i]));
+        var codes = NameIndex.Assign(streams);
+        for (var i = 0; i < ordered.Count; i++)
         {
-            _frozen.Add(entry.Handle);
-            _index[entry.Handle] = RowIndex.Code(_nextIndex++);
+            _frozen.Add(ordered[i].Handle);
+            _index[ordered[i].Handle] = codes[i];
         }
+    }
+
+    HashSet<string> TakenCodes()
+    {
+        var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var code in _index.Values) taken.Add(code);
+        foreach (var code in _appCodes.Values) taken.Add(code);
+        return taken;
+    }
+
+    void EnsureAppCode(AppEntry app)
+    {
+        var id = app.Id ?? "";
+        if (id.Length == 0 || _appCodes.ContainsKey(id)) return;
+        _appCodes[id] = NameIndex.AssignOne(NameIndex.Describe(app.Name), TakenCodes());
     }
 
     void Recompute(bool resetSelection)
@@ -297,6 +321,8 @@ public sealed class SwitcherSession
         _apps = _launchEnabled && _query.Length > 0
             ? AppCatalog.Rank(_catalog, _query, _usage, _all, _filtered, _excludedApps, _usageUtc)
             : new List<AppHit>();
+        foreach (var hit in _apps)
+            EnsureAppCode(hit.App);
         if (ResultCount == 0)
         {
             SelectedIndex = -1;
@@ -314,7 +340,7 @@ public sealed class SwitcherSession
             {
                 for (var i = 0; i < _apps.Count; i++)
                 {
-                    if (!RowIndex.Matches(token, IndexForApp(i))) continue;
+                    if (!NameIndex.Matches(token, IndexForApp(i))) continue;
                     SelectedIndex = _filtered.Count + i;
                     return;
                 }
@@ -348,7 +374,7 @@ public sealed class SwitcherSession
     {
         foreach (var pair in _index)
         {
-            if (!RowIndex.Matches(token, pair.Value)) continue;
+            if (!NameIndex.Matches(token, pair.Value)) continue;
             if (!byHandle.TryGetValue(pair.Key, out var entry)) return 0;
             if (_monitorFilter > 0 && entry.MonitorNumber != _monitorFilter) return 0;
             if (filtered.Exists(window => window.Handle == pair.Key)) return pair.Key;

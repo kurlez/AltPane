@@ -119,8 +119,51 @@ internal sealed class HotkeyService : IDisposable
         var settings = _settings();
         var hotkey = settings.Hotkey ?? HotkeyChord.AltTab();
         var mods = ReadModifiers();
+        var visible = false;
+        var queryLen = 0;
+        var searchVisible = false;
+        var ime = false;
+        try
+        {
+            visible = _presenter.IsSwitcherVisible;
+            if (vk == VirtualKeys.Escape)
+            {
+                queryLen = _presenter.VisibleQueryLength;
+                searchVisible = _presenter.VisibleSearchMode;
+                ime = _presenter.EscapeBelongsToIme();
+            }
+            else
+            {
+                ime = _presenter.IsImeComposing;
+            }
+        }
+        catch (Exception ex)
+        {
+            if (vk == VirtualKeys.Escape)
+                AppLog.Error(ex);
+        }
+
         GestureSnapshot before;
-        lock (_gate) before = _snap;
+        var snapshotWasOpen = false;
+        var repaired = false;
+        lock (_gate)
+        {
+            before = _snap;
+            snapshotWasOpen = before.SwitcherOpen;
+            if (vk == VirtualKeys.Escape && visible && !before.SwitcherOpen)
+            {
+                var repairedState = EscVisibility.Repair(false, true, searchVisible, queryLen);
+                _snap = before with
+                {
+                    SwitcherOpen = repairedState.SwitcherOpen,
+                    SearchMode = repairedState.SearchMode,
+                    QueryLength = repairedState.QueryLength,
+                    GestureLatched = false
+                };
+                before = _snap;
+                repaired = true;
+            }
+        }
 
         var input = before.ToHookInput(
             hotkey,
@@ -133,12 +176,17 @@ internal sealed class HotkeyService : IDisposable
             mods,
             settings.StickySwitcher,
             settings.QuickTapSwitches,
-            _presenter.IsSwitcherVisible) with
+            visible) with
         {
-            ImeComposing = _presenter.IsImeComposing
+            ImeComposing = ime
         };
         var result = HookInterpreter.Interpret(input);
-        if (AppLog.Verbose && vk is VirtualKeys.Tab or VirtualKeys.LWin or VirtualKeys.RWin or VirtualKeys.Escape)
+        if (vk == VirtualKeys.Escape && (snapshotWasOpen || visible))
+        {
+            AppLog.Info(
+                $"Esc {(isDown ? "down" : "up")} repeat={repeat} alt={mods.Alt} ctrl={mods.Ctrl} shift={mods.Shift} win={mods.Win} capture={settings.CaptureWinTab} snapshot={snapshotWasOpen} visible={visible} repaired={repaired} open={input.SwitcherOpen} search={input.SearchMode} query={input.HasSearchQuery} ime={input.ImeComposing} -> {result.Command}");
+        }
+        else if (AppLog.Verbose && vk is VirtualKeys.Tab or VirtualKeys.LWin or VirtualKeys.RWin)
         {
             AppLog.Info(
                 $"hook vk=0x{vk:X2} {(isDown ? "down" : "up")} repeat={repeat} win={mods.Win} alt={mods.Alt} ctrl={mods.Ctrl} shift={mods.Shift} capture={settings.CaptureWinTab} open={input.SwitcherOpen} search={input.SearchMode} query={input.HasSearchQuery} ime={input.ImeComposing} -> {result.Command}");

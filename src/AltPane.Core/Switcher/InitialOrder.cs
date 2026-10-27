@@ -1,11 +1,12 @@
 using AltPane.Core.Models;
-using AltPane.Core.Search;
 
 namespace AltPane.Core.Switcher;
 
 /// <summary>
-/// Orders windows by the first letter of the title. Chinese titles use the
-/// pinyin initial. Digits and symbols follow A–Z. Ties keep the original order.
+/// Orders windows by the first letter of the application name. That is the same
+/// name the row badge is built from: the display process name, then the process
+/// name, then the title. Chinese names use the pinyin initial. Digits and symbols
+/// follow A–Z. Ties keep the original order.
 /// </summary>
 public static class InitialOrder
 {
@@ -18,23 +19,25 @@ public static class InitialOrder
         return ranked;
     }
 
-    public static Key Of(WindowEntry entry) =>
-        Of(entry.Title, string.IsNullOrWhiteSpace(entry.DisplayProcessName) ? entry.ProcessName : entry.DisplayProcessName, entry.OriginalIndex);
-
-    public static Key Of(string? title, string? fallback, int tie)
+    public static string AppName(WindowEntry entry)
     {
-        var text = string.IsNullOrWhiteSpace(title) ? fallback ?? "" : title!;
-        var start = 0;
-        while (start < text.Length && char.IsWhiteSpace(text[start])) start++;
-        if (start >= text.Length) return new Key(2, '\0', tie);
-        var ch = text[start];
-        if (IsLatin(ch)) return new Key(0, char.ToUpperInvariant(ch), tie);
-        if (ch is >= '\u4E00' and <= '\u9FFF')
-        {
-            var initials = Pinyin.PrimaryInitials(ch.ToString());
-            if (initials.Length > 0 && IsLatin(initials[0]))
-                return new Key(0, char.ToUpperInvariant(initials[0]), tie);
-        }
+        if (!string.IsNullOrWhiteSpace(entry.DisplayProcessName)) return entry.DisplayProcessName;
+        if (!string.IsNullOrWhiteSpace(entry.ProcessName)) return entry.ProcessName;
+        return entry.Title ?? "";
+    }
+
+    public static Key Of(WindowEntry entry) => OfName(AppName(entry), entry.OriginalIndex);
+
+    public static Key Of(string? title, string? fallback, int tie) =>
+        OfName(string.IsNullOrWhiteSpace(title) ? fallback : title, tie);
+
+    public static Key OfName(string? name, int tie)
+    {
+        var letters = NameIndex.Letters(name);
+        if (letters.Length == 0)
+            return new Key(string.IsNullOrWhiteSpace(name) ? 2 : 1, '\0', tie);
+        var ch = letters[0];
+        if (ch is >= 'a' and <= 'z') return new Key(0, char.ToUpperInvariant(ch), tie);
         return new Key(1, ch, tie);
     }
 
@@ -46,6 +49,4 @@ public static class InitialOrder
         if (letter != 0) return letter;
         return left.Tie.CompareTo(right.Tie);
     }
-
-    static bool IsLatin(char ch) => ch is >= 'a' and <= 'z' or >= 'A' and <= 'Z';
 }

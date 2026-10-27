@@ -222,7 +222,8 @@ public partial class SwitcherWindow : Window
     Point _lastScreen = new(double.NaN, double.NaN);
     int _renderedSelection = -2;
     bool _internalEdit;
-    bool _composing;
+    int _compositionChars;
+    int _queryChars;
     bool _searchMode;
     bool _guard;
     int _holdingActivation;
@@ -264,8 +265,13 @@ public partial class SwitcherWindow : Window
         _menu.Opened += (_, _) => LocalizeMenu();
         WindowList.ItemsSource = _rows;
         WindowList.ContextMenu = _menu;
-        TextCompositionManager.AddTextInputStartHandler(SearchBox, (_, _) => _composing = true);
-        TextCompositionManager.AddTextInputHandler(SearchBox, (_, _) => _composing = false);
+        TextCompositionManager.AddPreviewTextInputStartHandler(SearchBox, (_, e) => NoteComposition(e));
+        TextCompositionManager.AddPreviewTextInputUpdateHandler(SearchBox, (_, e) => NoteComposition(e));
+        TextCompositionManager.AddPreviewTextInputHandler(SearchBox, (_, _) => ClearComposition());
+        TextCompositionManager.AddTextInputStartHandler(SearchBox, (_, e) => NoteComposition(e));
+        TextCompositionManager.AddTextInputUpdateHandler(SearchBox, (_, e) => NoteComposition(e));
+        TextCompositionManager.AddTextInputHandler(SearchBox, (_, _) => ClearComposition());
+        SearchBox.LostFocus += (_, _) => ClearComposition();
         SourceInitialized += (_, _) =>
         {
             var hwnd = new WindowInteropHelper(this).Handle;
@@ -308,7 +314,15 @@ public partial class SwitcherWindow : Window
     public event Action? CancelRequested;
     /// <summary>Runs on the UI thread before the switcher hides, so thumbnails can be released first.</summary>
     public event Action? Releasing;
-    public bool IsImeComposing => _composing;
+    public bool IsSearchMode => _searchMode;
+    public int QueryCharCount => Volatile.Read(ref _queryChars);
+    /// <summary>WPF composition text is non-empty. An idle IME, or TextInputStart with no string, is not composing.</summary>
+    public bool IsImeComposing => Volatile.Read(ref _compositionChars) > 0;
+    /// <summary>
+    /// Esc goes to the IME only when a composition string exists.
+    /// IMM with no context, and ImeProcessedKey on its own, do not count.
+    /// </summary>
+    public bool EscapeBelongsToIme() => IsImeComposing || ImeComposition.HasComposition(Handle);
     public event Action? SearchRequested;
     public event Action<string>? QueryEdited;
     public event Action<int>? NavigateRequested;
@@ -339,6 +353,7 @@ public partial class SwitcherWindow : Window
             SearchBox.CaretIndex = SearchBox.Text.Length;
             _internalEdit = false;
         }
+        Volatile.Write(ref _queryChars, SearchBox.Text?.Length ?? 0);
         SearchPlaceholder.Visibility = string.IsNullOrEmpty(SearchBox.Text) ? Visibility.Visible : Visibility.Collapsed;
         HintText.Text = state.Hint;
         CountText.Text = state.CountText;
@@ -576,12 +591,13 @@ public partial class SwitcherWindow : Window
     protected override void OnPreviewKeyDown(KeyEventArgs e)
     {
         base.OnPreviewKeyDown(e);
-        // A composition belongs to the IME, including its Esc. Anything else is handled
-        // here, before a focused child (the search box, a button) can drop the key.
-        if (_composing) return;
+        // Esc is handled here unless a composition string is actually present.
+        // ImeProcessedKey with an empty composition is not composition: Chinese IMEs
+        // raise it while the search box is merely focused.
         var key = e.Key == Key.System ? e.SystemKey : e.Key;
         if (key == Key.Escape || e.ImeProcessedKey == Key.Escape)
         {
+            if (EscapeBelongsToIme()) return;
             if (EscAction.Decide(imeComposing: false, hasQuery: !string.IsNullOrEmpty(SearchBox.Text)) == EscDecision.ClearQuery)
                 ClearQueryRequested?.Invoke();
             else
@@ -589,6 +605,7 @@ public partial class SwitcherWindow : Window
             e.Handled = true;
             return;
         }
+        if (IsImeComposing) return;
         if (!_searchMode || e.ImeProcessedKey != Key.None) return;
         var mods = Keyboard.Modifiers;
         if (key is Key.LeftAlt or Key.RightAlt
@@ -699,7 +716,8 @@ public partial class SwitcherWindow : Window
                 _hints.IsOurWindow(foreground),
                 _holdingActivation > 0,
                 (long)_previousForeground,
-                age))
+                age,
+                SwitcherCleanup.IsImeUiClass(ClassNameOf(foreground))))
             return;
         Releasing?.Invoke();
         CancelRequested?.Invoke();
@@ -1115,9 +1133,26 @@ public partial class SwitcherWindow : Window
 
     void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
     {
-        SearchPlaceholder.Visibility = string.IsNullOrEmpty(SearchBox.Text) ? Visibility.Visible : Visibility.Collapsed;
+        var text = SearchBox.Text ?? "";
+        Volatile.Write(ref _queryChars, text.Length);
+        SearchPlaceholder.Visibility = text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
         if (_internalEdit) return;
-        QueryEdited?.Invoke(SearchBox.Text);
+        QueryEdited?.Invoke(text);
+    }
+
+    void NoteComposition(TextCompositionEventArgs e)
+    {
+        var text = e.TextComposition?.CompositionText;
+        Volatile.Write(ref _compositionChars, string.IsNullOrEmpty(text) ? 0 : text.Length);
+    }
+
+    void ClearComposition() => Volatile.Write(ref _compositionChars, 0);
+
+    static string ClassNameOf(nint hwnd)
+    {
+        if (hwnd == 0) return "";
+        var buffer = new System.Text.StringBuilder(256);
+        return NativeMethods.GetClassName(hwnd, buffer, buffer.Capacity) > 0 ? buffer.ToString() : "";
     }
 
     void MenuClose_Click(object sender, RoutedEventArgs e) => CloseRequested?.Invoke();

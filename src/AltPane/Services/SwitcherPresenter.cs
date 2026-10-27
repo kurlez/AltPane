@@ -109,6 +109,9 @@ internal sealed class SwitcherPresenter
     public bool PendingShow { get; private set; }
     public bool IsSwitcherVisible => _window.IsVisible;
     public bool IsImeComposing => _window.IsImeComposing;
+    public int VisibleQueryLength => _window.QueryCharCount;
+    public bool VisibleSearchMode => _window.IsSearchMode;
+    public bool EscapeBelongsToIme() => _window.EscapeBelongsToIme();
 
     public void UseApps(AppIndexService apps)
     {

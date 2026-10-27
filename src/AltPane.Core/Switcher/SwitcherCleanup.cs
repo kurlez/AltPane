@@ -59,7 +59,24 @@ public static class SwitcherCleanup
         bool foregroundIsHint,
         bool holdingActivation,
         long previousForeground,
-        int ageMilliseconds) =>
-        IsForeignDeactivate(foreground, switcher, foregroundIsHint, holdingActivation)
+        int ageMilliseconds,
+        bool foregroundIsIme = false) =>
+        !foregroundIsIme
+        && IsForeignDeactivate(foreground, switcher, foregroundIsHint, holdingActivation)
         && !IgnoreBounce(foreground, previousForeground, ageMilliseconds);
+
+    /// <summary>
+    /// Candidate and composition windows. Focusing one is not a click outside,
+    /// and must not clear the open flag while the switcher is still visible.
+    /// </summary>
+    public static bool IsImeUiClass(string? className)
+    {
+        if (string.IsNullOrWhiteSpace(className)) return false;
+        var name = className.Trim();
+        if (name.Equals("IME", StringComparison.OrdinalIgnoreCase)) return true;
+        if (name.Equals("MSCTFIME UI", StringComparison.OrdinalIgnoreCase)) return true;
+        if (name.Equals("CiceroUIWndFrame", StringComparison.OrdinalIgnoreCase)) return true;
+        if (name.StartsWith("Microsoft.IME", StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
+    }
 }

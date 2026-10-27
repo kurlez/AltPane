@@ -84,11 +84,20 @@ public sealed class InstalledIndexRequest
     public Action<string, Exception>? OnSourceFailed { get; init; }
 }
 
-public readonly record struct IndexScanResult(IReadOnlyList<AppEntry> Apps, int SkippedFolders);
+public readonly record struct IndexScanResult(
+    IReadOnlyList<AppEntry> Apps,
+    int SkippedFolders,
+    int StartMenuCount,
+    int DesktopCount,
+    int PathCount,
+    int StoreCount);
 
 /// <summary>
 /// Scans Start Menu, desktop, PATH, and Store independently. One source throwing
 /// does not discard what the others already found.
+/// <see cref="PhysicalAppDirectory"/> is the directory listing FullScan uses:
+/// inaccessible folders and reparse points (including the Start Menu junction 程序)
+/// are skipped here, not in a separate helper.
 /// </summary>
 public static class InstalledIndex
 {
@@ -96,8 +105,12 @@ public static class InstalledIndex
     {
         var all = new List<AppEntry>();
         var skipped = 0;
+        var startMenu = 0;
+        var desktop = 0;
+        var path = 0;
+        var store = 0;
 
-        void Take(bool enabled, string name, Func<ShortcutBatch> collect)
+        void Take(bool enabled, string name, Func<ShortcutBatch> collect, Action<int> add)
         {
             if (!enabled) return;
             try
@@ -105,6 +118,7 @@ public static class InstalledIndex
                 var batch = collect();
                 all.AddRange(batch.Apps);
                 skipped += batch.SkippedFolders;
+                add(batch.Apps.Count);
             }
             catch (Exception ex)
             {
@@ -113,18 +127,21 @@ public static class InstalledIndex
         }
 
         Take(request.StartMenu, "Start Menu", () =>
-            ShortcutWalk.Collect(request.StartMenuRoots, AppSource.StartMenu, files, recursive: true, extension: ".lnk"));
+            ShortcutWalk.Collect(request.StartMenuRoots, AppSource.StartMenu, files, recursive: true, extension: ".lnk"),
+            count => startMenu += count);
         Take(request.Desktop, "Desktop", () =>
-            ShortcutWalk.Collect(request.DesktopRoots, AppSource.Desktop, files, recursive: true, extension: ".lnk"));
+            ShortcutWalk.Collect(request.DesktopRoots, AppSource.Desktop, files, recursive: true, extension: ".lnk"),
+            count => desktop += count);
         Take(request.Path, "PATH", () =>
-            ShortcutWalk.Collect(request.PathDirectories, AppSource.Path, files, recursive: false, extension: ".exe"));
+            ShortcutWalk.Collect(request.PathDirectories, AppSource.Path, files, recursive: false, extension: ".exe"),
+            count => path += count);
         Take(request.Store, "Store", () =>
         {
             var apps = request.StoreApps?.Invoke() ?? Array.Empty<AppEntry>();
             return new ShortcutBatch(apps, 0);
-        });
+        }, count => store += count);
 
-        return new IndexScanResult(AppCatalog.Merge(all), skipped);
+        return new IndexScanResult(AppCatalog.Merge(all), skipped, startMenu, desktop, path, store);
     }
 }
 

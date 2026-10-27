@@ -40,6 +40,10 @@ public class InstalledIndexTests
         Assert.DoesNotContain(files.Listed, path => path.Equals(Junction, StringComparison.OrdinalIgnoreCase));
         Assert.Contains(Denied, files.Listed);
         Assert.Equal(1, result.SkippedFolders);
+        Assert.Equal(2, result.StartMenuCount);
+        Assert.Equal(0, result.DesktopCount);
+        Assert.Equal(0, result.PathCount);
+        Assert.Equal(0, result.StoreCount);
     }
 
     [Fact]
@@ -76,6 +80,9 @@ public class InstalledIndexTests
         Assert.Contains(result.Apps, app => app.Source == AppSource.Desktop && app.ProcessName == "notepad");
         Assert.Contains(result.Apps, app => app.Source == AppSource.Store && app.Name == "Microsoft Word");
         Assert.True(result.SkippedFolders >= 1);
+        Assert.Equal(0, result.StartMenuCount);
+        Assert.Equal(1, result.DesktopCount);
+        Assert.Equal(1, result.StoreCount);
     }
 
     [Fact]

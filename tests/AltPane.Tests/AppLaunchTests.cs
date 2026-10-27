@@ -371,13 +371,14 @@ public class AppSessionTests
         session.SetQuery("c");
         Assert.Equal("Current", Assert.Single(session.Filtered).Title);
         Assert.Single(session.AppHits);
-        Assert.Equal("Visual Studio Code", session.SelectedApp!.Value.App.Name);
-        session.Move(-1);
+        Assert.Equal("c", session.IndexForHandle(1));
         Assert.Equal("Current", session.Selected!.Title);
         session.Move(1);
         Assert.Equal("Visual Studio Code", session.SelectedApp!.Value.App.Name);
         session.Move(1);
         Assert.Equal("Visual Studio Code", session.SelectedApp!.Value.App.Name);
+        session.Move(-1);
+        Assert.Equal("Current", session.Selected!.Title);
     }
 
     [Fact]

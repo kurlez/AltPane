@@ -186,9 +186,9 @@ public class LoadSortAndKillTests
         session.SetSortMode(LoadSortMode.Cpu);
         Assert.Equal(2, session.Filtered[0].Handle);
         Assert.Equal(1, session.Selected?.Handle);
+        Assert.Equal("app1", session.IndexForHandle(2));
         session.SetQuery("c");
-        Assert.Equal(1, session.Selected?.Handle);
-        Assert.Contains(session.Filtered, window => window.Handle == 3);
+        Assert.Equal(3, session.Selected?.Handle);
     }
 
     [Fact]

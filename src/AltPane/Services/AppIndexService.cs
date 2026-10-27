@@ -182,8 +182,8 @@ internal sealed class AppIndexService : IDisposable
                     AppLog.Error(ex);
                 }
             }, _files);
-            if (result.SkippedFolders > 0)
-                AppLog.Info($"App index skipped {result.SkippedFolders} inaccessible folder(s).");
+            AppLog.Info(
+                $"App index scan: startMenu={result.StartMenuCount} desktop={result.DesktopCount} path={result.PathCount} store={result.StoreCount} merged={result.Apps.Count} skippedFolders={result.SkippedFolders}.");
             Publish(result.Apps, usage: null, save: true);
         }
         catch (Exception ex)

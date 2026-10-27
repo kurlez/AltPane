@@ -31,8 +31,8 @@ public class ListBehaviorTests
             Win(5, "", "zebra")
         });
         session.SetSortMode(LoadSortMode.Initial);
-        Assert.Equal(new[] { "Chrome", "记事本", "微信", "", "123 Notes" }, session.Filtered.Select(window => window.Title));
-        Assert.Equal(new[] { "a", "b", "c", "d", "e" }, session.Filtered.Select(window => session.IndexForHandle(window.Handle)));
+        Assert.Equal(new[] { "Chrome", "记事本", "123 Notes", "微信", "" }, session.Filtered.Select(window => window.Title));
+        Assert.Equal(new[] { "c", "notep", "notes", "w", "z" }, session.Filtered.Select(window => session.IndexForHandle(window.Handle)));
     }
 
     [Fact]
@@ -45,8 +45,8 @@ public class ListBehaviorTests
             Win(3, "中文", "zhong")
         });
         session.SetSortMode(LoadSortMode.Initial);
-        Assert.Equal("c", session.IndexForHandle(3));
-        session.SetQuery("c");
+        Assert.Equal("z", session.IndexForHandle(3));
+        session.SetQuery("z");
         Assert.Equal("中文", session.Selected!.Title);
         Assert.Contains(session.Filtered, window => window.Handle == 3);
         session.SetQuery("al");
@@ -55,23 +55,34 @@ public class ListBehaviorTests
         Assert.Equal(new[] { "Alpha", "Beta", "中文" }, session.Filtered.Select(window => window.Title));
         Assert.Equal("a", session.IndexForHandle(1));
         Assert.Equal("b", session.IndexForHandle(2));
-        Assert.Equal("c", session.IndexForHandle(3));
+        Assert.Equal("z", session.IndexForHandle(3));
     }
 
     [Fact]
-    public void Codes_grow_to_two_letters_and_new_windows_do_not_renumber()
+    public void Name_badges_use_a_unique_prefix_and_new_windows_do_not_renumber()
     {
-        Assert.Equal("a", RowIndex.Code(0));
-        Assert.Equal("z", RowIndex.Code(25));
-        Assert.Equal("aa", RowIndex.Code(26));
-        Assert.Equal("ab", RowIndex.Code(27));
-        var session = new SwitcherSession(new[] { Win(1, "Alpha", "a"), Win(2, "Beta", "b") });
+        Assert.Equal("wx", NameIndex.Letters("微信"));
+        Assert.Equal("chrome", NameIndex.Letters("Chrome"));
+        Assert.Equal(new[] { "ch", "co" }, NameIndex.Assign(new[] { "chrome", "code" }));
+        Assert.Equal(new[] { "wx1", "wx2" }, NameIndex.Assign(new[] { "wx", "wx" }));
+        Assert.Equal("c", NameIndex.Assign(new[] { "chrome" })[0]);
+        var session = new SwitcherSession(new[] { Win(1, "Alpha", "alpha"), Win(2, "Beta", "beta") });
         session.SetSortMode(LoadSortMode.Initial);
+        Assert.Equal("a", session.IndexForHandle(1));
+        Assert.Equal("b", session.IndexForHandle(2));
         Assert.True(session.RemoveHandle(1));
         Assert.Equal("b", session.IndexForHandle(2));
-        session.NoteArrived(Win(9, "Zebra", "z"));
+        session.NoteArrived(Win(9, "Zebra", "zebra"));
         Assert.Equal("b", session.IndexForHandle(2));
-        Assert.Equal("c", session.IndexForHandle(9));
+        Assert.Equal("z", session.IndexForHandle(9));
+        session.NoteArrived(Win(10, "Beacon", "beta"));
+        Assert.Equal("b", session.IndexForHandle(2));
+        Assert.Equal("be", session.IndexForHandle(10));
+        var chinese = new SwitcherSession(new[] { Win(1, "notes", "chrome"), Win(2, "文档", "微信") });
+        chinese.SetSortMode(LoadSortMode.Initial);
+        Assert.Equal("wx", chinese.IndexForHandle(2));
+        chinese.SetQuery("wx");
+        Assert.Equal(2, chinese.Selected?.Handle);
     }
 
     [Fact]
@@ -88,5 +99,11 @@ public class ListBehaviorTests
         Assert.DoesNotContain(CleanupStep.ReturnBorrowedPreview, SwitcherCleanup.Steps(activateSelection: true));
         Assert.Contains(CleanupStep.ReleaseBorrowedForActivate, SwitcherCleanup.Steps(activateSelection: true));
         Assert.DoesNotContain(CleanupStep.RestorePreviousForeground, SwitcherCleanup.Steps(activateSelection: true));
+        Assert.True(SwitcherCleanup.IsImeUiClass("MSCTFIME UI"));
+        Assert.True(SwitcherCleanup.IsImeUiClass("CiceroUIWndFrame"));
+        Assert.True(SwitcherCleanup.IsImeUiClass("IME"));
+        Assert.True(SwitcherCleanup.IsImeUiClass("Microsoft.IME.UIManager"));
+        Assert.False(SwitcherCleanup.IsImeUiClass("Chrome_WidgetWin_1"));
+        Assert.False(SwitcherCleanup.ShouldDismiss(5, 9, false, false, previousForeground: 4, ageMilliseconds: 400, foregroundIsIme: true));
     }
 }

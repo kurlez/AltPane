@@ -62,6 +62,36 @@ public class EscActionTests
     }
 
     [Fact]
+    public void A_visible_window_with_a_closed_snapshot_is_treated_as_open_for_esc()
+    {
+        var repaired = EscVisibility.Repair(snapshotOpen: false, windowVisible: true, searchMode: true, queryLength: 4);
+        Assert.True(repaired.Repaired);
+        Assert.True(repaired.SwitcherOpen);
+        Assert.True(repaired.SearchMode);
+        Assert.Equal(4, repaired.QueryLength);
+        var snap = GestureSnapshot.Idle with
+        {
+            SwitcherOpen = repaired.SwitcherOpen,
+            SearchMode = repaired.SearchMode,
+            QueryLength = repaired.QueryLength
+        };
+        var clear = HookInterpreter.Interpret(snap.ToHookInput(
+            HotkeyChord.AltTab(), true, false, false, VirtualKeys.Escape, true, false, ModifierState.None));
+        Assert.Equal(HookCommand.ClearQuery, clear.Command);
+        var applied = GestureTransitions.Apply(snap, clear, null, false, ModifierKeys.None);
+        Assert.True(applied.Next.SwitcherOpen);
+        Assert.Equal(0, applied.Next.QueryLength);
+        Assert.IsType<UiOp.ClearQuery>(applied.Op);
+
+        var hidden = EscVisibility.Repair(false, false, false, 2);
+        Assert.False(hidden.Repaired);
+        Assert.False(hidden.SwitcherOpen);
+        var already = EscVisibility.Repair(true, true, false, 0);
+        Assert.False(already.Repaired);
+        Assert.True(already.SwitcherOpen);
+    }
+
+    [Fact]
     public void Held_alt_types_and_sticky_release_still_types_then_esc_clears_and_closes()
     {
         var open = GestureSnapshot.Idle with
