@@ -97,7 +97,11 @@
           <TextBlock x:Name="EverythingExcludeLabel" FontWeight="SemiBold" Margin="44,0,0,4"/>
           <TextBlock x:Name="EverythingExcludeHint" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="44,0,0,4"/>
           <TextBox x:Name="EverythingExcludeBox" AcceptsReturn="True" Height="64" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
-                   FontFamily="Cascadia Mono, Consolas, Segoe UI" Padding="8" Margin="44,0,0,10"/>
+                   FontFamily="Cascadia Mono, Consolas, Segoe UI" Padding="8" Margin="44,0,0,8"/>
+          <TextBlock x:Name="DocumentExtLabel" FontWeight="SemiBold" Margin="44,0,0,4"/>
+          <TextBlock x:Name="DocumentExtNote" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="44,0,0,4"/>
+          <TextBox x:Name="DocumentExtBox" Margin="44,0,0,8" Padding="8,4"/>
+          <CheckBox x:Name="ActionHintBox" Margin="44,0,0,10"/>
           <TextBlock x:Name="ExcludedAppsLabel" FontWeight="SemiBold" Margin="22,0,0,6"/>
           <TextBlock x:Name="ExcludedAppsHint" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="22,0,0,6"/>
           <TextBox x:Name="ExcludedAppsBox" AcceptsReturn="True" Height="72" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"

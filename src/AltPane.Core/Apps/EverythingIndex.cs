@@ -39,7 +39,11 @@ public static class EverythingIndex
     public static string? Build(string? query, string? extensions, IReadOnlyList<string>? excludedPaths) =>
         Build(query, SplitExtensions(extensions), excludedPaths);
 
-    public static string? Build(string? query, IReadOnlyList<string>? extensions, IReadOnlyList<string>? excludedPaths)
+    public static string? Build(string? query, IReadOnlyList<string>? extensions, IReadOnlyList<string>? excludedPaths) =>
+        Build(query, extensions, excludedPaths, allowAnyExtension: false);
+
+    /// <param name="allowAnyExtension">File search for every type. App search still requires an extension list.</param>
+    public static string? Build(string? query, IReadOnlyList<string>? extensions, IReadOnlyList<string>? excludedPaths, bool allowAnyExtension)
     {
         if (string.IsNullOrWhiteSpace(query)) return null;
         var exts = new List<string>();
@@ -52,13 +56,13 @@ public static class EverythingIndex
                 if (!exts.Contains(ext)) exts.Add(ext);
             }
         }
-        if (exts.Count == 0) return null;
+        if (exts.Count == 0 && !allowAnyExtension) return null;
 
         var parts = new List<string>();
         foreach (var token in query.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
             parts.Add(Quote(token));
         if (parts.Count == 0) return null;
-        parts.Add("ext:" + string.Join(';', exts));
+        if (exts.Count > 0) parts.Add("ext:" + string.Join(';', exts));
         foreach (var path in BuiltinPathExclusions)
             parts.Add("!path:" + path);
         if (excludedPaths is not null)

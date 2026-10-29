@@ -29,6 +29,11 @@ public abstract record UiOp
     public sealed record PinApp : UiOp;
     public sealed record DemoteApp : UiOp;
     public sealed record RestorePriority : UiOp;
+    public sealed record ActivateRow(int Index) : UiOp;
+    public sealed record RevealPath : UiOp;
+    public sealed record CopyPath : UiOp;
+    public sealed record CopyDirectory : UiOp;
+    public sealed record OpenMenu : UiOp;
 }
 
 /// <summary>
@@ -178,6 +183,16 @@ public static class GestureTransitions
                 return state.SwitcherOpen ? new(state, new UiOp.DemoteApp()) : new(state, null);
             case HookCommand.RestorePriority:
                 return state.SwitcherOpen ? new(state, new UiOp.RestorePriority()) : new(state, null);
+            case HookCommand.ActivateRow:
+                return state.SwitcherOpen ? new(state, new UiOp.ActivateRow(result.Delta)) : new(state, null);
+            case HookCommand.RevealPath:
+                return state.SwitcherOpen ? new(state, new UiOp.RevealPath()) : new(state, null);
+            case HookCommand.CopyPath:
+                return state.SwitcherOpen ? new(state, new UiOp.CopyPath()) : new(state, null);
+            case HookCommand.CopyDirectory:
+                return state.SwitcherOpen ? new(state, new UiOp.CopyDirectory()) : new(state, null);
+            case HookCommand.OpenMenu:
+                return state.SwitcherOpen ? new(state, new UiOp.OpenMenu()) : new(state, null);
             default:
                 return new(state, null);
         }

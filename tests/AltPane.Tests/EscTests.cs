@@ -162,7 +162,7 @@ public class EscActionTests
     }
 
     [Fact]
-    public void Shift_enter_commits_without_moving_and_ctrl_enter_stays_admin()
+    public void Shift_enter_commits_without_moving_and_ctrl_shift_enter_stays_admin()
     {
         var shift = Open(Key(VirtualKeys.Return, true, new ModifierState(true, false, true, false)));
         var stayed = HookInterpreter.Interpret(shift);

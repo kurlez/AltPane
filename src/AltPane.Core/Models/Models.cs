@@ -214,6 +214,10 @@ public sealed class AppSettings
     public bool UseEverything { get; set; } = true;
     public string EverythingExtensions { get; set; } = "exe,lnk,url,appref-ms";
     public List<string> EverythingExcludedPaths { get; set; } = new();
+    /// <summary>Document extensions for file search. A blank value uses the built-in list. <c>f </c> or <c>file:</c> searches every type.</summary>
+    public string DocumentExtensions { get; set; } = "doc,docx,xls,xlsx,ppt,pptx,pdf,txt,md,csv,rtf,odt,ods,odp,wps,et,dps,ofd,epub";
+    /// <summary>When true (the default), the switcher shows the shortcuts for the selected row.</summary>
+    public bool ShowActionHint { get; set; } = true;
     /// <summary>When true, Win and Tab hook decisions are written to altpane.log.</summary>
     public bool VerboseLog { get; set; }
 
@@ -244,6 +248,8 @@ public sealed class AppSettings
         MoveToSwitcherMonitor = true,
         UseEverything = true,
         EverythingExtensions = "exe,lnk,url,appref-ms",
-        EverythingExcludedPaths = new List<string>()
+        EverythingExcludedPaths = new List<string>(),
+        DocumentExtensions = "doc,docx,xls,xlsx,ppt,pptx,pdf,txt,md,csv,rtf,odt,ods,odp,wps,et,dps,ofd,epub",
+        ShowActionHint = true
     };
 }

@@ -35,7 +35,7 @@ public partial class SettingsWindow : Window
         Closed += (_, _) => ThemeService.Changed -= OnThemeChanged;
         MaxHeight = SystemParameters.WorkArea.Height * 0.92;
         var version = typeof(SettingsWindow).Assembly.GetName().Version;
-        VersionText.Text = "AltPane " + (version?.ToString(3) ?? "0.4.3");
+        VersionText.Text = "AltPane " + (version?.ToString(3) ?? "0.4.4");
         AboutButton.Visibility = _showAbout is null ? Visibility.Collapsed : Visibility.Visible;
         LoadDraft();
         Localizer.Current.LanguageChanged += (_, _) =>
@@ -79,6 +79,8 @@ public partial class SettingsWindow : Window
         EverythingBox.IsChecked = _draft.UseEverything;
         EverythingExtBox.Text = _draft.EverythingExtensions;
         EverythingExcludeBox.Text = string.Join(Environment.NewLine, _draft.EverythingExcludedPaths ?? new List<string>());
+        DocumentExtBox.Text = _draft.DocumentExtensions;
+        ActionHintBox.IsChecked = _draft.ShowActionHint;
         UpdateEverythingStatus();
         Select(SortBox, _draft.SortMode);
         Select(ThresholdBox, _draft.FocusThresholdMinutes);
@@ -117,6 +119,9 @@ public partial class SettingsWindow : Window
         EverythingExtLabel.Text = loc["settings.everythingExt"];
         EverythingExcludeLabel.Text = loc["settings.everythingExclude"];
         EverythingExcludeHint.Text = loc["settings.everythingExcludeHint"];
+        DocumentExtLabel.Text = loc["settings.documentExt"];
+        DocumentExtNote.Text = loc["settings.documentExtNote"];
+        ActionHintBox.Content = loc["settings.actionHint"];
         EverythingStartButton.Content = loc["settings.everythingStart"];
         EverythingSiteButton.Content = loc["settings.everythingSite"];
         LoadBox.Content = loc["settings.showLoad"];
@@ -346,6 +351,8 @@ public partial class SettingsWindow : Window
         _draft.VerboseLog = VerboseBox.IsChecked == true;
         _draft.UseEverything = EverythingBox.IsChecked == true;
         _draft.EverythingExtensions = EverythingExtBox.Text.Trim();
+        _draft.DocumentExtensions = DocumentExtBox.Text.Trim();
+        _draft.ShowActionHint = ActionHintBox.IsChecked == true;
         _draft.EverythingExcludedPaths = EverythingExcludeBox.Text
             .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
             .ToList();
@@ -472,6 +479,8 @@ public partial class SettingsWindow : Window
         MoveToSwitcherMonitor = source.MoveToSwitcherMonitor,
         UseEverything = source.UseEverything,
         EverythingExtensions = source.EverythingExtensions,
+        DocumentExtensions = source.DocumentExtensions,
+        ShowActionHint = source.ShowActionHint,
         EverythingExcludedPaths = new List<string>(source.EverythingExcludedPaths ?? new List<string>()),
         VerboseLog = source.VerboseLog,
         Language = source.Language,

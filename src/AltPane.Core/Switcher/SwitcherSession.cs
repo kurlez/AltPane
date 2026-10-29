@@ -37,6 +37,13 @@ public sealed class SwitcherSession
         return _appCodes.TryGetValue(id, out var code) ? code : "";
     }
     int _monitorFilter;
+    string? _calcPlain;
+    string? _calcShown;
+    readonly List<FileHit> _files = new();
+    bool _fileHint;
+
+    int Lead => _calcPlain is null ? 0 : 1;
+    int Tail => _files.Count + (_fileHint ? 1 : 0);
 
     public SwitcherSession(IEnumerable<WindowEntry> windows)
     {
@@ -50,18 +57,84 @@ public sealed class SwitcherSession
     public IReadOnlyList<WindowEntry> All => _all;
     public IReadOnlyList<WindowEntry> Filtered => _filtered;
     public IReadOnlyList<AppHit> AppHits => _apps;
-    public int ResultCount => _filtered.Count + _apps.Count;
+    public int ResultCount => Lead + _filtered.Count + _apps.Count + Tail;
     public string Query => _query;
     public int SelectedIndex { get; private set; }
-    public WindowEntry? Selected =>
-        SelectedIndex >= 0 && SelectedIndex < _filtered.Count ? _filtered[SelectedIndex] : null;
+    public string? CalculationPlain => _calcPlain;
+    public string? CalculationShown => _calcShown;
+    public IReadOnlyList<FileHit> Files => _files;
+    public bool FileSearchUnavailable => _fileHint;
+    public bool SelectedIsCalculation => Lead == 1 && SelectedIndex == 0;
+    public bool SelectedIsFileHint => _fileHint && SelectedIndex == Lead + _filtered.Count + _apps.Count + _files.Count;
+    public WindowEntry? Selected
+    {
+        get
+        {
+            var index = SelectedIndex - Lead;
+            return index >= 0 && index < _filtered.Count ? _filtered[index] : null;
+        }
+    }
     public AppHit? SelectedApp
     {
         get
         {
-            var index = SelectedIndex - _filtered.Count;
+            var index = SelectedIndex - Lead - _filtered.Count;
             return index >= 0 && index < _apps.Count ? _apps[index] : null;
         }
+    }
+    public FileHit? SelectedFile
+    {
+        get
+        {
+            var index = SelectedIndex - Lead - _filtered.Count - _apps.Count;
+            return index >= 0 && index < _files.Count ? _files[index] : null;
+        }
+    }
+
+    public bool SelectIndex(int index)
+    {
+        if (index < 0 || index >= ResultCount) return false;
+        SelectedIndex = index;
+        return true;
+    }
+
+    public void SetCalculation(string? plain, string? shown)
+    {
+        var had = Lead == 1;
+        if (string.IsNullOrEmpty(plain))
+        {
+            _calcPlain = null;
+            _calcShown = null;
+        }
+        else
+        {
+            _calcPlain = plain;
+            _calcShown = string.IsNullOrEmpty(shown) ? "= " + plain : shown;
+        }
+        var has = Lead == 1;
+        if (has && !had) SelectedIndex = 0;
+        else if (!has && had)
+        {
+            if (SelectedIndex > 0) SelectedIndex--;
+            else SelectedIndex = ResultCount > 0 ? 0 : -1;
+        }
+        Clamp();
+    }
+
+    public void SetFiles(IReadOnlyList<FileHit>? files, bool unavailable)
+    {
+        _files.Clear();
+        if (!unavailable && files is not null)
+        {
+            foreach (var file in files)
+            {
+                if (file is null || string.IsNullOrWhiteSpace(file.FullPath)) continue;
+                _files.Add(file);
+                if (_files.Count >= FileSearch.MaxResults) break;
+            }
+        }
+        _fileHint = unavailable;
+        Clamp();
     }
 
     public void Move(int delta)
@@ -98,7 +171,7 @@ public sealed class SwitcherSession
     {
         var index = _filtered.FindIndex(w => w.Handle == handle);
         if (index < 0) return false;
-        SelectedIndex = index;
+        SelectedIndex = Lead + index;
         return true;
     }
 
@@ -106,7 +179,15 @@ public sealed class SwitcherSession
     {
         var index = _apps.FindIndex(hit => string.Equals(hit.App.Id, id, StringComparison.OrdinalIgnoreCase));
         if (index < 0) return false;
-        SelectedIndex = _filtered.Count + index;
+        SelectedIndex = Lead + _filtered.Count + index;
+        return true;
+    }
+
+    public bool SelectFile(string path)
+    {
+        var index = _files.FindIndex(file => string.Equals(file.FullPath, path, StringComparison.OrdinalIgnoreCase));
+        if (index < 0) return false;
+        SelectedIndex = Lead + _filtered.Count + _apps.Count + index;
         return true;
     }
 
@@ -266,7 +347,7 @@ public sealed class SwitcherSession
             var keepApp = _apps.FindIndex(hit => string.Equals(hit.App.Id, selectedApp, StringComparison.OrdinalIgnoreCase));
             if (keepApp >= 0)
             {
-                SelectedIndex = _filtered.Count + keepApp;
+                SelectedIndex = Lead + _filtered.Count + keepApp;
                 return true;
             }
         }
@@ -283,7 +364,7 @@ public sealed class SwitcherSession
         if (!selectedWasRemoved)
         {
             var keep = _filtered.FindIndex(w => w.Handle == selectedHandle);
-            SelectedIndex = keep >= 0 ? keep : Math.Clamp(oldSelected, 0, _filtered.Count - 1);
+            SelectedIndex = keep >= 0 ? Lead + keep : Math.Clamp(oldSelected, 0, _filtered.Count - 1);
         }
         else
         {
@@ -384,7 +465,7 @@ public sealed class SwitcherSession
             if (jumpHandle != 0)
             {
                 var jumped = _filtered.FindIndex(window => window.Handle == jumpHandle);
-                SelectedIndex = jumped >= 0 ? jumped : 0;
+                SelectedIndex = jumped >= 0 ? Lead + jumped : 0;
                 return;
             }
             if (singleToken)
@@ -392,7 +473,7 @@ public sealed class SwitcherSession
                 for (var i = 0; i < _apps.Count; i++)
                 {
                     if (!NameIndex.Matches(token, IndexForApp(i))) continue;
-                    SelectedIndex = _filtered.Count + i;
+                    SelectedIndex = Lead + _filtered.Count + i;
                     return;
                 }
             }
@@ -404,7 +485,7 @@ public sealed class SwitcherSession
             var keep = _filtered.FindIndex(w => w.Handle == selectedHandle);
             if (keep >= 0)
             {
-                SelectedIndex = keep;
+                SelectedIndex = Lead + keep;
                 return;
             }
         }
@@ -413,11 +494,17 @@ public sealed class SwitcherSession
             var keepApp = _apps.FindIndex(hit => string.Equals(hit.App.Id, selectedApp, StringComparison.OrdinalIgnoreCase));
             if (keepApp >= 0)
             {
-                SelectedIndex = _filtered.Count + keepApp;
+                SelectedIndex = Lead + _filtered.Count + keepApp;
                 return;
             }
         }
-        if (SelectedIndex >= ResultCount) SelectedIndex = ResultCount - 1;
+        Clamp();
+    }
+
+    void Clamp()
+    {
+        if (ResultCount == 0) SelectedIndex = -1;
+        else if (SelectedIndex >= ResultCount) SelectedIndex = ResultCount - 1;
         else if (SelectedIndex < 0) SelectedIndex = 0;
     }
 

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Windows.Threading;
 using AltPane.Core.Actions;
 using AltPane.Core.Apps;
@@ -6,6 +7,7 @@ using AltPane.Core.Load;
 using AltPane.Core.Layout;
 using AltPane.Core.Localization;
 using AltPane.Core.Models;
+using AltPane.Core.Search;
 using AltPane.Core.Switcher;
 
 namespace AltPane;
@@ -39,6 +41,9 @@ internal sealed class SwitcherPresenter
     SystemLoad _system;
     readonly HoverGate _hover = new();
     readonly WheelNavigator _wheel = new();
+    readonly EverythingClient _files = new();
+    DispatcherTimer? _fileTimer;
+    int _fileGen;
     bool _hoverHighlight;
 
     public SwitcherPresenter(Func<AppSettings> settings)
@@ -117,7 +122,6 @@ internal sealed class SwitcherPresenter
             else _deck.ClearClick();
             LaunchAdmin();
         };
-        window.OpenLocationRequested += RevealSelected;
         window.CommitRequested += () =>
         {
             if (window.TakeMouse()) _deck.NoteClick(window);
@@ -150,7 +154,17 @@ internal sealed class SwitcherPresenter
             _session?.SetQuery(text);
             Hotkeys?.SyncQueryLength(text?.Length ?? 0);
             SyncSearch();
+            NoteQueryExtras();
             Refresh();
+        };
+        window.CopyPathRequested += () => CopySelection(directory: false, nameOnly: false);
+        window.CopyDirectoryRequested += () => CopySelection(directory: true, nameOnly: false);
+        window.CopyNameRequested += () => CopySelection(directory: true, nameOnly: true);
+        window.RevealRequested += RevealSelection;
+        window.RowActivated += ActivateVisible;
+        window.RowHovered += index =>
+        {
+            if (_session?.SelectIndex(index) == true) Refresh();
         };
         window.AllowHover = AllowHover;
         window.WheelRequested += OnWheel;
@@ -203,12 +217,14 @@ internal sealed class SwitcherPresenter
                 NoteNavigation();
                 _session?.AppendQuery(append.Text);
                 SyncSearch();
+                NoteQueryExtras();
                 if (_deck.IsVisible) Refresh();
                 break;
             case UiOp.Backspace:
                 NoteNavigation();
                 _session?.Backspace();
                 SyncSearch();
+                NoteQueryExtras();
                 if (_deck.IsVisible) Refresh();
                 break;
             case UiOp.ClearQuery:
@@ -217,6 +233,7 @@ internal sealed class SwitcherPresenter
                     NoteNavigation();
                     Hotkeys?.SyncQueryLength(0);
                     SyncSearch();
+                    NoteQueryExtras();
                     if (_deck.IsVisible)
                     {
                         Refresh();
@@ -284,6 +301,21 @@ internal sealed class SwitcherPresenter
                 break;
             case UiOp.AdminLaunch:
                 LaunchAdmin();
+                break;
+            case UiOp.ActivateRow row:
+                ActivateVisible(row.Index);
+                break;
+            case UiOp.RevealPath:
+                RevealSelection();
+                break;
+            case UiOp.CopyPath:
+                CopySelection(directory: false, nameOnly: false);
+                break;
+            case UiOp.CopyDirectory:
+                CopySelection(directory: true, nameOnly: false);
+                break;
+            case UiOp.OpenMenu:
+                _deck.OpenActions();
                 break;
             case UiOp.BringToFront:
                 if (_session is null) Build(0);
@@ -517,14 +549,6 @@ internal sealed class SwitcherPresenter
         }
     }
 
-    void RevealSelected()
-    {
-        var hit = _session?.SelectedApp;
-        if (hit is not { } appHit) return;
-        if (!AppLauncher.TryReveal(appHit.App, out var error) && error is not null)
-            ShowStatus(Localizer.Current[error]);
-    }
-
     void ReloadApps()
     {
         _windows.RestampNames();
@@ -554,6 +578,24 @@ internal sealed class SwitcherPresenter
 
     void Commit(bool? moveOverride)
     {
+        if (_session?.SelectedIsCalculation == true)
+        {
+            CopyText(_session.CalculationPlain);
+            return;
+        }
+        if (_session?.SelectedFile is { } file)
+        {
+            var path = file.FullPath;
+            DismissForExternal();
+            Start(path);
+            return;
+        }
+        if (_session?.SelectedIsFileHint == true)
+        {
+            DismissForExternal();
+            Start("https://www.voidtools.com/");
+            return;
+        }
         var hit = _session?.SelectedApp;
         if (hit is { } appHit)
         {
@@ -981,6 +1023,11 @@ internal sealed class SwitcherPresenter
             EmptyText = EmptyMessage(loc, settings, filtered.Count, allCount),
             Apps = _session?.AppHits ?? Array.Empty<AppHit>(),
             AppIcons = _appIcons,
+            CalculationShown = _session?.CalculationShown,
+            CalculationPlain = _session?.CalculationPlain,
+            Files = _session?.Files ?? Array.Empty<FileHit>(),
+            FileSearchUnavailable = _session?.FileSearchUnavailable == true,
+            ActionHint = ActionHintText(settings),
             LaunchSection = _apps is { UsingBuiltInIndex: true }
                 ? loc["launch.section"] + "  ·  " + loc["launch.everythingOff"]
                 : loc["launch.section"],
@@ -1175,4 +1222,198 @@ internal sealed class SwitcherPresenter
     }
 
     void OnSpace() => Hotkeys?.RequestCommit();
+
+    void ActivateVisible(int index)
+    {
+        if (_session is null || !_session.SelectIndex(index)) return;
+        if (_session.SelectedIsCalculation)
+        {
+            if (_deck.IsVisible) Refresh();
+            CopyText(_session.CalculationPlain);
+            return;
+        }
+        Commit(null);
+    }
+
+    void NoteQueryExtras()
+    {
+        if (_session is null) return;
+        var raw = _session.Query;
+        if (Expression.TryEvaluate(raw, out var direct))
+            _session.SetCalculation(direct.Plain, direct.Shown);
+        else if (FileSearch.TryPlan(raw, _settings().DocumentExtensions, _settings().EverythingExcludedPaths, out var plan)
+            && Expression.TryEvaluate(plan.Text, out var inner))
+            _session.SetCalculation(inner.Plain, inner.Shown);
+        else
+            _session.SetCalculation(null, null);
+        ScheduleFiles();
+    }
+
+    void ScheduleFiles()
+    {
+        _fileGen++;
+        if (_session is null) return;
+        var settings = _settings();
+        if (!settings.UseEverything
+            || !FileSearch.TryPlan(_session.Query, settings.DocumentExtensions, settings.EverythingExcludedPaths, out _))
+        {
+            _fileTimer?.Stop();
+            _session.SetFiles(Array.Empty<FileHit>(), unavailable: false);
+            return;
+        }
+        _fileTimer ??= new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(160) };
+        _fileTimer.Stop();
+        _fileTimer.Tick -= OnFileDebounce;
+        _fileTimer.Tick += OnFileDebounce;
+        _fileTimer.Start();
+    }
+
+    void OnFileDebounce(object? sender, EventArgs e)
+    {
+        _fileTimer?.Stop();
+        if (_session is null) return;
+        var settings = _settings();
+        var raw = _session.Query;
+        if (!FileSearch.TryPlan(raw, settings.DocumentExtensions, settings.EverythingExcludedPaths, out var plan))
+        {
+            _session.SetFiles(Array.Empty<FileHit>(), unavailable: false);
+            if (_deck.IsVisible) Refresh();
+            return;
+        }
+        var gen = _fileGen;
+        var query = plan.Query;
+        var clock = Stopwatch.StartNew();
+        Task.Run(() =>
+        {
+            var running = _files.Probe().Running;
+            if (!running) return (Unavailable: true, Files: (IReadOnlyList<FileHit>)Array.Empty<FileHit>());
+            var paths = _files.Query(query, FileSearch.MaxResults, 700);
+            var list = new List<FileHit>(paths.Count);
+            foreach (var path in paths)
+            {
+                if (string.IsNullOrWhiteSpace(path)) continue;
+                list.Add(new FileHit(path, Path.GetFileName(path), Path.GetDirectoryName(path) ?? ""));
+                if (list.Count >= FileSearch.MaxResults) break;
+            }
+            return (Unavailable: false, Files: (IReadOnlyList<FileHit>)list);
+        }).ContinueWith(task => _deck.Dispatcher.BeginInvoke(() =>
+        {
+            var elapsed = clock.ElapsedMilliseconds;
+            if (gen != _fileGen || _session is null || !string.Equals(_session.Query, raw, StringComparison.Ordinal))
+                return;
+            if (task.Status != TaskStatus.RanToCompletion)
+            {
+                AppLog.Info($"file search {elapsed} ms, rows 0");
+                _session.SetFiles(Array.Empty<FileHit>(), unavailable: true);
+            }
+            else
+            {
+                AppLog.Info($"file search {elapsed} ms, rows {task.Result.Files.Count}");
+                _session.SetFiles(task.Result.Files, task.Result.Unavailable);
+            }
+            if (_deck.IsVisible) Refresh();
+        }));
+    }
+
+    void RevealSelection()
+    {
+        var path = SelectedPath();
+        if (path is not null)
+        {
+            Start("explorer.exe", "/select,\"" + path + "\"");
+            return;
+        }
+        var hit = _session?.SelectedApp;
+        if (hit is not { } appHit) return;
+        if (!AppLauncher.TryReveal(appHit.App, out var error) && error is not null)
+            ShowStatus(Localizer.Current[error]);
+    }
+
+    void CopySelection(bool directory, bool nameOnly)
+    {
+        if (_session?.SelectedIsCalculation == true && !directory && !nameOnly)
+        {
+            CopyText(_session.CalculationPlain);
+            return;
+        }
+        var path = SelectedPath();
+        if (path is null) return;
+        var text = nameOnly ? PathText.DirectoryName(path) : directory ? PathText.DirectoryPath(path) : path;
+        CopyText(text);
+    }
+
+    void CopyText(string? text)
+    {
+        if (string.IsNullOrEmpty(text)) return;
+        try
+        {
+            System.Windows.Clipboard.SetText(text);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error(ex);
+            return;
+        }
+        _deck.ShowToast("已复制");
+    }
+
+    string? SelectedPath()
+    {
+        if (_session is null) return null;
+        if (_session.SelectedFile is { } file) return file.FullPath;
+        if (_session.Selected is { } window && IsFilePath(window.IconPath)) return window.IconPath;
+        if (_session.SelectedApp is { } app)
+        {
+            if (IsFilePath(app.App.ResolvedPath)) return app.App.ResolvedPath;
+            if (IsFilePath(app.App.LaunchPath)) return app.App.LaunchPath;
+        }
+        return null;
+    }
+
+    static bool IsFilePath(string? path) =>
+        !string.IsNullOrWhiteSpace(path)
+        && (path.Contains('\\') || path.Contains('/') || (path.Length > 2 && path[1] == ':'));
+
+    string ActionHintText(AppSettings settings)
+    {
+        if (_session is null) return "";
+        if (_session.SelectedIsCalculation)
+            return RowHints.Text(HintRow.Calculator, settings.ShowActionHint);
+        if (_session.SelectedFile is not null)
+            return RowHints.Text(HintRow.File, settings.ShowActionHint);
+        if (_session.Selected is not null)
+            return RowHints.Text(HintRow.Window, settings.ShowActionHint, SelectedPath() is not null);
+        if (_session.SelectedApp is { } app)
+            return RowHints.Text(HintRow.App, settings.ShowActionHint, SelectedPath() is not null, app.SwitchHandle != 0);
+        return "";
+    }
+
+    void DismissForExternal()
+    {
+        OpenTiming.Clear();
+        ReleaseLiveSurface();
+        PendingShow = false;
+        _searchMode = false;
+        _session = null;
+        _arm.Clear();
+        _fileGen++;
+        _fileTimer?.Stop();
+        _deck.HideAll();
+        Hotkeys?.RequestIdle();
+    }
+
+    static void Start(string path, string? arguments = null)
+    {
+        try
+        {
+            var info = new ProcessStartInfo(path) { UseShellExecute = true };
+            if (!string.IsNullOrEmpty(arguments))
+                info.Arguments = arguments;
+            Process.Start(info);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error(ex);
+        }
+    }
 }

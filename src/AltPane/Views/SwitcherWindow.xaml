@@ -136,6 +136,11 @@
                   <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="8,0,4,0">
                     <TextBlock x:Name="SectionText" Text="{Binding Section}" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource AccentBrush}" Margin="0,2,0,2"/>
                     <DockPanel>
+                      <Border x:Name="DigitChip" DockPanel.Dock="Left" Margin="0,0,6,0" MinWidth="16" Padding="4,0" CornerRadius="4"
+                              Background="{DynamicResource AccentBrush}" VerticalAlignment="Center">
+                        <TextBlock Text="{Binding DigitLabel}" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource WindowBgBrush}"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                      </Border>
                       <Border x:Name="IndexChip" DockPanel.Dock="Left" Margin="0,0,6,0" MinWidth="18" Padding="4,0" CornerRadius="4"
                               Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1" VerticalAlignment="Center">
                         <TextBlock Text="{Binding IndexLabel}" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource AccentBrush}"
@@ -166,6 +171,9 @@
                   </StackPanel>
                 </Grid>
                 <DataTemplate.Triggers>
+                  <DataTrigger Binding="{Binding DigitLabel}" Value="">
+                    <Setter TargetName="DigitChip" Property="Visibility" Value="Collapsed"/>
+                  </DataTrigger>
                   <DataTrigger Binding="{Binding IndexLabel}" Value="">
                     <Setter TargetName="IndexChip" Property="Visibility" Value="Collapsed"/>
                   </DataTrigger>
@@ -208,10 +216,19 @@
                      Visibility="Collapsed"/>
       </Grid>
 
-      <DockPanel Grid.Row="2" Margin="4,12,4,0">
-        <TextBlock x:Name="StatusText" DockPanel.Dock="Right" Margin="16,0,0,0" Foreground="{DynamicResource AccentBrush}" FontSize="12" TextWrapping="Wrap" MaxWidth="280"/>
-        <TextBlock x:Name="HintText" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12"/>
-      </DockPanel>
+      <StackPanel Grid.Row="2" Margin="4,8,4,0">
+        <Border x:Name="ActionHintBar" Background="{DynamicResource SurfaceBrush}" CornerRadius="8" Padding="10,6" Margin="0,0,0,8">
+          <TextBlock x:Name="ActionHint" FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}" TextTrimming="CharacterEllipsis"/>
+        </Border>
+        <DockPanel>
+          <TextBlock x:Name="StatusText" DockPanel.Dock="Right" Margin="16,0,0,0" Foreground="{DynamicResource AccentBrush}" FontSize="12" TextWrapping="Wrap" MaxWidth="280"/>
+          <TextBlock x:Name="HintText" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12"/>
+        </DockPanel>
+      </StackPanel>
+      <Border x:Name="Toast" Grid.Row="1" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,12"
+              Background="{DynamicResource AccentBrush}" CornerRadius="8" Padding="12,6" Visibility="Collapsed" IsHitTestVisible="False">
+        <TextBlock x:Name="ToastText" Foreground="{DynamicResource WindowBgBrush}" FontSize="12"/>
+      </Border>
     </Grid>
     </Border>
   </Border>

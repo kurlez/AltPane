@@ -37,13 +37,14 @@ Publishing steps, including winget and a future SignPath signature, are in [RELE
 | Window’s display | On each copy, a window already on that display is labeled This screen. Any other display is its Windows number. Ctrl+Shift+D shows only windows on the copy that has the keyboard |
 | Activate the selection | Enter, or click a row on any monitor. Space does this when the search box is empty, including a minimized window. In classic mode (Settings), releasing the trigger modifier also activates |
 | Launch an app | Type part of its name, move to the Launch row, and press Enter. If that app already has a window, Enter switches to it instead |
-| Run as administrator | Ctrl+Enter on a Launch row, or the context menu. Store apps cannot be elevated. Cancelling the UAC prompt does not count as a launch |
+| Run as administrator | Ctrl+Shift+Enter on a Launch row, or the context menu. Store apps cannot be elevated. Cancelling the UAC prompt does not count as a launch |
 | Open the app’s file location | Context menu on a Launch row |
 | Keep the switcher open | Release the trigger modifier. This is the default. Alt+Tab while it is open keeps cycling |
 | Cancel | Esc when the search box is empty, a second Esc after the first one cleared the query, or click outside every copy. While an IME is composing, Esc cancels the composition and nothing else |
 | Clear search | Esc, when the search box has text. The previous window is selected again if it is still listed. Focus stays in the search box |
 | Switch without moving | Shift+Enter, or the context menu. Plain Enter moves onto the copy you clicked, or the display under the mouse |
-| Move the selection | Tab, Shift+Tab, arrow keys, Home, End, Page Up, Page Down, and the mouse wheel. One wheel notch, or 120 of accumulated precision-touchpad delta, moves one row and stops on the first and last row. The selected row stays in view. These work after the trigger key is released |
+| Move the selection | Tab, Shift+Tab, Up, Down, Left, Home, End, Page Up, Page Down, and the mouse wheel. One wheel notch, or 120 of accumulated precision-touchpad delta, moves one row and stops on the first and last row. The selected row stays in view. Right opens the action menu when the search caret cannot move further. These work after the trigger key is released |
+| Jump to a row | Ctrl+1 through Ctrl+9, and Ctrl+0 for the tenth visible row, activate that row and close the switcher. The number is shown beside the name index. This works while Alt is held and while the search box is focused |
 | Filter or find an app | Type, with or without holding the trigger. Backspace edits the query. Initials and pinyin match Chinese names (`wx`, `weixin`, and `yinyue` for 音乐). An empty box does not list the whole app catalog |
 | Search with an IME | Release the trigger key. The search box is focused, so a Chinese IME can compose. Ctrl+F, or a click on the search box, does the same while the key is still held. Enter confirms |
 | Close the window | Delete, the Close button, the context menu, or middle-click a row |

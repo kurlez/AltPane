@@ -240,6 +240,8 @@ public class StableGroupedOrderTests
         Assert.Equal(LoadSortMode.Initial, current.Settings.SortMode);
         Assert.Equal(5, current.Settings.FocusThresholdMinutes);
         Assert.False(current.Migrated);
+        Assert.True(current.Settings.ShowActionHint);
+        Assert.Contains("pdf", current.Settings.DocumentExtensions, StringComparison.Ordinal);
     }
 
     static SettingsLoadResult Load(string json)

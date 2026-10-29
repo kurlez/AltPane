@@ -146,9 +146,11 @@ public class HookInterpreterTests
         var enter = Open(Key(VirtualKeys.Return, true, ModifierState.AltOnly)) with { StickySwitcher = true };
         Assert.Equal(HookCommand.Commit, HookInterpreter.Interpret(enter).Command);
         var admin = Open(Key(VirtualKeys.Return, true, new ModifierState(true, true, false, false))) with { StickySwitcher = true };
-        Assert.Equal(HookCommand.AdminLaunch, HookInterpreter.Interpret(admin).Command);
+        Assert.Equal(HookCommand.RevealPath, HookInterpreter.Interpret(admin).Command);
         var searchAdmin = admin with { SearchMode = true, GestureLatched = false, Modifiers = new ModifierState(false, true, false, false) };
-        Assert.Equal(HookCommand.AdminLaunch, HookInterpreter.Interpret(searchAdmin).Command);
+        Assert.Equal(HookCommand.RevealPath, HookInterpreter.Interpret(searchAdmin).Command);
+        var elevated = admin with { Modifiers = new ModifierState(true, true, true, false) };
+        Assert.Equal(HookCommand.AdminLaunch, HookInterpreter.Interpret(elevated).Command);
         var tab = Open(Key(VirtualKeys.Tab, true, ModifierState.AltOnly)) with { StickySwitcher = true };
         Assert.Equal(HookCommand.Cycle, HookInterpreter.Interpret(tab).Command);
     }

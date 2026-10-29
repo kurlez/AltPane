@@ -8,6 +8,7 @@ using System.Windows.Media;
 using System.Windows.Threading;
 using AltPane.Core.Apps;
 using AltPane.Core.Input;
+using AltPane.Core.Search;
 using AltPane.Core.Layout;
 using AltPane.Core.Load;
 using AltPane.Core.Localization;
@@ -17,12 +18,22 @@ using WpfMods = System.Windows.Input.ModifierKeys;
 
 namespace AltPane;
 
+internal enum SwitcherKind
+{
+    Window,
+    App,
+    File,
+    Calculation,
+    FileHint
+}
+
 internal sealed class SwitcherRow : INotifyPropertyChanged
 {
     ImageSource _icon;
 
     public SwitcherRow(WindowEntry entry, ImageSource icon, string index, string section = "")
     {
+        Kind = SwitcherKind.Window;
         Entry = entry;
         _icon = icon;
         Title = entry.Title;
@@ -33,6 +44,7 @@ internal sealed class SwitcherRow : INotifyPropertyChanged
 
     public SwitcherRow(AppHit hit, ImageSource icon, string section, string badge, string subtitle, string index)
     {
+        Kind = SwitcherKind.App;
         AppHit = hit;
         _icon = icon;
         Title = hit.App.Name;
@@ -42,9 +54,20 @@ internal sealed class SwitcherRow : INotifyPropertyChanged
         IndexLabel = index;
     }
 
+    public SwitcherRow(SwitcherKind kind, string title, string subtitle, ImageSource icon, string section)
+    {
+        Kind = kind;
+        _icon = icon;
+        Title = title;
+        _subtitle = subtitle;
+        _section = section ?? "";
+    }
+
     public WindowEntry? Entry { get; }
     public AppHit? AppHit { get; }
-    public bool IsApp => AppHit is not null;
+    public SwitcherKind Kind { get; } = SwitcherKind.Window;
+    public string? FilePath { get; init; }
+    public bool IsApp => Kind == SwitcherKind.App;
     public string? AppId => AppHit?.App.Id;
     public string Title { get; }
     string _subtitle = "";
@@ -61,6 +84,15 @@ internal sealed class SwitcherRow : INotifyPropertyChanged
     public string Section => _section;
     public string Badge { get; } = "";
     public string IndexLabel { get; private set; } = "";
+    public string DigitLabel { get; private set; } = "";
+
+    public void SetDigit(string label)
+    {
+        label ??= "";
+        if (DigitLabel == label) return;
+        DigitLabel = label;
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(DigitLabel)));
+    }
 
     public void SetIndex(string index)
     {
@@ -224,6 +256,11 @@ public sealed class SwitcherViewState
     public string LaunchSection { get; init; } = "";
     public string OpenBadge { get; init; } = "";
     public string SwitchSubtitle { get; init; } = "";
+    public string? CalculationShown { get; init; }
+    public string? CalculationPlain { get; init; }
+    public IReadOnlyList<FileHit> Files { get; init; } = Array.Empty<FileHit>();
+    public bool FileSearchUnavailable { get; init; }
+    public string ActionHint { get; init; } = "";
     public bool ShowMonitorBadges { get; init; }
     public bool MonitorFilterOn { get; init; }
     public string MonitorFilterText { get; init; } = "";
@@ -248,6 +285,11 @@ public partial class SwitcherWindow : Window
     readonly MenuItem _menuDemote;
     readonly MenuItem _menuRestorePriority;
     bool _menuForApp;
+    SwitcherKind _menuKind;
+    readonly MenuItem _menuCopyPath;
+    readonly MenuItem _menuCopyDir;
+    readonly MenuItem _menuCopyName;
+    DispatcherTimer? _toastTimer;
     int _renderedSelection = -2;
     bool _internalEdit;
     int _compositionChars;
@@ -279,13 +321,19 @@ public partial class SwitcherWindow : Window
         _menuPin = new MenuItem();
         _menuDemote = new MenuItem();
         _menuRestorePriority = new MenuItem();
+        _menuCopyPath = new MenuItem();
+        _menuCopyDir = new MenuItem();
+        _menuCopyName = new MenuItem();
         _menuClose.Click += (_, _) => CloseRequested?.Invoke();
         _menuPin.Click += (_, _) => PinRequested?.Invoke();
         _menuDemote.Click += (_, _) => DemoteRequested?.Invoke();
         _menuRestorePriority.Click += (_, _) => RestorePriorityRequested?.Invoke();
+        _menuCopyPath.Click += (_, _) => CopyPathRequested?.Invoke();
+        _menuCopyDir.Click += (_, _) => CopyDirectoryRequested?.Invoke();
+        _menuCopyName.Click += (_, _) => CopyNameRequested?.Invoke();
         _menuLaunch.Click += (_, _) => { _mouseGesture = true; CommitRequested?.Invoke(); };
         _menuAdmin.Click += (_, _) => { _mouseGesture = true; AdminLaunchRequested?.Invoke(); };
-        _menuLocation.Click += (_, _) => OpenLocationRequested?.Invoke();
+        _menuLocation.Click += (_, _) => RevealRequested?.Invoke();
         _menuKill.Click += (_, _) => KillRequested?.Invoke();
         _menuKillTree.Click += (_, _) => KillTreeRequested?.Invoke();
         _menuMin.Click += (_, _) => MinimizeRequested?.Invoke();
@@ -296,7 +344,7 @@ public partial class SwitcherWindow : Window
             Items =
             {
                 _menuPin, _menuDemote, _menuRestorePriority, new Separator(),
-                _menuLaunch, _menuAdmin, _menuLocation, _menuMove, _menuStay,
+                _menuLaunch, _menuAdmin, _menuLocation, _menuCopyPath, _menuCopyDir, _menuCopyName, _menuMove, _menuStay,
                 _menuClose, _menuKill, _menuKillTree, new Separator(),
                 _menuMin, _menuMax, _menuRestore
             }
@@ -364,7 +412,6 @@ public partial class SwitcherWindow : Window
     public event Action<string>? AppHovered;
     public event Action<string>? AppInvoked;
     public event Action? AdminLaunchRequested;
-    public event Action? OpenLocationRequested;
     public event Action? CommitRequested;
     public event Action? CommitInPlaceRequested;
     public event Action? ForceMoveRequested;
@@ -397,6 +444,12 @@ public partial class SwitcherWindow : Window
     public event Action? PinRequested;
     public event Action? DemoteRequested;
     public event Action? RestorePriorityRequested;
+    public event Action? CopyPathRequested;
+    public event Action? CopyDirectoryRequested;
+    public event Action? CopyNameRequested;
+    public event Action? RevealRequested;
+    public event Action<int>? RowActivated;
+    public event Action<int>? RowHovered;
 
     public DisplayBounds Host => _host;
     public Func<nint, bool>? IsCompanion { get; set; }
@@ -435,6 +488,8 @@ public partial class SwitcherWindow : Window
         Volatile.Write(ref _queryChars, SearchBox.Text?.Length ?? 0);
         SearchPlaceholder.Visibility = string.IsNullOrEmpty(SearchBox.Text) ? Visibility.Visible : Visibility.Collapsed;
         HintText.Text = state.Hint;
+        ActionHint.Text = state.ActionHint ?? "";
+        ActionHintBar.Visibility = string.IsNullOrEmpty(state.ActionHint) ? Visibility.Collapsed : Visibility.Visible;
         CountText.Text = state.CountText;
         SystemText.Text = state.SystemText;
         SystemText.Visibility = state.ShowLoad ? Visibility.Visible : Visibility.Collapsed;
@@ -454,10 +509,11 @@ public partial class SwitcherWindow : Window
 
         SyncRows(state);
         var kill = Localizer.Current["action.kill"];
+        var origin = RowOrigin();
 
-        for (var i = 0; i < _rows.Count && i < state.Filtered.Count; i++)
+        for (var i = 0; i < state.Filtered.Count && origin + i < _rows.Count; i++)
         {
-            var row = _rows[i];
+            var row = _rows[origin + i];
             if (row.Entry is not { } entry) continue;
             row.SetKillLabel(kill);
             if (state.Indexes.TryGetValue(entry.Handle, out var index))
@@ -470,9 +526,12 @@ public partial class SwitcherWindow : Window
             row.ApplyLoad(state.ShowLoad, load);
             row.ApplyMonitor(state.ShowMonitorBadges, entry, _host.Number, _thisScreen);
         }
+        for (var i = 0; i < _rows.Count; i++)
+            _rows[i].SetDigit(DigitSelect.Label(i));
+
         for (var i = 0; i < state.Apps.Count; i++)
         {
-            var rowIndex = state.Filtered.Count + i;
+            var rowIndex = origin + state.Filtered.Count + i;
             if (rowIndex < 0 || rowIndex >= _rows.Count) break;
             var hit = state.Apps[i];
             if (state.AppIcons.TryGetValue(hit.App.Id, out var icon) && !ReferenceEquals(icon, _rows[rowIndex].Icon))
@@ -486,9 +545,9 @@ public partial class SwitcherWindow : Window
             WindowList.ScrollIntoView(_rows[state.SelectedIndex]);
         _renderedSelection = state.SelectedIndex;
 
-        var selectedApp = state.SelectedIndex >= state.Filtered.Count
-            && state.SelectedIndex < state.Filtered.Count + state.Apps.Count
-            ? state.Apps[state.SelectedIndex - state.Filtered.Count]
+        var selectedApp = state.SelectedIndex >= origin + state.Filtered.Count
+            && state.SelectedIndex < origin + state.Filtered.Count + state.Apps.Count
+            ? state.Apps[state.SelectedIndex - origin - state.Filtered.Count]
             : (AppHit?)null;
         _menuAdmin.IsEnabled = selectedApp is { } launch && launch.SwitchHandle == 0 && launch.App.Kind != AppKind.Store;
     }
@@ -665,8 +724,12 @@ public partial class SwitcherWindow : Window
 
         switch (key)
         {
-            case Key.Enter when mods.HasFlag(WpfMods.Control):
+            case Key.Enter when mods.HasFlag(WpfMods.Control) && mods.HasFlag(WpfMods.Shift):
                 AdminLaunchRequested?.Invoke();
+                e.Handled = true;
+                break;
+            case Key.Enter when mods.HasFlag(WpfMods.Control):
+                RevealRequested?.Invoke();
                 e.Handled = true;
                 break;
             case Key.Enter when mods.HasFlag(WpfMods.Shift):
@@ -683,8 +746,28 @@ public partial class SwitcherWindow : Window
                 e.Handled = true;
                 break;
             case Key.Down:
-            case Key.Right:
                 NavigateRequested?.Invoke(1);
+                e.Handled = true;
+                break;
+            case Key.Right when mods == WpfMods.None:
+                if (_searchMode && SearchBox.SelectionLength == 0 && SearchBox.CaretIndex < (SearchBox.Text?.Length ?? 0))
+                    break;
+                OpenActions();
+                e.Handled = true;
+                break;
+            case Key.C when mods.HasFlag(WpfMods.Control) && !mods.HasFlag(WpfMods.Alt) && !mods.HasFlag(WpfMods.Windows):
+                if (mods.HasFlag(WpfMods.Shift))
+                {
+                    CopyDirectoryRequested?.Invoke();
+                    e.Handled = true;
+                    break;
+                }
+                if (SearchBox.SelectionLength > 0) break;
+                CopyPathRequested?.Invoke();
+                e.Handled = true;
+                break;
+            case Key.O when mods.HasFlag(WpfMods.Control) && !mods.HasFlag(WpfMods.Shift) && !mods.HasFlag(WpfMods.Alt) && !mods.HasFlag(WpfMods.Windows):
+                OpenActions();
                 e.Handled = true;
                 break;
             case Key.Home:
@@ -789,6 +872,54 @@ public partial class SwitcherWindow : Window
     System.Windows.Media.Brush BrushOf(string key) =>
         TryFindResource(key) as System.Windows.Media.Brush ?? System.Windows.Media.Brushes.Transparent;
 
+    public void OpenActions()
+    {
+        if (WindowList.SelectedItem is SwitcherRow row)
+        {
+            _menuKind = row.Kind;
+            _menuForApp = row.IsApp;
+        }
+        LocalizeMenu();
+        _menu.PlacementTarget = WindowList;
+        _menu.IsOpen = true;
+    }
+
+    public void ShowToast(string text)
+    {
+        ToastText.Text = text;
+        Toast.Visibility = Visibility.Visible;
+        _toastTimer ??= new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1100) };
+        _toastTimer.Stop();
+        _toastTimer.Tick -= HideToast;
+        _toastTimer.Tick += HideToast;
+        _toastTimer.Start();
+    }
+
+    void HideToast(object? sender, EventArgs e)
+    {
+        _toastTimer?.Stop();
+        Toast.Visibility = Visibility.Collapsed;
+    }
+
+    static object MenuHeader(string label, string shortcut)
+    {
+        var panel = new DockPanel { LastChildFill = true };
+        if (!string.IsNullOrEmpty(shortcut))
+        {
+            var key = new TextBlock
+            {
+                Text = shortcut,
+                Margin = new Thickness(28, 0, 0, 0),
+                Opacity = 0.65,
+                HorizontalAlignment = HorizontalAlignment.Right
+            };
+            DockPanel.SetDock(key, Dock.Right);
+            panel.Children.Add(key);
+        }
+        panel.Children.Add(new TextBlock { Text = label });
+        return panel;
+    }
+
     void LocalizeMenu()
     {
         var loc = Localizer.Current;
@@ -799,19 +930,33 @@ public partial class SwitcherWindow : Window
         _menuMax.Header = loc["menu.maximize"];
         _menuRestore.Header = loc["menu.restore"];
         var switching = WindowList.SelectedItem is SwitcherRow { IsApp: true, Badge.Length: > 0 };
-        _menuLaunch.Header = loc[switching ? "launch.switch" : "launch.open"];
-        _menuAdmin.Header = loc["launch.admin"];
-        _menuLocation.Header = loc["launch.location"];
-        _menuMove.Header = loc["menu.moveHere"];
-        _menuStay.Header = loc["menu.stay"];
-        _menuPin.Header = loc["menu.pin"];
-        _menuDemote.Header = loc["menu.demote"];
-        _menuRestorePriority.Header = loc["menu.restorePriority"];
-        var app = _menuForApp ? Visibility.Visible : Visibility.Collapsed;
-        var window = _menuForApp ? Visibility.Collapsed : Visibility.Visible;
+        _menuLaunch.Header = MenuHeader(loc[switching ? "launch.switch" : "launch.open"], "Enter");
+        _menuAdmin.Header = MenuHeader(loc["launch.admin"], "Ctrl+Shift+Enter");
+        _menuLocation.Header = MenuHeader(loc["launch.location"], "Ctrl+Enter");
+        _menuCopyPath.Header = MenuHeader("复制路径", "Ctrl+C");
+        _menuCopyDir.Header = MenuHeader("复制目录路径", "Ctrl+Shift+C");
+        _menuCopyName.Header = MenuHeader("复制目录名", "");
+        _menuMove.Header = MenuHeader(loc["menu.moveHere"], "");
+        _menuStay.Header = MenuHeader(loc["menu.stay"], "Shift+Enter");
+        _menuPin.Header = MenuHeader(loc["menu.pin"], "Ctrl+Shift+P");
+        _menuDemote.Header = MenuHeader(loc["menu.demote"], "Ctrl+Shift+B");
+        _menuRestorePriority.Header = MenuHeader(loc["menu.restorePriority"], "Ctrl+Shift+U");
+        _menuClose.Header = MenuHeader(loc["menu.close"], "Delete");
+        _menuKill.Header = MenuHeader(loc["menu.kill"], "Shift+Delete");
+        _menuKillTree.Header = MenuHeader(loc["menu.killTree"], "");
+        _menuMin.Header = MenuHeader(loc["menu.minimize"], "Ctrl+M");
+        _menuMax.Header = MenuHeader(loc["menu.maximize"], "Ctrl+Shift+M");
+        _menuRestore.Header = MenuHeader(loc["menu.restore"], "Ctrl+R");
+        var pathRow = _menuKind is SwitcherKind.File or SwitcherKind.Window or SwitcherKind.App;
+        var app = _menuKind == SwitcherKind.App ? Visibility.Visible : Visibility.Collapsed;
+        var window = _menuKind == SwitcherKind.Window ? Visibility.Visible : Visibility.Collapsed;
+        var path = pathRow ? Visibility.Visible : Visibility.Collapsed;
+        _menuCopyPath.Visibility = path;
+        _menuCopyDir.Visibility = path;
+        _menuCopyName.Visibility = path;
+        _menuLocation.Visibility = path;
         _menuLaunch.Visibility = app;
         _menuAdmin.Visibility = app;
-        _menuLocation.Visibility = app;
         _menuClose.Visibility = window;
         _menuKill.Visibility = window;
         _menuKillTree.Visibility = window;
@@ -823,8 +968,11 @@ public partial class SwitcherWindow : Window
         _menuRestorePriority.Visibility = window;
     }
 
+    int RowOrigin() => _rows.Count > 0 && _rows[0].Kind == SwitcherKind.Calculation ? 1 : 0;
+
     void SyncRows(SwitcherViewState state)
     {
+        EnsurePrefix(state);
         var windowCount = WindowRowCount();
         if (!SameWindowOrder(state, windowCount))
         {
@@ -834,23 +982,83 @@ public partial class SwitcherWindow : Window
                 ReplaceWindowRows(state);
         }
 
-        SyncAppRows(state, WindowRowCount());
+        SyncAppRows(state, RowOrigin() + WindowRowCount());
+        SyncTail(state, RowOrigin() + WindowRowCount() + state.Apps.Count);
+    }
+
+    void EnsurePrefix(SwitcherViewState state)
+    {
+        var want = !string.IsNullOrEmpty(state.CalculationShown);
+        var has = _rows.Count > 0 && _rows[0].Kind == SwitcherKind.Calculation;
+        if (want && has)
+        {
+            if (_rows[0].Title != state.CalculationShown)
+                _rows[0] = new SwitcherRow(SwitcherKind.Calculation, state.CalculationShown!, "", IconLoader.Letter("="), "")
+                {
+                    FilePath = state.CalculationPlain
+                };
+            return;
+        }
+        if (want)
+            _rows.Insert(0, new SwitcherRow(SwitcherKind.Calculation, state.CalculationShown!, "", IconLoader.Letter("="), "")
+            {
+                FilePath = state.CalculationPlain
+            });
+        else if (has)
+            _rows.RemoveAt(0);
+    }
+
+    void SyncTail(SwitcherViewState state, int start)
+    {
+        while (_rows.Count > start)
+            _rows.RemoveAt(_rows.Count - 1);
+        var files = state.Files ?? Array.Empty<FileHit>();
+        for (var i = 0; i < files.Count; i++)
+        {
+            var file = files[i];
+            _rows.Add(new SwitcherRow(SwitcherKind.File, file.Name, file.Directory, IconLoader.Letter(ExtensionOf(file.Name)), i == 0 ? "文件" : "")
+            {
+                FilePath = file.FullPath
+            });
+        }
+        if (state.FileSearchUnavailable)
+        {
+            _rows.Add(new SwitcherRow(
+                SwitcherKind.FileHint,
+                "未检测到 Everything，文件搜索不可用",
+                "https://www.voidtools.com/",
+                IconLoader.Letter("E"),
+                files.Count == 0 ? "文件" : ""));
+        }
+    }
+
+    static string ExtensionOf(string name)
+    {
+        var dot = name.LastIndexOf('.');
+        if (dot < 0 || dot == name.Length - 1) return name;
+        return name[(dot + 1)..];
     }
 
     int WindowRowCount()
     {
         var count = 0;
-        while (count < _rows.Count && !_rows[count].IsApp)
+        var index = RowOrigin();
+        while (index < _rows.Count && _rows[index].Kind == SwitcherKind.Window)
+        {
             count++;
+            index++;
+        }
         return count;
     }
 
     bool SameWindowOrder(SwitcherViewState state, int windowCount)
     {
         if (windowCount != state.Filtered.Count) return false;
+        var origin = RowOrigin();
         for (var i = 0; i < windowCount; i++)
         {
-            if (_rows[i].Entry?.Handle != state.Filtered[i].Handle) return false;
+            if (origin + i >= _rows.Count) return false;
+            if (_rows[origin + i].Entry?.Handle != state.Filtered[i].Handle) return false;
         }
         return true;
     }
@@ -862,9 +1070,10 @@ public partial class SwitcherWindow : Window
             want.Add(entry.Handle);
         var current = new HashSet<long>();
         var kept = new List<long>();
+        var origin = RowOrigin();
         for (var i = 0; i < windowCount; i++)
         {
-            var handle = _rows[i].Entry?.Handle ?? 0;
+            var handle = origin + i < _rows.Count ? _rows[origin + i].Entry?.Handle ?? 0 : 0;
             current.Add(handle);
             if (want.Contains(handle)) kept.Add(handle);
         }
@@ -885,11 +1094,12 @@ public partial class SwitcherWindow : Window
     {
         var wanted = new HashSet<long>(state.Filtered.Select(entry => entry.Handle));
         var desired = 0;
-        var row = 0;
-        while (desired < state.Filtered.Count || row < windowCount)
+        var row = RowOrigin();
+        var end = row + windowCount;
+        while (desired < state.Filtered.Count || row < end)
         {
-            var current = row < windowCount ? _rows[row].Entry?.Handle ?? 0 : 0;
-            var matches = row < windowCount
+            var current = row < end && row < _rows.Count ? _rows[row].Entry?.Handle ?? 0 : 0;
+            var matches = row < end
                 && desired < state.Filtered.Count
                 && current == state.Filtered[desired].Handle;
             if (matches)
@@ -898,26 +1108,27 @@ public partial class SwitcherWindow : Window
                 row++;
                 continue;
             }
-            if (row < windowCount && (desired >= state.Filtered.Count || !wanted.Contains(current)))
+            if (row < end && (desired >= state.Filtered.Count || !wanted.Contains(current)))
             {
                 _rows.RemoveAt(row);
-                windowCount--;
+                end--;
                 continue;
             }
             InsertWindowRow(state, desired, row);
             desired++;
             row++;
-            windowCount++;
+            end++;
         }
     }
 
     void ReplaceWindowRows(SwitcherViewState state)
     {
+        var origin = RowOrigin();
         var windowCount = WindowRowCount();
         for (var i = windowCount - 1; i >= 0; i--)
-            _rows.RemoveAt(i);
+            _rows.RemoveAt(origin + i);
         for (var i = 0; i < state.Filtered.Count; i++)
-            InsertWindowRow(state, i, i);
+            InsertWindowRow(state, i, origin + i);
     }
 
     void InsertWindowRow(SwitcherViewState state, int filteredIndex, int rowIndex)
@@ -998,7 +1209,9 @@ public partial class SwitcherWindow : Window
         var screen = PointToScreen(e.GetPosition(this));
         if (AllowHover?.Invoke(screen.X, screen.Y) != true) return;
         if (RowFrom(sender) is not { } row) return;
-        if (row.Entry is { } entry) Hovered?.Invoke(entry.Handle);
+        if (row.Kind is SwitcherKind.File or SwitcherKind.Calculation or SwitcherKind.FileHint)
+            RowHovered?.Invoke(_rows.IndexOf(row));
+        else if (row.Entry is { } entry) Hovered?.Invoke(entry.Handle);
         else if (row.AppId is { } id) AppHovered?.Invoke(id);
     }
 
@@ -1012,6 +1225,12 @@ public partial class SwitcherWindow : Window
                 Hovered?.Invoke(kill.Handle);
                 KillRequested?.Invoke();
             }
+            e.Handled = true;
+            return;
+        }
+        if (row.Kind is SwitcherKind.File or SwitcherKind.Calculation or SwitcherKind.FileHint)
+        {
+            RowActivated?.Invoke(_rows.IndexOf(row));
             e.Handled = true;
             return;
         }
@@ -1035,7 +1254,10 @@ public partial class SwitcherWindow : Window
     {
         if (RowAt(e) is not { } row) return;
         _menuForApp = row.IsApp;
-        if (row.Entry is { } entry) Hovered?.Invoke(entry.Handle);
+        _menuKind = row.Kind;
+        if (row.Kind is SwitcherKind.File or SwitcherKind.Calculation or SwitcherKind.FileHint)
+            RowHovered?.Invoke(_rows.IndexOf(row));
+        else if (row.Entry is { } entry) Hovered?.Invoke(entry.Handle);
         else if (row.AppId is { } id) AppHovered?.Invoke(id);
     }
 

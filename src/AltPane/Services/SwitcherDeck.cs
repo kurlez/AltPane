@@ -238,6 +238,14 @@ internal sealed class SwitcherDeck
 
     public void NoteKeyboard(SwitcherWindow window) => _keyboard = window;
 
+    public void ShowToast(string text)
+    {
+        foreach (var window in All())
+            window.ShowToast(text);
+    }
+
+    public void OpenActions() => Keyboard()?.OpenActions();
+
     public void SetHoverHighlight(bool enabled)
     {
         foreach (var window in All())

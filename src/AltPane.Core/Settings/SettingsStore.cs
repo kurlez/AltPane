@@ -88,6 +88,8 @@ public static class SettingsStore
         settings.EverythingExcludedPaths = NormalizeNames(settings.EverythingExcludedPaths);
         if (string.IsNullOrWhiteSpace(settings.EverythingExtensions))
             settings.EverythingExtensions = "exe,lnk,url,appref-ms";
+        if (string.IsNullOrWhiteSpace(settings.DocumentExtensions))
+            settings.DocumentExtensions = AltPane.Core.Search.FileSearch.DefaultList;
     }
 
     static List<string> NormalizeNames(List<string>? items)

@@ -26,7 +26,12 @@ public enum HookCommand
     ClearQuery,
     PinApp,
     DemoteApp,
-    RestorePriority
+    RestorePriority,
+    ActivateRow,
+    RevealPath,
+    CopyPath,
+    CopyDirectory,
+    OpenMenu
 }
 
 public readonly record struct HookResult(HookCommand Command, int Delta, bool LatchGesture, bool ClearAwaitingRelease, int MoveChoice = -1)
@@ -55,6 +60,11 @@ public readonly record struct HookResult(HookCommand Command, int Delta, bool La
     public static HookResult Pin() => new(HookCommand.PinApp, 0, false, false);
     public static HookResult Demote() => new(HookCommand.DemoteApp, 0, false, false);
     public static HookResult RestorePriority() => new(HookCommand.RestorePriority, 0, false, false);
+    public static HookResult ActivateRow(int index) => new(HookCommand.ActivateRow, index, false, false);
+    public static HookResult RevealPath() => new(HookCommand.RevealPath, 0, false, false);
+    public static HookResult CopyPath() => new(HookCommand.CopyPath, 0, false, false);
+    public static HookResult CopyDirectory() => new(HookCommand.CopyDirectory, 0, false, false);
+    public static HookResult OpenMenu() => new(HookCommand.OpenMenu, 0, false, false);
 }
 
 public readonly record struct HookInput
@@ -148,13 +158,18 @@ public static class HookInterpreter
         if (isHotkey)
             return HookResult.Cycle(direction, latch: true);
 
+        if (DigitRow(input) is HookResult digit)
+            return digit;
+
         if (input.IsRepeat && IsNonRepeating(input))
             return HookResult.Swallow();
 
         switch (input.VirtualKey)
         {
-            case VirtualKeys.Return when input.Modifiers.Ctrl && !input.Modifiers.Win:
+            case VirtualKeys.Return when input.Modifiers.Ctrl && input.Modifiers.Shift && !input.Modifiers.Win:
                 return HookResult.AdminLaunch();
+            case VirtualKeys.Return when input.Modifiers.Ctrl && !input.Modifiers.Win:
+                return HookResult.RevealPath();
             case VirtualKeys.Return when input.Modifiers.Shift && !input.Modifiers.Ctrl && !input.Modifiers.Win:
                 return HookResult.Commit(moveChoice: 0);
             case VirtualKeys.Return: return HookResult.Commit();
@@ -163,8 +178,8 @@ public static class HookInterpreter
             case VirtualKeys.Back: return HookResult.Backspace();
             case VirtualKeys.Up:
             case VirtualKeys.Left: return HookResult.Cycle(-1, latch: false);
-            case VirtualKeys.Down:
-            case VirtualKeys.Right: return HookResult.Cycle(1, latch: false);
+            case VirtualKeys.Down: return HookResult.Cycle(1, latch: false);
+            case VirtualKeys.Right: return HookResult.OpenMenu();
             case VirtualKeys.Home: return HookResult.Home();
             case VirtualKeys.End: return HookResult.End();
             case VirtualKeys.Prior: return HookResult.Page(-1);
@@ -187,6 +202,9 @@ public static class HookInterpreter
                 case VirtualKeys.P when input.Modifiers.Shift && !input.IsRepeat: return HookResult.Pin();
                 case VirtualKeys.B when input.Modifiers.Shift && !input.IsRepeat: return HookResult.Demote();
                 case VirtualKeys.U when input.Modifiers.Shift && !input.IsRepeat: return HookResult.RestorePriority();
+                case VirtualKeys.O when !input.IsRepeat: return HookResult.OpenMenu();
+                case VirtualKeys.C when input.Modifiers.Shift && !input.IsRepeat: return HookResult.CopyDirectory();
+                case VirtualKeys.C when !input.IsRepeat: return HookResult.CopyPath();
                 default: return HookResult.Swallow();
             }
         }
@@ -210,6 +228,9 @@ public static class HookInterpreter
         if (isHotkey)
             return HookResult.Cycle(direction, latch: false);
 
+        if (DigitRow(input) is HookResult digit)
+            return digit;
+
         if (input.Modifiers.Ctrl && !input.Modifiers.Win)
         {
             switch (input.VirtualKey)
@@ -222,13 +243,16 @@ public static class HookInterpreter
                 case VirtualKeys.P when input.Modifiers.Shift && !input.IsRepeat: return HookResult.Pin();
                 case VirtualKeys.B when input.Modifiers.Shift && !input.IsRepeat: return HookResult.Demote();
                 case VirtualKeys.U when input.Modifiers.Shift && !input.IsRepeat: return HookResult.RestorePriority();
+                case VirtualKeys.O when !input.IsRepeat: return HookResult.OpenMenu();
             }
         }
 
         if (!input.IsRepeat && input.VirtualKey == VirtualKeys.Delete && input.Modifiers.Shift && !input.Modifiers.Ctrl)
             return HookResult.Kill();
-        if (input.VirtualKey == VirtualKeys.Return && input.Modifiers.Ctrl && !input.Modifiers.Win)
+        if (input.VirtualKey == VirtualKeys.Return && input.Modifiers.Ctrl && input.Modifiers.Shift && !input.Modifiers.Win)
             return input.IsRepeat ? HookResult.Swallow() : HookResult.AdminLaunch();
+        if (input.VirtualKey == VirtualKeys.Return && input.Modifiers.Ctrl && !input.Modifiers.Win)
+            return input.IsRepeat ? HookResult.Swallow() : HookResult.RevealPath();
 
         // Letters, Enter, arrows, and Backspace pass through so the text box and IME receive them.
         // Esc is handled before this method, and is swallowed unless a composition is active.
@@ -250,6 +274,18 @@ public static class HookInterpreter
             EscDecision.ClearQuery => HookResult.ClearQuery(),
             _ => HookResult.Cancel()
         };
+    }
+
+    /// <summary>
+    /// Ctrl+number selects a visible row. Alt may still be held. Shift and Win do not take part,
+    /// and a customized hotkey on that chord still cycles.
+    /// </summary>
+    static HookResult? DigitRow(in HookInput input)
+    {
+        if (!input.IsKeyDown || input.IsRepeat) return null;
+        if (!input.Modifiers.Ctrl || input.Modifiers.Win || input.Modifiers.Shift) return null;
+        if (DigitSelect.Index(input.VirtualKey) is not int row) return null;
+        return HookResult.ActivateRow(row);
     }
 
     static bool IsNonRepeating(in HookInput input)

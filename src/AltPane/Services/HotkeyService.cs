@@ -86,6 +86,15 @@ internal sealed class HotkeyService : IDisposable
     public void RequestClearQuery() => Enqueue(state =>
         GestureTransitions.Apply(state, HookResult.ClearQuery(), null, PhysicallyDown(state.LatchedTrigger), ModifierKeys.None));
 
+    /// <summary>The switcher closed because a file or link was opened. Do not activate the previous window.</summary>
+    public void RequestIdle() => Enqueue(state =>
+    {
+        var pending = state.GestureLatched && PhysicallyDown(state.LatchedTrigger)
+            ? state.LatchedTrigger
+            : ModifierKeys.None;
+        return new TransitionResult(GestureSnapshot.Idle with { PendingTriggerRelease = pending }, null);
+    });
+
     void Enqueue(Func<GestureSnapshot, TransitionResult> transition)
     {
         lock (_gate)
