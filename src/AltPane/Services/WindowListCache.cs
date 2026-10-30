@@ -516,6 +516,7 @@ internal sealed class WindowListCache : IDisposable
             if (string.IsNullOrWhiteSpace(app.LaunchPath)) continue;
             try
             {
+                IconLoader.RebindApp(app.Key, app.LaunchPath);
                 if (IconLoader.Cached(app.LaunchPath, 0) is not null) continue;
                 if (!IconLoader.TryDecode(app.LaunchPath, 0, out var pixels)) continue;
                 IconLoader.Keep(app.LaunchPath, 0, pixels);

@@ -3,6 +3,7 @@ using System.Windows.Threading;
 using AltPane.Core.Actions;
 using AltPane.Core.Apps;
 using AltPane.Core.Filtering;
+using AltPane.Core.Icons;
 using AltPane.Core.Input;
 using AltPane.Core.Load;
 using AltPane.Core.Layout;
@@ -20,6 +21,7 @@ internal sealed class SwitcherPresenter
     readonly Dictionary<long, System.Windows.Media.ImageSource> _icons = new();
     readonly Dictionary<string, System.Windows.Media.ImageSource> _appIcons = new(StringComparer.OrdinalIgnoreCase);
     readonly Dictionary<string, System.Windows.Media.ImageSource> _sidebarIcons = new(StringComparer.OrdinalIgnoreCase);
+    readonly IconPathBindings _handlePaths = new();
     IReadOnlyList<FrequentApp> _sidebar = Array.Empty<FrequentApp>();
     AppIndexService? _apps;
     FileIndexService? _fileIndex;
@@ -34,6 +36,7 @@ internal sealed class SwitcherPresenter
     nint _restore;
     string? _status;
     int _iconGeneration;
+    int _fileIconGeneration;
     long _enumerationMs;
     bool _warmed;
     bool _suspendOpen;
@@ -463,8 +466,20 @@ internal sealed class SwitcherPresenter
         foreach (var entry in entries)
         {
             live.Add(entry.Handle);
+            var path = entry.IconPath ?? "";
+            var previous = _handlePaths.Rebind(entry.Handle.ToString(System.Globalization.CultureInfo.InvariantCulture), path);
+            if (previous is not null)
+            {
+                _icons.Remove(entry.Handle);
+                IconLoader.RemoveKey(WindowIconLoader.HandleKey(entry.Handle));
+                IconLoader.InvalidatePath(previous);
+            }
+            IconLoader.RebindApp(AppIdentity.Key(entry), path);
             if (_icons.ContainsKey(entry.Handle)) continue;
-            var cached = IconLoader.Cached(entry.IconPath, 0);
+            var shared = HostExecutables.SharesHost(entry.ProcessName) || HostExecutables.IsFrameHost(entry.ProcessName);
+            var cached = shared
+                ? IconLoader.CachedKey(WindowIconLoader.HandleKey(entry.Handle))
+                : IconLoader.CachedKey(WindowIconLoader.HandleKey(entry.Handle)) ?? IconLoader.Cached(path, 0);
             _icons[entry.Handle] = cached ?? IconLoader.Letter(entry.Title);
         }
         if (_icons.Count != live.Count)
@@ -1198,9 +1213,20 @@ internal sealed class SwitcherPresenter
     {
         var generation = ++_iconGeneration;
         if (_session is null) return;
-        var windows = new List<(long Handle, string Path)>(_session.All.Count);
+        var windows = new List<WindowIconJob>(_session.All.Count);
+        var catalog = _apps?.Visible;
         foreach (var entry in _session.All)
-            windows.Add((entry.Handle, entry.IconPath ?? ""));
+        {
+            var shortcut = ShortcutIcon.Match(entry.IconPath, catalog);
+            windows.Add(new WindowIconJob(
+                entry.Handle,
+                entry.ProcessId,
+                entry.HostedProcessId,
+                entry.ProcessName ?? "",
+                entry.IconPath ?? "",
+                shortcut?.Path ?? "",
+                shortcut?.Index ?? 0));
+        }
         var apps = new List<(string Id, string Path, int Index, string Launch)>(_session.AppHits.Count);
         foreach (var hit in _session.AppHits)
         {
@@ -1214,13 +1240,37 @@ internal sealed class SwitcherPresenter
                 sidebar.Add((app.Key, app.LaunchPath));
         }
 
+        var edge = IconLoader.RequestEdge();
         ThreadPool.QueueUserWorkItem(_ =>
         {
             var memo = new Dictionary<string, IconLoader.IconPixels?>(StringComparer.OrdinalIgnoreCase);
-            var windowPixels = new List<(long Handle, string Path, int Index, IconLoader.IconPixels Pixels)>();
+            var windowPixels = new List<(long Handle, WindowIconLoader.Hit Hit)>();
             var windowReady = new List<(long Handle, System.Windows.Media.ImageSource Icon)>();
             foreach (var item in windows)
-                TakeIcon(item.Path, 0, memo, icon => windowReady.Add((item.Handle, icon)), pixels => windowPixels.Add((item.Handle, item.Path, 0, pixels)));
+            {
+                var handleKey = WindowIconLoader.HandleKey(item.Handle);
+                var cached = IconLoader.CachedKey(handleKey);
+                var shared = HostExecutables.SharesHost(item.ProcessName) || HostExecutables.IsFrameHost(item.ProcessName);
+                if (cached is null && !shared)
+                    cached = IconLoader.Cached(item.ExePath, 0);
+                if (cached is not null)
+                {
+                    windowReady.Add((item.Handle, cached));
+                    continue;
+                }
+                if (!WindowIconLoader.TryLoad(
+                        item.Handle,
+                        item.ProcessId,
+                        item.HostedProcessId,
+                        item.ProcessName,
+                        item.ExePath,
+                        item.ShortcutPath,
+                        item.ShortcutIndex,
+                        edge,
+                        out var loaded))
+                    continue;
+                windowPixels.Add((item.Handle, loaded));
+            }
 
             var appPixels = new List<(string Id, string Path, int Index, IconLoader.IconPixels Pixels)>();
             var appReady = new List<(string Id, System.Windows.Media.ImageSource Icon)>();
@@ -1253,7 +1303,7 @@ internal sealed class SwitcherPresenter
 
             _deck.Dispatcher.BeginInvoke(() =>
             {
-                ApplyDecoded(generation, windowPixels, windowReady, (handle, source) => _icons[handle] = source);
+                ApplyWindowIcons(generation, windowPixels, windowReady);
                 foreach (var item in appPixels)
                 {
                     var source = IconLoader.Freeze(item.Pixels);
@@ -1292,28 +1342,11 @@ internal sealed class SwitcherPresenter
         });
     }
 
-    static void TakeIcon(
-        string path,
-        int index,
-        Dictionary<string, IconLoader.IconPixels?> memo,
-        Action<System.Windows.Media.ImageSource> addReady,
-        Action<IconLoader.IconPixels> addPixels)
-    {
-        var cached = IconLoader.Cached(path, index);
-        if (cached is not null)
-        {
-            addReady(cached);
-            return;
-        }
-        if (DecodeOnce(path, index, memo, out var pixels))
-            addPixels(pixels);
-    }
-
     static bool DecodeOnce(string path, int index, Dictionary<string, IconLoader.IconPixels?> memo, out IconLoader.IconPixels pixels)
     {
         pixels = default;
         if (string.IsNullOrWhiteSpace(path)) return false;
-        var key = index == 0 ? path : path + "\n" + index.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        var key = IconCacheKey.For(path, index);
         if (memo.TryGetValue(key, out var existing))
         {
             if (existing is not { } hit) return false;
@@ -1329,23 +1362,64 @@ internal sealed class SwitcherPresenter
         return true;
     }
 
-    void ApplyDecoded(
+    void ApplyWindowIcons(
         int generation,
-        List<(long Handle, string Path, int Index, IconLoader.IconPixels Pixels)> decoded,
-        List<(long Handle, System.Windows.Media.ImageSource Icon)> ready,
-        Action<long, System.Windows.Media.ImageSource> assign)
+        List<(long Handle, WindowIconLoader.Hit Hit)> decoded,
+        List<(long Handle, System.Windows.Media.ImageSource Icon)> ready)
     {
         foreach (var item in decoded)
         {
-            var source = IconLoader.Freeze(item.Pixels);
+            var source = IconLoader.Freeze(item.Hit.Pixels);
             if (source is null) continue;
-            IconLoader.Store(item.Path, item.Index, source);
+            var handleKey = WindowIconLoader.HandleKey(item.Handle);
+            IconLoader.StoreKey(handleKey, source);
+            if (!string.IsNullOrEmpty(item.Hit.CacheKey)
+                && !string.Equals(item.Hit.CacheKey, handleKey, StringComparison.OrdinalIgnoreCase))
+                IconLoader.StoreKey(item.Hit.CacheKey, source);
             if (generation == _iconGeneration)
-                assign(item.Handle, source);
+                _icons[item.Handle] = source;
         }
         if (generation != _iconGeneration) return;
         foreach (var item in ready)
-            assign(item.Handle, item.Icon);
+            _icons[item.Handle] = item.Icon;
+    }
+
+    void QueueFileIcons()
+    {
+        var generation = ++_fileIconGeneration;
+        if (_session is null) return;
+        var paths = new List<string>();
+        foreach (var file in _session.Files)
+        {
+            if (!string.IsNullOrWhiteSpace(file.FullPath))
+                paths.Add(file.FullPath);
+        }
+        if (paths.Count == 0) return;
+        ThreadPool.QueueUserWorkItem(_ =>
+        {
+            var memo = new Dictionary<string, IconLoader.IconPixels?>(StringComparer.OrdinalIgnoreCase);
+            var decoded = new List<(string Path, IconLoader.IconPixels Pixels)>();
+            foreach (var path in paths)
+            {
+                if (IconLoader.Cached(path, 0) is not null) continue;
+                if (DecodeOnce(path, 0, memo, out var pixels))
+                    decoded.Add((path, pixels));
+            }
+            if (decoded.Count == 0) return;
+            _deck.Dispatcher.BeginInvoke(() =>
+            {
+                if (generation != _fileIconGeneration) return;
+                var stored = false;
+                foreach (var item in decoded)
+                {
+                    var source = IconLoader.Freeze(item.Pixels);
+                    if (source is null) continue;
+                    IconLoader.Store(item.Path, 0, source);
+                    stored = true;
+                }
+                if (stored && _deck.IsVisible) Refresh();
+            }, DispatcherPriority.Background);
+        });
     }
 
     void OnSpace() => Hotkeys?.RequestCommit();
@@ -1630,6 +1704,7 @@ internal sealed class SwitcherPresenter
                 _session.SetFiles(task.Result.Files, task.Result.Hint);
             }
             if (_deck.IsVisible) Refresh();
+            QueueFileIcons();
         }));
     }
 
@@ -1736,4 +1811,13 @@ internal sealed class SwitcherPresenter
             AppLog.Error(ex);
         }
     }
+
+    readonly record struct WindowIconJob(
+        long Handle,
+        int ProcessId,
+        int HostedProcessId,
+        string ProcessName,
+        string ExePath,
+        string ShortcutPath,
+        int ShortcutIndex);
 }

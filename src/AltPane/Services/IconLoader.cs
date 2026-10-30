@@ -2,37 +2,76 @@ using System.Globalization;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using AltPane.Core.Icons;
 
 namespace AltPane;
 
 internal static class IconLoader
 {
     public const int Edge = 32;
+    const int HitCapacity = 256;
+    const int PendingCapacity = 64;
+    const int MissCapacity = 1024;
+
     static readonly object Gate = new();
-    static readonly Dictionary<string, ImageSource> Hits = new(StringComparer.OrdinalIgnoreCase);
-    static readonly Dictionary<string, IconPixels> Pending = new(StringComparer.OrdinalIgnoreCase);
+    static readonly LruCache<ImageSource> Hits = new(HitCapacity);
+    static readonly LruCache<IconPixels> Pending = new(PendingCapacity);
     static readonly HashSet<string> Misses = new(StringComparer.OrdinalIgnoreCase);
     static readonly Dictionary<string, ImageSource> Letters = new(StringComparer.Ordinal);
+    static readonly IconPathBindings Bindings = new();
+    static int _edge;
+    static long _edgeTick;
 
     public readonly struct IconPixels
     {
-        public IconPixels(int width, int height, byte[] bgra)
+        public IconPixels(int width, int height, byte[] bgra, bool premultiplied = false)
         {
             Width = width;
             Height = height;
             Bgra = bgra;
+            Premultiplied = premultiplied;
         }
 
         public int Width { get; }
         public int Height { get; }
         public byte[] Bgra { get; }
+        public bool Premultiplied { get; }
+    }
+
+    public static int RequestEdge()
+    {
+        var now = Environment.TickCount64;
+        if (_edge >= IconPixelSize.Minimum && now - _edgeTick < 5000) return _edge;
+        var dpi = 96;
+        try
+        {
+            foreach (var monitor in MonitorUtil.Live())
+            {
+                if (monitor.Bounds.DpiX > dpi) dpi = monitor.Bounds.DpiX;
+                if (monitor.Bounds.DpiY > dpi) dpi = monitor.Bounds.DpiY;
+            }
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error(ex);
+        }
+
+        _edge = IconPixelSize.ForDpi(dpi);
+        _edgeTick = now;
+        return _edge;
     }
 
     public static ImageSource? Cached(string? path, int index)
     {
         if (string.IsNullOrWhiteSpace(path)) return null;
+        return CachedKey(Key(path, index));
+    }
+
+    public static ImageSource? CachedKey(string? key)
+    {
+        if (string.IsNullOrEmpty(key)) return null;
         lock (Gate)
-            return Hits.TryGetValue(Key(path, index), out var icon) ? icon : null;
+            return Hits.TryGet(key, out var icon) ? icon : null;
     }
 
     public static bool TryDecode(string? path, int index, out IconPixels pixels)
@@ -42,7 +81,7 @@ internal static class IconLoader
         var key = Key(path, index);
         lock (Gate)
         {
-            if (Hits.ContainsKey(key) || Misses.Contains(key) || Pending.ContainsKey(key)) return false;
+            if (Hits.TryGet(key, out _) || Misses.Contains(key) || Pending.TryGet(key, out _)) return false;
         }
 
         IconPixels decoded;
@@ -50,14 +89,14 @@ internal static class IconLoader
         {
             if (!DecodeFile(path, index, out decoded))
             {
-                lock (Gate) Misses.Add(key);
+                RememberMiss(key);
                 return false;
             }
         }
         catch (Exception ex)
         {
             AppLog.Error(ex);
-            lock (Gate) Misses.Add(key);
+            RememberMiss(key);
             return false;
         }
 
@@ -75,7 +114,7 @@ internal static class IconLoader
             pixels.Height,
             96,
             96,
-            PixelFormats.Bgra32,
+            pixels.Premultiplied ? PixelFormats.Pbgra32 : PixelFormats.Bgra32,
             null,
             pixels.Bgra,
             stride);
@@ -90,8 +129,8 @@ internal static class IconLoader
         lock (Gate)
         {
             var key = Key(path, index);
-            if (Hits.ContainsKey(key)) return;
-            Pending[key] = pixels;
+            if (Hits.TryGet(key, out _)) return;
+            Pending.Set(key, pixels);
             Misses.Remove(key);
         }
     }
@@ -106,11 +145,12 @@ internal static class IconLoader
         IconPixels pixels;
         lock (Gate)
         {
-            if (!Pending.TryGetValue(key, out pixels)) return null;
+            if (!Pending.TryGet(key, out pixels)) return null;
         }
+
         var source = Freeze(pixels);
         if (source is null) return null;
-        Store(path, index, source);
+        StoreKey(key, source);
         lock (Gate) Pending.Remove(key);
         return source;
     }
@@ -118,13 +158,58 @@ internal static class IconLoader
     public static void Store(string? path, int index, ImageSource? source)
     {
         if (string.IsNullOrWhiteSpace(path) || source is null) return;
+        StoreKey(Key(path, index), source);
+    }
+
+    public static void StoreKey(string? key, ImageSource? source)
+    {
+        if (string.IsNullOrEmpty(key) || source is null) return;
         if (source.CanFreeze && !source.IsFrozen) source.Freeze();
         lock (Gate)
         {
-            var key = Key(path, index);
-            Hits[key] = source;
+            Hits.Set(key, source);
+            Pending.Remove(key);
             Misses.Remove(key);
         }
+    }
+
+    public static void InvalidatePath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return;
+        lock (Gate)
+        {
+            Hits.RemoveWhere(key => IconCacheKey.SamePath(key, path));
+            Pending.RemoveWhere(key => IconCacheKey.SamePath(key, path));
+            if (Misses.Count > 0)
+            {
+                var stale = new List<string>();
+                foreach (var key in Misses)
+                {
+                    if (IconCacheKey.SamePath(key, path)) stale.Add(key);
+                }
+                foreach (var key in stale) Misses.Remove(key);
+            }
+        }
+    }
+
+    public static void RemoveKey(string? key)
+    {
+        if (string.IsNullOrEmpty(key)) return;
+        lock (Gate)
+        {
+            Hits.Remove(key);
+            Pending.Remove(key);
+            Misses.Remove(key);
+        }
+    }
+
+    /// <summary>
+    /// Drops the icon cached for the previous executable when an app's path changes.
+    /// </summary>
+    public static void RebindApp(string? appKey, string? path)
+    {
+        var previous = Bindings.Rebind(appKey, path);
+        if (!string.IsNullOrEmpty(previous)) InvalidatePath(previous);
     }
 
     public static ImageSource Letter(string title)
@@ -158,74 +243,17 @@ internal static class IconLoader
         return bitmap;
     }
 
-    static bool DecodeFile(string path, int index, out IconPixels pixels)
+    static void RememberMiss(string key)
     {
-        pixels = default;
-        if (!File.Exists(path)) return false;
-        var extracted = nint.Zero;
-        try
+        lock (Gate)
         {
-            var count = NativeMethods.PrivateExtractIcons(path, index, Edge, Edge, out extracted, out _, 1, 0);
-            if (count <= 0 || extracted == 0) return false;
-            return DecodeIcon(extracted, out pixels);
-        }
-        finally
-        {
-            if (extracted != 0) NativeMethods.DestroyIcon(extracted);
+            if (Misses.Count >= MissCapacity) Misses.Clear();
+            Misses.Add(key);
         }
     }
 
-    static bool DecodeIcon(nint icon, out IconPixels pixels)
-    {
-        pixels = default;
-        if (!NativeMethods.GetIconInfo(icon, out var info)) return false;
-        try
-        {
-            if (info.Color == 0) return false;
-            var dc = NativeMethods.GetDC(0);
-            try
-            {
-                var header = new BitmapInfo { Header = { Size = 40 } };
-                if (NativeMethods.GetDIBits(dc, info.Color, 0, 0, null, ref header, NativeMethods.DibRgbColors) == 0)
-                    return false;
-                var width = header.Header.Width;
-                var height = Math.Abs(header.Header.Height);
-                if (width <= 0 || height <= 0 || width > 256 || height > 256) return false;
-                header.Header.Width = width;
-                header.Header.Height = -height;
-                header.Header.Planes = 1;
-                header.Header.BitCount = 32;
-                header.Header.Compression = 0;
-                header.Header.SizeImage = width * height * 4;
-                var bgra = new byte[header.Header.SizeImage];
-                var rows = NativeMethods.GetDIBits(dc, info.Color, 0, (uint)height, bgra, ref header, NativeMethods.DibRgbColors);
-                if (rows == 0) return false;
-                FillOpaque(bgra);
-                pixels = new IconPixels(width, height, bgra);
-                return true;
-            }
-            finally
-            {
-                if (dc != 0) NativeMethods.ReleaseDC(0, dc);
-            }
-        }
-        finally
-        {
-            if (info.Color != 0) NativeMethods.DeleteObject(info.Color);
-            if (info.Mask != 0) NativeMethods.DeleteObject(info.Mask);
-        }
-    }
+    static bool DecodeFile(string path, int index, out IconPixels pixels) =>
+        ShellIcons.TryFile(path, index, RequestEdge(), out pixels);
 
-    static void FillOpaque(byte[] bgra)
-    {
-        for (var i = 3; i < bgra.Length; i += 4)
-        {
-            if (bgra[i] != 0) return;
-        }
-        for (var i = 3; i < bgra.Length; i += 4)
-            bgra[i] = 255;
-    }
-
-    static string Key(string path, int index) =>
-        index == 0 ? path : path + "\n" + index.ToString(CultureInfo.InvariantCulture);
+    static string Key(string path, int index) => IconCacheKey.For(path, index);
 }

@@ -1076,15 +1076,26 @@ public partial class SwitcherWindow : Window
 
     void SyncTail(SwitcherViewState state, int start)
     {
-        while (_rows.Count > start)
-            _rows.RemoveAt(_rows.Count - 1);
         var files = state.Files ?? Array.Empty<FileHit>();
         var loc = Localizer.Current;
         var section = loc[FileSearchRouter.SectionKey(state.FileHint)];
+        if (!state.FileSearchUnavailable && SameFiles(start, files))
+        {
+            for (var i = 0; i < files.Count; i++)
+            {
+                if (i == 0) _rows[start].SetSection(section);
+                var icon = IconLoader.Cached(files[i].FullPath, 0);
+                if (icon is not null && !ReferenceEquals(icon, _rows[start + i].Icon))
+                    _rows[start + i].Icon = icon;
+            }
+            return;
+        }
+        while (_rows.Count > start)
+            _rows.RemoveAt(_rows.Count - 1);
         for (var i = 0; i < files.Count; i++)
         {
             var file = files[i];
-            var row = new SwitcherRow(SwitcherKind.File, file.Name, file.Directory, IconLoader.Letter(ExtensionOf(file.Name)), i == 0 ? section : "")
+            var row = new SwitcherRow(SwitcherKind.File, file.Name, file.Directory, IconLoader.Cached(file.FullPath, 0) ?? IconLoader.Letter(ExtensionOf(file.Name)), i == 0 ? section : "")
             {
                 FilePath = file.FullPath
             };
@@ -1106,6 +1117,18 @@ public partial class SwitcherWindow : Window
                 IconLoader.Letter("E"),
                 files.Count == 0 ? loc["file.section"] : ""));
         }
+    }
+
+    bool SameFiles(int start, IReadOnlyList<FileHit> files)
+    {
+        if (_rows.Count - start != files.Count) return false;
+        for (var i = 0; i < files.Count; i++)
+        {
+            var row = _rows[start + i];
+            if (row.Kind != SwitcherKind.File) return false;
+            if (!string.Equals(row.FilePath, files[i].FullPath, StringComparison.OrdinalIgnoreCase)) return false;
+        }
+        return true;
     }
 
     static string ExtensionOf(string name)
