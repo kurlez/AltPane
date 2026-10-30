@@ -86,6 +86,7 @@ public static class SettingsStore
         settings.PinnedApps = ProcessNames.NormalizeList(settings.PinnedApps);
         settings.DemotedApps = ProcessNames.NormalizeList(settings.DemotedApps);
         settings.EverythingExcludedPaths = NormalizeNames(settings.EverythingExcludedPaths);
+        settings.BuiltinIndexFolders = NormalizeNames(settings.BuiltinIndexFolders);
         if (string.IsNullOrWhiteSpace(settings.EverythingExtensions))
             settings.EverythingExtensions = "exe,lnk,url,appref-ms";
         if (string.IsNullOrWhiteSpace(settings.DocumentExtensions))

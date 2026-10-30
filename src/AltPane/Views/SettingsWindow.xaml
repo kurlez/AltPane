@@ -39,6 +39,8 @@
           <CheckBox x:Name="WinTabBox" Margin="0,4,0,2" Checked="WinTabBox_Changed" Unchecked="WinTabBox_Changed"/>
           <TextBlock x:Name="WinTabNote" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="22,0,0,4"/>
           <TextBlock x:Name="WinTabState" FontWeight="SemiBold" TextWrapping="Wrap" Margin="22,0,0,10"/>
+          <CheckBox x:Name="WinKeyBox" Margin="0,0,0,2"/>
+          <TextBlock x:Name="WinKeyNote" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="22,0,0,10"/>
           <CheckBox x:Name="StickyBox" Margin="0,4,0,2" Checked="StickyBox_Changed" Unchecked="StickyBox_Changed"/>
           <TextBlock x:Name="StickyNote" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="22,0,0,8"/>
           <CheckBox x:Name="QuickTapBox" Margin="22,0,0,2"/>
@@ -105,6 +107,12 @@
           <TextBlock x:Name="DocumentExtLabel" FontWeight="SemiBold" Margin="44,0,0,4"/>
           <TextBlock x:Name="DocumentExtNote" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="44,0,0,4"/>
           <TextBox x:Name="DocumentExtBox" Margin="44,0,0,8" Padding="8,4"/>
+          <CheckBox x:Name="BuiltinIndexBox" Margin="44,0,0,2"/>
+          <TextBlock x:Name="BuiltinIndexNote" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="66,0,0,6"/>
+          <TextBlock x:Name="BuiltinFoldersLabel" FontWeight="SemiBold" Margin="44,0,0,4"/>
+          <TextBlock x:Name="BuiltinFoldersHint" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="44,0,0,4"/>
+          <TextBox x:Name="BuiltinFoldersBox" AcceptsReturn="True" Height="64" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
+                   FontFamily="Cascadia Mono, Consolas, Segoe UI" Padding="8" Margin="44,0,0,8"/>
           <CheckBox x:Name="ActionHintBox" Margin="44,0,0,10"/>
           <TextBlock x:Name="ExcludedAppsLabel" FontWeight="SemiBold" Margin="22,0,0,6"/>
           <TextBlock x:Name="ExcludedAppsHint" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="22,0,0,6"/>

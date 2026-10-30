@@ -9,7 +9,11 @@ public enum FileSearchHint
     None = 0,
     NotRunning,
     IpcFailed,
-    Http
+    Http,
+    /// <summary>Rows came from the built-in index because Everything was not reachable.</summary>
+    Builtin,
+    /// <summary>Rows came from Everything over IPC or the command-line client.</summary>
+    Everything
 }
 
 /// <summary>

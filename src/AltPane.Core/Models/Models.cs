@@ -163,6 +163,8 @@ public sealed class AppSettings
     public HotkeyChord? Hotkey { get; set; } = HotkeyChord.AltTab();
     /// <summary>When true (the default), Win+Tab opens AltPane instead of Task View.</summary>
     public bool CaptureWinTab { get; set; } = true;
+    /// <summary>When true, a lone Win press opens AltPane's app list instead of the Start menu. Off by default.</summary>
+    public bool OpenOnWinKey { get; set; }
     public AppTheme Theme { get; set; } = AppTheme.System;
     public SwitcherSize Size { get; set; } = SwitcherSize.Comfortable;
     public SwitcherPlacement Placement { get; set; } = SwitcherPlacement.MouseCursor;
@@ -220,6 +222,10 @@ public sealed class AppSettings
     public int EverythingHttpPort { get; set; } = 80;
     /// <summary>When the configured HTTP port does not answer, also try 8080.</summary>
     public bool EverythingHttpFallback { get; set; } = true;
+    /// <summary>When true (the default), file search uses the built-in index when Everything is not reachable.</summary>
+    public bool UseBuiltinFileIndex { get; set; } = true;
+    /// <summary>Extra folders scanned by the built-in file index. One path per entry.</summary>
+    public List<string> BuiltinIndexFolders { get; set; } = new();
     /// <summary>When true (the default), the switcher shows the shortcuts for the selected row.</summary>
     public bool ShowActionHint { get; set; } = true;
     /// <summary>When true, Win and Tab hook decisions are written to altpane.log.</summary>
@@ -245,6 +251,7 @@ public sealed class AppSettings
         EndTaskKillsTree = true,
         StickySwitcher = true,
         CaptureWinTab = true,
+        OpenOnWinKey = false,
         LaunchApps = true,
         IndexStartMenu = true,
         IndexStoreApps = true,
@@ -256,6 +263,8 @@ public sealed class AppSettings
         DocumentExtensions = "doc,docx,xls,xlsx,ppt,pptx,pdf,txt,md,csv,rtf,odt,ods,odp,wps,et,dps,ofd,epub",
         EverythingHttpPort = 80,
         EverythingHttpFallback = true,
+        UseBuiltinFileIndex = true,
+        BuiltinIndexFolders = new List<string>(),
         ShowActionHint = true
     };
 }

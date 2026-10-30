@@ -17,6 +17,7 @@ internal sealed class HotkeyService : IDisposable
     readonly HashSet<int> _pressed = new();
     GestureSnapshot _snap = GestureSnapshot.Idle;
     WinGuardState _win = WinGuardState.Idle;
+    WinTapState _winTap = WinTapState.Idle;
     nint _hook;
     int _injectDepth;
     bool _drainQueued;
@@ -57,6 +58,7 @@ internal sealed class HotkeyService : IDisposable
         _hook = 0;
         _pressed.Clear();
         _win = WinGuardState.Idle;
+        _winTap = WinTapState.Idle;
     }
 
     public void Dispose() => Uninstall();
@@ -194,6 +196,8 @@ internal sealed class HotkeyService : IDisposable
         {
             ImeComposing = ime
         };
+        var tap = WinTap.OnKey(_winTap, vk, isDown, OtherAlreadyDown(vk), settings.OpenOnWinKey);
+        _winTap = tap.Next;
         var result = HookInterpreter.Interpret(input);
         if (vk == VirtualKeys.Escape && (snapshotWasOpen || visible))
         {
@@ -213,6 +217,24 @@ internal sealed class HotkeyService : IDisposable
         _win = win.Next;
         if (win.InjectDummy)
             WhileInjecting(ModifierRelease.MarkWinChordUsed);
+        if (tap.OpenApps && settings.OpenOnWinKey && !settings.OverridePaused && !_recording())
+        {
+            WhileInjecting(ModifierRelease.SuppressStart);
+            var openApps = !snapshotWasOpen && !visible;
+            if (openApps)
+                OpenTiming.Mark();
+            lock (_gate)
+            {
+                var transition = openApps
+                    ? GestureTransitions.OpenAppsMode(_snap)
+                    : GestureTransitions.Apply(_snap, HookResult.Cancel(), null, false, ModifierKeys.None);
+                _snap = transition.Next;
+                if (transition.Op is not null)
+                    _ops.Enqueue(transition.Op);
+            }
+            RequestDrain();
+            return 1;
+        }
         if (result.Command == HookCommand.Pass)
             return NativeMethods.CallNextHookEx(_hook, nCode, wParam, lParam);
 
@@ -347,6 +369,16 @@ internal sealed class HotkeyService : IDisposable
     static bool Down(int vk) => (NativeMethods.GetAsyncKeyState(vk) & 0x8000) != 0;
 
     static bool PhysicallyDown(ModifierKeys trigger) => TriggerIsDown(trigger);
+
+    bool OtherAlreadyDown(int vk)
+    {
+        foreach (var key in _pressed)
+        {
+            if (key == vk) continue;
+            if (WinTap.CountsAsCombo(key)) return true;
+        }
+        return false;
+    }
 
     static bool TriggerIsDown(ModifierKeys trigger) => trigger switch
     {

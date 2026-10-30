@@ -36,7 +36,7 @@ public partial class SettingsWindow : Window
         Closed += (_, _) => ThemeService.Changed -= OnThemeChanged;
         MaxHeight = SystemParameters.WorkArea.Height * 0.92;
         var version = typeof(SettingsWindow).Assembly.GetName().Version;
-        VersionText.Text = "AltPane " + (version?.ToString(3) ?? "0.4.5");
+        VersionText.Text = "AltPane " + (version?.ToString(3) ?? "0.4.6");
         AboutButton.Visibility = _showAbout is null ? Visibility.Collapsed : Visibility.Visible;
         LoadDraft();
         Localizer.Current.LanguageChanged += (_, _) =>
@@ -51,6 +51,7 @@ public partial class SettingsWindow : Window
         ApplyLabels();
         HotkeyText.Text = HotkeyLogic.Format(_draft.Hotkey ?? HotkeyChord.AltTab());
         WinTabBox.IsChecked = _draft.CaptureWinTab;
+        WinKeyBox.IsChecked = _draft.OpenOnWinKey;
         UpdateWinTabState();
         StickyBox.IsChecked = _draft.StickySwitcher;
         QuickTapBox.IsChecked = _draft.QuickTapSwitches;
@@ -81,6 +82,8 @@ public partial class SettingsWindow : Window
         EverythingExtBox.Text = _draft.EverythingExtensions;
         EverythingExcludeBox.Text = string.Join(Environment.NewLine, _draft.EverythingExcludedPaths ?? new List<string>());
         DocumentExtBox.Text = _draft.DocumentExtensions;
+        BuiltinIndexBox.IsChecked = _draft.UseBuiltinFileIndex;
+        BuiltinFoldersBox.Text = string.Join(Environment.NewLine, _draft.BuiltinIndexFolders ?? new List<string>());
         EverythingHttpPortBox.Text = _draft.EverythingHttpPort.ToString();
         EverythingHttpFallbackBox.IsChecked = _draft.EverythingHttpFallback;
         ActionHintBox.IsChecked = _draft.ShowActionHint;
@@ -102,6 +105,8 @@ public partial class SettingsWindow : Window
         RecordButton.Content = _recording ? loc["settings.recording"] : loc["settings.record"];
         WinTabBox.Content = loc["settings.winTab"];
         WinTabNote.Text = loc["settings.winTabNote"];
+        WinKeyBox.Content = loc["settings.winKey"];
+        WinKeyNote.Text = loc["settings.winKeyNote"];
         UpdateWinTabState();
         StickyBox.Content = loc["settings.sticky"];
         StickyNote.Text = loc["settings.stickyNote"];
@@ -127,6 +132,10 @@ public partial class SettingsWindow : Window
         EverythingHttpFallbackBox.Content = loc["settings.everythingHttpFallback"];
         DocumentExtLabel.Text = loc["settings.documentExt"];
         DocumentExtNote.Text = loc["settings.documentExtNote"];
+        BuiltinIndexBox.Content = loc["settings.builtinIndex"];
+        BuiltinIndexNote.Text = loc["settings.builtinIndexNote"];
+        BuiltinFoldersLabel.Text = loc["settings.builtinFolders"];
+        BuiltinFoldersHint.Text = loc["settings.builtinFoldersHint"];
         ActionHintBox.Content = loc["settings.actionHint"];
         EverythingStartButton.Content = loc["settings.everythingStart"];
         EverythingSiteButton.Content = loc["settings.everythingSite"];
@@ -335,6 +344,7 @@ public partial class SettingsWindow : Window
     {
         StopRecording();
         _draft.CaptureWinTab = WinTabBox.IsChecked == true;
+        _draft.OpenOnWinKey = WinKeyBox.IsChecked == true;
         _draft.StickySwitcher = StickyBox.IsChecked == true;
         _draft.QuickTapSwitches = QuickTapBox.IsChecked == true;
         _draft.ShowLoad = LoadBox.IsChecked == true;
@@ -360,6 +370,10 @@ public partial class SettingsWindow : Window
         _draft.UseEverything = EverythingBox.IsChecked == true;
         _draft.EverythingExtensions = EverythingExtBox.Text.Trim();
         _draft.DocumentExtensions = DocumentExtBox.Text.Trim();
+        _draft.UseBuiltinFileIndex = BuiltinIndexBox.IsChecked == true;
+        _draft.BuiltinIndexFolders = BuiltinFoldersBox.Text
+            .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+            .ToList();
         _draft.EverythingHttpPort = ReadHttpPort(EverythingHttpPortBox.Text);
         _draft.EverythingHttpFallback = EverythingHttpFallbackBox.IsChecked == true;
         _draft.ShowActionHint = ActionHintBox.IsChecked == true;
@@ -514,6 +528,7 @@ public partial class SettingsWindow : Window
             VirtualKey = source.Hotkey?.VirtualKey ?? VirtualKeys.Tab
         },
         CaptureWinTab = source.CaptureWinTab,
+        OpenOnWinKey = source.OpenOnWinKey,
         StickySwitcher = source.StickySwitcher,
         QuickTapSwitches = source.QuickTapSwitches,
         Theme = source.Theme,
@@ -526,6 +541,8 @@ public partial class SettingsWindow : Window
         DocumentExtensions = source.DocumentExtensions,
         EverythingHttpPort = source.EverythingHttpPort,
         EverythingHttpFallback = source.EverythingHttpFallback,
+        UseBuiltinFileIndex = source.UseBuiltinFileIndex,
+        BuiltinIndexFolders = new List<string>(source.BuiltinIndexFolders ?? new List<string>()),
         ShowActionHint = source.ShowActionHint,
         EverythingExcludedPaths = new List<string>(source.EverythingExcludedPaths ?? new List<string>()),
         VerboseLog = source.VerboseLog,

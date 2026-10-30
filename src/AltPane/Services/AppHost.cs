@@ -13,6 +13,7 @@ internal sealed class AppHost : IDisposable
     readonly SwitcherPresenter _presenter;
     readonly HotkeyService _hotkeys;
     readonly AppIndexService _apps;
+    readonly FileIndexService _files;
     Timer? _footprint;
     readonly TrayController _tray;
     SettingsWindow? _settingsWindow;
@@ -37,6 +38,8 @@ internal sealed class AppHost : IDisposable
         _presenter = new SwitcherPresenter(() => Settings);
         _apps = new AppIndexService(() => Settings);
         _presenter.UseApps(_apps);
+        _files = new FileIndexService(() => Settings);
+        _presenter.UseFileIndex(_files);
         _hotkeys = new HotkeyService(_presenter, () => Settings, () => _recording, System.Windows.Application.Current.Dispatcher);
         _presenter.Hotkeys = _hotkeys;
         _presenter.Notify += message => _tray?.Balloon(message);
@@ -54,6 +57,7 @@ internal sealed class AppHost : IDisposable
         _presenter.StartWindowCache();
         _presenter.CreateWindows();
         _apps.Start();
+        _files.Start();
         _tray.Show();
         if (!Settings.OverridePaused && !_hotkeys.Install())
             _tray.Balloon(Localizer.Current["settings.hookFailed"]);
@@ -190,6 +194,7 @@ internal sealed class AppHost : IDisposable
         try { _presenter.DisposeWindowCache(); } catch (Exception ex) { AppLog.Error(ex); }
         try { _presenter.ForceClose(); } catch { }
         try { _apps.Dispose(); } catch { }
+        try { _files.Dispose(); } catch { }
         try { _settingsWindow?.Close(); } catch { }
         try { _aboutWindow?.Close(); } catch { }
         try { _tray.Dispose(); } catch { }
@@ -218,6 +223,7 @@ internal sealed class AppHost : IDisposable
         SettingsStore.Save(_settingsPath, Settings);
         _presenter.InvalidateWindowCache();
         _apps.ApplySettings();
+        _files.ApplySettings();
         _tray.Rebuild();
     }
 

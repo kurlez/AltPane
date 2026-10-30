@@ -34,6 +34,8 @@ public abstract record UiOp
     public sealed record CopyPath : UiOp;
     public sealed record CopyDirectory : UiOp;
     public sealed record OpenMenu : UiOp;
+    /// <summary>A lone Win key opened the app list. The switcher stays up and accepts typing.</summary>
+    public sealed record OpenApps : UiOp;
 }
 
 /// <summary>
@@ -196,6 +198,20 @@ public static class GestureTransitions
             default:
                 return new(state, null);
         }
+    }
+
+    public static TransitionResult OpenAppsMode(GestureSnapshot state)
+    {
+        if (state.SwitcherOpen) return new(state, new UiOp.BringToFront());
+        return new(state with
+        {
+            SwitcherOpen = true,
+            SearchMode = true,
+            GestureLatched = false,
+            QueryLength = 0,
+            LatchedTrigger = ModifierKeys.None,
+            PendingTriggerRelease = ModifierKeys.None
+        }, new UiOp.OpenApps());
     }
 
     public static TransitionResult OpenSticky(GestureSnapshot state)

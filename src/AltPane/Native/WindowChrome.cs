@@ -175,6 +175,17 @@ internal static class ModifierRelease
         Tap(VirtualKeys.Unused, up: true);
     }
 
+    /// <summary>
+    /// A lone Win key-up would open Start. Inject VK_E8 while Win is still down,
+    /// then release both Win keys. The hook swallows the physical key-up.
+    /// </summary>
+    public static void SuppressStart()
+    {
+        MarkWinChordUsed();
+        Tap(VirtualKeys.LWin, up: true);
+        Tap(VirtualKeys.RWin, up: true);
+    }
+
     static void Tap(int vk, bool up)
     {
         var input = new NativeInput

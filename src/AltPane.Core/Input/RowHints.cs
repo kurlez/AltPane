@@ -5,7 +5,8 @@ public enum HintRow
     Window,
     App,
     File,
-    Calculator
+    Calculator,
+    AppsMode
 }
 
 /// <summary>
@@ -20,6 +21,7 @@ public static class RowHints
     public const string AppSwitch = "Enter 切换 · Ctrl+Enter 打开所在目录 · Ctrl+C 复制路径 · Ctrl+Shift+C 复制目录路径 · → 更多";
     public const string AppNoPath = "Enter 启动 · → 更多";
     public const string Calculator = "Enter/Ctrl+C 复制结果";
+    public const string AppsMode = "Enter 启动 · Ctrl+Shift+Enter 以管理员运行 · Esc 退出";
 
     public static string Text(HintRow? kind, bool show, bool hasPath = true, bool switching = false)
     {
@@ -28,6 +30,7 @@ public static class RowHints
         {
             HintRow.File => File,
             HintRow.Calculator => Calculator,
+            HintRow.AppsMode => AppsMode,
             HintRow.Window => hasPath ? Window : WindowNoPath,
             HintRow.App when !hasPath => AppNoPath,
             HintRow.App when switching => AppSwitch,

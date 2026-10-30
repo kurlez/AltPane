@@ -42,6 +42,7 @@ public sealed class SwitcherSession
     readonly List<FileHit> _files = new();
     bool _fileHint;
     FileSearchHint _fileHintKind;
+    bool _appsMode;
 
     int Lead => _calcPlain is null ? 0 : 1;
     int Tail => _files.Count + (_fileHint ? 1 : 0);
@@ -66,6 +67,7 @@ public sealed class SwitcherSession
     public IReadOnlyList<FileHit> Files => _files;
     public bool FileSearchUnavailable => _fileHint;
     public FileSearchHint FileHint => _fileHintKind;
+    public bool AppsMode => _appsMode;
     public bool SelectedIsCalculation => Lead == 1 && SelectedIndex == 0;
     public bool SelectedIsFileHint => _fileHint && SelectedIndex == Lead + _filtered.Count + _apps.Count + _files.Count;
     public WindowEntry? Selected
@@ -123,10 +125,17 @@ public sealed class SwitcherSession
         Clamp();
     }
 
+    public void SetAppsMode(bool enabled)
+    {
+        if (_appsMode == enabled) return;
+        _appsMode = enabled;
+        Recompute(resetSelection: true);
+    }
+
     public void SetFiles(IReadOnlyList<FileHit>? files, FileSearchHint hint = FileSearchHint.None)
     {
         _files.Clear();
-        if (hint is FileSearchHint.None or FileSearchHint.Http && files is not null)
+        if (ShowsFileRows(hint) && files is not null)
         {
             foreach (var file in files)
             {
@@ -141,6 +150,9 @@ public sealed class SwitcherSession
             || (hint == FileSearchHint.Http && _files.Count == 0);
         Clamp();
     }
+
+    static bool ShowsFileRows(FileSearchHint hint) =>
+        hint is FileSearchHint.None or FileSearchHint.Http or FileSearchHint.Everything or FileSearchHint.Builtin;
 
     public void Move(int delta)
     {
@@ -436,6 +448,12 @@ public sealed class SwitcherSession
 
     void Recompute(bool resetSelection)
     {
+        if (_appsMode)
+        {
+            RecomputeApps(resetSelection);
+            return;
+        }
+
         var selectedHandle = Selected?.Handle ?? 0;
         var selectedApp = SelectedApp?.App.Id;
         var byHandle = new Dictionary<long, WindowEntry>(_all.Count);
@@ -504,6 +522,30 @@ public sealed class SwitcherSession
             }
         }
         Clamp();
+    }
+
+    void RecomputeApps(bool resetSelection)
+    {
+        var selectedApp = SelectedApp?.App.Id;
+        _filtered = new List<WindowEntry>();
+        _apps = AppsModeList.List(_catalog, _query, _all, _excludedApps);
+        foreach (var hit in _apps)
+            EnsureAppCode(hit.App);
+        if (ResultCount == 0)
+        {
+            SelectedIndex = -1;
+            return;
+        }
+        if (!resetSelection && !string.IsNullOrEmpty(selectedApp))
+        {
+            var keepApp = _apps.FindIndex(hit => string.Equals(hit.App.Id, selectedApp, StringComparison.OrdinalIgnoreCase));
+            if (keepApp >= 0)
+            {
+                SelectedIndex = Lead + keepApp;
+                return;
+            }
+        }
+        SelectedIndex = 0;
     }
 
     void Clamp()

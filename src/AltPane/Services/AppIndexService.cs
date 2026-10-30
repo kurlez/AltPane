@@ -58,6 +58,20 @@ internal sealed class AppIndexService : IDisposable
         get { lock (_gate) return _visible; }
     }
 
+    /// <summary>Start Menu shortcuts and Store apps for the Win-key app list.</summary>
+    public IReadOnlyList<AppEntry> LauncherApps()
+    {
+        lock (_gate)
+        {
+            var list = new List<AppEntry>();
+            foreach (var app in _all)
+            {
+                if (AppsModeList.IsLauncherSource(app.Source)) list.Add(app);
+            }
+            return list;
+        }
+    }
+
     public EverythingStatus EverythingStatus() => _everything.Probe();
 
     public bool TryStartEverything() => _everything.TryStart();

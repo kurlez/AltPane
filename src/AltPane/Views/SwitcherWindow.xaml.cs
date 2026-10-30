@@ -254,6 +254,7 @@ public sealed class SwitcherViewState
     public IReadOnlyList<string> AppIndexes { get; init; } = Array.Empty<string>();
     public IReadOnlyDictionary<string, ImageSource> AppIcons { get; init; } = new Dictionary<string, ImageSource>();
     public string LaunchSection { get; init; } = "";
+    public bool AppsMode { get; init; }
     public string OpenBadge { get; init; } = "";
     public string SwitchSubtitle { get; init; } = "";
     public string? CalculationShown { get; init; }
@@ -487,6 +488,7 @@ public partial class SwitcherWindow : Window
             _internalEdit = false;
         }
         Volatile.Write(ref _queryChars, SearchBox.Text?.Length ?? 0);
+        SearchPlaceholder.Text = state.AppsMode ? Localizer.Current["search.apps"] : Localizer.Current["search.placeholder"];
         SearchPlaceholder.Visibility = string.IsNullOrEmpty(SearchBox.Text) ? Visibility.Visible : Visibility.Collapsed;
         HintText.Text = state.Hint;
         ActionHint.Text = state.ActionHint ?? "";
@@ -1015,7 +1017,7 @@ public partial class SwitcherWindow : Window
             _rows.RemoveAt(_rows.Count - 1);
         var files = state.Files ?? Array.Empty<FileHit>();
         var loc = Localizer.Current;
-        var section = state.FileHint == FileSearchHint.Http ? loc["file.http"] : "文件";
+        var section = loc[FileSearchRouter.SectionKey(state.FileHint)];
         for (var i = 0; i < files.Count; i++)
         {
             var file = files[i];
@@ -1037,7 +1039,7 @@ public partial class SwitcherWindow : Window
                 title,
                 subtitle,
                 IconLoader.Letter("E"),
-                files.Count == 0 ? "文件" : ""));
+                files.Count == 0 ? loc["file.section"] : ""));
         }
     }
 

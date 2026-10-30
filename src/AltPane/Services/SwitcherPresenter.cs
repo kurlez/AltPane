@@ -19,6 +19,7 @@ internal sealed class SwitcherPresenter
     readonly Dictionary<long, System.Windows.Media.ImageSource> _icons = new();
     readonly Dictionary<string, System.Windows.Media.ImageSource> _appIcons = new(StringComparer.OrdinalIgnoreCase);
     AppIndexService? _apps;
+    FileIndexService? _fileIndex;
     readonly DispatcherTimer _statusTimer;
     readonly LoadSampler _sampler = new();
     readonly KillArm _arm = new();
@@ -34,6 +35,7 @@ internal sealed class SwitcherPresenter
     bool _warmed;
     bool _suspendOpen;
     UiOp.Open? _deferredOpen;
+    bool _deferredApps;
     GestureSnapshot _deferredSnap;
     bool _deferredFinish;
     bool _searchMode;
@@ -192,6 +194,8 @@ internal sealed class SwitcherPresenter
         _apps = apps;
         apps.Updated += () => _deck.Dispatcher.BeginInvoke(ReloadApps);
     }
+
+    public void UseFileIndex(FileIndexService index) => _fileIndex = index;
     public event Action<string>? Notify;
     public event Action? PersistRequested;
 
@@ -200,6 +204,13 @@ internal sealed class SwitcherPresenter
         if (_suspendOpen && op is UiOp.Open deferred)
         {
             _deferredOpen = deferred;
+            _deferredApps = false;
+            return;
+        }
+        if (_suspendOpen && op is UiOp.OpenApps)
+        {
+            _deferredOpen = new UiOp.Open(0);
+            _deferredApps = true;
             return;
         }
 
@@ -207,6 +218,9 @@ internal sealed class SwitcherPresenter
         {
             case UiOp.Open open:
                 Build(open.Delta);
+                break;
+            case UiOp.OpenApps:
+                BuildApps();
                 break;
             case UiOp.Cycle cycle:
                 NoteNavigation();
@@ -218,6 +232,7 @@ internal sealed class SwitcherPresenter
                 _session?.AppendQuery(append.Text);
                 SyncSearch();
                 NoteQueryExtras();
+                if (_session?.AppsMode == true) QueueIcons();
                 if (_deck.IsVisible) Refresh();
                 break;
             case UiOp.Backspace:
@@ -225,6 +240,7 @@ internal sealed class SwitcherPresenter
                 _session?.Backspace();
                 SyncSearch();
                 NoteQueryExtras();
+                if (_session?.AppsMode == true) QueueIcons();
                 if (_deck.IsVisible) Refresh();
                 break;
             case UiOp.ClearQuery:
@@ -450,6 +466,37 @@ internal sealed class SwitcherPresenter
         _iconGeneration++;
     }
 
+    void BuildApps()
+    {
+        ReleaseLiveSurface();
+        _restore = NativeMethods.GetForegroundWindow();
+        List<WindowEntry> entries;
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        try
+        {
+            var captured = _windows.Capture(_settings());
+            entries = captured.Entries;
+            _enumerationMs = captured.EnumerationMilliseconds;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error(ex);
+            entries = new List<WindowEntry>();
+            _enumerationMs = clock.ElapsedMilliseconds;
+        }
+
+        _session = new SwitcherSession(entries);
+        _session.SetAppsMode(true);
+        ApplyCatalog(resetClock: true);
+        _searchMode = true;
+        _status = null;
+        _arm.Clear();
+        _statusSticky = false;
+        _displayCount = -1;
+        PendingShow = true;
+        _iconGeneration++;
+    }
+
     /// <summary>
     /// Exercise Show, layout, and icon decode once while the process is idle.
     /// The window is placed off-screen and does not take focus. A real Alt+Tab
@@ -498,12 +545,17 @@ internal sealed class SwitcherPresenter
 
         AppLog.Info($"warmup off-screen {clock.ElapsedMilliseconds} ms, rows {rows}");
         var open = _deferredOpen;
+        var apps = _deferredApps;
         var finish = _deferredFinish;
         var snap = _deferredSnap;
         _deferredOpen = null;
+        _deferredApps = false;
         _deferredFinish = false;
         if (open is not null)
-            Build(open.Delta);
+        {
+            if (apps) BuildApps();
+            else Build(open.Delta);
+        }
         if (finish)
             FinishFrame(snap);
     }
@@ -568,11 +620,12 @@ internal sealed class SwitcherPresenter
     {
         if (_session is null) return;
         var settings = _settings();
+        var catalog = _session.AppsMode ? _apps?.LauncherApps() : _apps?.ForQuery(_session.Query);
         _session.SetCatalog(
-            _apps?.ForQuery(_session.Query),
+            catalog,
             _apps?.UsageSnapshot(),
             settings.ExcludedApps,
-            settings.LaunchApps,
+            settings.LaunchApps || _session.AppsMode,
             resetClock ? DateTime.UtcNow : null);
     }
 
@@ -977,17 +1030,22 @@ internal sealed class SwitcherPresenter
         var allCount = _session?.All.Count ?? 0;
         var loc = Localizer.Current;
         var appCount = _session?.AppHits.Count ?? 0;
+        var appsMode = _session?.AppsMode == true;
         var count = _session is null
             ? ""
-            : appCount > 0
-                ? loc.Format("count.apps", filtered.Count, appCount)
-                : _session.Query.Length == 0 && _session.MonitorFilter == 0
-                    ? loc.Format("count.windows", filtered.Count)
-                    : loc.Format("count.filtered", filtered.Count, allCount);
+            : appsMode
+                ? loc.Format("count.appsOnly", appCount)
+                : appCount > 0
+                    ? loc.Format("count.apps", filtered.Count, appCount)
+                    : _session.Query.Length == 0 && _session.MonitorFilter == 0
+                        ? loc.Format("count.windows", filtered.Count)
+                        : loc.Format("count.filtered", filtered.Count, allCount);
         var trigger = HotkeyLogic.TriggerDisplayName(HotkeyLogic.TriggerModifier(settings.Hotkey ?? HotkeyChord.AltTab()));
-        var hint = settings.StickySwitcher || _searchMode
-            ? loc.Format("hint.sticky", trigger)
-            : loc.Format("hint.gesture", trigger);
+        var hint = appsMode
+            ? loc["hint.apps"]
+            : settings.StickySwitcher || _searchMode
+                ? loc.Format("hint.sticky", trigger)
+                : loc.Format("hint.gesture", trigger);
         var showLoad = settings.ShowLoad;
         var systemText = !showLoad
             ? ""
@@ -1029,9 +1087,12 @@ internal sealed class SwitcherPresenter
             FileSearchUnavailable = _session?.FileSearchUnavailable == true,
             FileHint = _session?.FileHint ?? FileSearchHint.None,
             ActionHint = ActionHintText(settings),
-            LaunchSection = _apps is { UsingBuiltInIndex: true }
-                ? loc["launch.section"] + "  ·  " + loc["launch.everythingOff"]
-                : loc["launch.section"],
+            LaunchSection = appsMode
+                ? loc["apps.section"]
+                : _apps is { UsingBuiltInIndex: true }
+                    ? loc["launch.section"] + "  ·  " + loc["launch.everythingOff"]
+                    : loc["launch.section"],
+            AppsMode = appsMode,
             OpenBadge = loc["launch.openBadge"],
             SwitchSubtitle = loc["launch.switchSubtitle"],
             ShowMonitorBadges = showBadges,
@@ -1043,6 +1104,8 @@ internal sealed class SwitcherPresenter
     string EmptyMessage(Localizer loc, AppSettings settings, int filteredCount, int allCount)
     {
         var apps = _session?.AppHits.Count ?? 0;
+        if (_session?.AppsMode == true)
+            return apps > 0 ? "" : loc["list.noApps"];
         if (filteredCount + apps > 0) return "";
         if (_session is null || (allCount == 0 && _session.Query.Length == 0)) return loc["list.empty"];
         if (_session.MonitorFilter > 0 && _session.Query.Length == 0) return loc["list.monitorEmpty"];
@@ -1250,12 +1313,54 @@ internal sealed class SwitcherPresenter
         ScheduleFiles();
     }
 
+    (FileSearchHint Hint, IReadOnlyList<FileHit> Files, string Transport) SearchFiles(
+        string query,
+        string text,
+        bool allTypes,
+        IReadOnlyList<string> extensions,
+        IReadOnlyList<string> excluded,
+        int httpPort,
+        bool httpFallback,
+        bool useEverything,
+        bool useBuiltin)
+    {
+        EverythingQuery.Result? answer = null;
+        var reach = EverythingReach.NotRunning;
+        if (useEverything)
+        {
+            var queried = _files.Query(query, FileSearch.MaxResults, 700, httpPort, httpFallback);
+            answer = queried;
+            reach = queried.Reach;
+        }
+        var source = FileSearchRouter.Choose(useEverything, reach, useBuiltin);
+        if (source == FileSearchSource.Everything && answer is EverythingQuery.Result connected)
+        {
+            return (
+                FileSearchRouter.HintFor(source, reach),
+                FileSearch.ToHits(connected.Paths),
+                EverythingQuery.Name(connected.Link, connected.Port));
+        }
+        if (source == FileSearchSource.Builtin)
+        {
+            var extensionFilter = allTypes ? null : extensions;
+            var hits = FileIndexQuery.Search(_fileIndex?.Current ?? FileIndex.Empty, text, extensionFilter, excluded);
+            return (FileSearchHint.Builtin, hits, "builtin");
+        }
+        var link = answer is EverythingQuery.Result missed ? missed.Link : EverythingLink.None;
+        var port = answer is EverythingQuery.Result missedPort ? missedPort.Port : null;
+        return (
+            FileSearchRouter.HintFor(FileSearchSource.None, reach),
+            Array.Empty<FileHit>(),
+            EverythingQuery.Name(link, port));
+    }
+
     void ScheduleFiles()
     {
         _fileGen++;
         if (_session is null) return;
         var settings = _settings();
-        if (!settings.UseEverything
+        if (_session.AppsMode
+            || (!settings.UseEverything && !settings.UseBuiltinFileIndex)
             || !FileSearch.TryPlan(_session.Query, settings.DocumentExtensions, settings.EverythingExcludedPaths, out _))
         {
             _fileTimer?.Stop();
@@ -1283,29 +1388,30 @@ internal sealed class SwitcherPresenter
         }
         var gen = _fileGen;
         var query = plan.Query;
+        var text = plan.Text;
+        var allTypes = plan.AllTypes;
+        var extensions = FileSearch.Split(settings.DocumentExtensions);
+        var excluded = settings.EverythingExcludedPaths;
         var httpPort = settings.EverythingHttpPort;
         var httpFallback = settings.EverythingHttpFallback;
+        var useEverything = settings.UseEverything;
+        var useBuiltin = settings.UseBuiltinFileIndex;
         var clock = Stopwatch.StartNew();
         Task.Run(() =>
         {
             try
             {
-                var answer = _files.Query(query, FileSearch.MaxResults, 700, httpPort, httpFallback);
-                var hint = answer.Reach switch
-                {
-                    EverythingReach.NotRunning => FileSearchHint.NotRunning,
-                    EverythingReach.IpcFailed => FileSearchHint.IpcFailed,
-                    EverythingReach.ConnectedHttp => FileSearchHint.Http,
-                    _ => FileSearchHint.None
-                };
-                return (
-                    Hint: hint,
-                    Files: FileSearch.ToHits(answer.Paths),
-                    Transport: EverythingQuery.Name(answer.Link, answer.Port));
+                return SearchFiles(query, text, allTypes, extensions, excluded, httpPort, httpFallback, useEverything, useBuiltin);
             }
             catch (Exception ex)
             {
                 AppLog.Error(ex);
+                var source = FileSearchRouter.Choose(false, EverythingReach.IpcFailed, useBuiltin);
+                if (source == FileSearchSource.Builtin)
+                {
+                    var fallback = FileIndexQuery.SearchQuery(_fileIndex?.Current ?? FileIndex.Empty, raw, string.Join(',', extensions), excluded);
+                    return (Hint: FileSearchHint.Builtin, Files: fallback, Transport: "builtin");
+                }
                 return (
                     Hint: FileSearchHint.IpcFailed,
                     Files: (IReadOnlyList<FileHit>)Array.Empty<FileHit>(),
@@ -1392,6 +1498,8 @@ internal sealed class SwitcherPresenter
     string ActionHintText(AppSettings settings)
     {
         if (_session is null) return "";
+        if (_session.AppsMode && _session.SelectedApp is not null)
+            return RowHints.Text(HintRow.AppsMode, settings.ShowActionHint);
         if (_session.SelectedIsCalculation)
             return RowHints.Text(HintRow.Calculator, settings.ShowActionHint);
         if (_session.SelectedFile is not null)
