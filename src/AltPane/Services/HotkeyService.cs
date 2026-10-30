@@ -34,6 +34,9 @@ internal sealed class HotkeyService : IDisposable
 
     public bool IsInstalled => _hook != 0;
 
+    /// <summary>Ctrl+G (or the configured chord) while a file dialog is in front. Return true to swallow the key.</summary>
+    public Func<int, bool, ModifierState, bool>? DialogChord { get; set; }
+
     public bool Install()
     {
         if (_hook != 0) return true;
@@ -157,6 +160,19 @@ internal sealed class HotkeyService : IDisposable
         {
             if (vk == VirtualKeys.Escape)
                 AppLog.Error(ex);
+        }
+
+        if (!_recording() && !visible && DialogChord is not null)
+        {
+            try
+            {
+                if (DialogChord(vk, isDown, mods))
+                    return 1;
+            }
+            catch (Exception ex)
+            {
+                AppLog.Error(ex);
+            }
         }
 
         GestureSnapshot before;

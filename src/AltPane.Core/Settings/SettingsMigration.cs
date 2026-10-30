@@ -21,6 +21,9 @@ namespace AltPane.Core.Settings;
 /// Schema 8 adds the frequent-apps sidebar. It is shown, with 8 slots, and the
 /// sidebar pin and hide lists are empty when those keys are missing. An explicit
 /// choice saved at schema 8 is left as it was.
+/// Schema 9 adds file-dialog quick jump. The toggle defaults on, the hotkey
+/// defaults to Ctrl+G, and the panel defaults to the bottom edge when those keys
+/// are missing. A stored choice is not rewritten.
 /// </summary>
 public static class SettingsMigration
 {
@@ -67,6 +70,17 @@ public static class SettingsMigration
                 settings.FrequentSidebarCount = 8;
             settings.SidebarPinnedApps ??= new List<string>();
             settings.SidebarHiddenApps ??= new List<string>();
+            changed = true;
+        }
+
+        if (stored < 9)
+        {
+            if (!Has(root, "fileDialogJump"))
+                settings.FileDialogJump = true;
+            if (!Has(root, "fileDialogHotkey"))
+                settings.FileDialogHotkey = HotkeyChord.CtrlG();
+            if (!Has(root, "fileDialogPanelEdge"))
+                settings.FileDialogPanelEdge = FileDialogPanelEdge.Bottom;
             changed = true;
         }
 

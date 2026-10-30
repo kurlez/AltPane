@@ -246,10 +246,12 @@ public class StableGroupedOrderTests
         Assert.Contains("pdf", current.Settings.DocumentExtensions, StringComparison.Ordinal);
 
         var sidebar = Load("""{ "version": 8, "sortMode": "Initial", "showFrequentSidebar": false, "frequentSidebarCount": 6 }""");
-        Assert.False(sidebar.Migrated);
+        Assert.True(sidebar.Migrated);
+        Assert.Equal(AppSettings.CurrentSchema, sidebar.Settings.Version);
         Assert.Equal(LoadSortMode.Initial, sidebar.Settings.SortMode);
         Assert.False(sidebar.Settings.ShowFrequentSidebar);
         Assert.Equal(6, sidebar.Settings.FrequentSidebarCount);
+        Assert.True(sidebar.Settings.FileDialogJump);
     }
 
     static SettingsLoadResult Load(string json)

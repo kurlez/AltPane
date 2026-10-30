@@ -19,6 +19,7 @@ public partial class SettingsWindow : Window
     AppSettings _draft;
     bool _loading;
     bool _recording;
+    bool _recordDialog;
     bool _saved;
 
     public SettingsWindow(AppSettings current, Action<AppSettings> save, Action<bool> recordingChanged, Action? showAbout = null)
@@ -36,7 +37,7 @@ public partial class SettingsWindow : Window
         Closed += (_, _) => ThemeService.Changed -= OnThemeChanged;
         MaxHeight = SystemParameters.WorkArea.Height * 0.92;
         var version = typeof(SettingsWindow).Assembly.GetName().Version;
-        VersionText.Text = "AltPane " + (version?.ToString(3) ?? "0.4.9");
+        VersionText.Text = "AltPane " + AltPane.Core.Versioning.ProductVersion.Display(version);
         AboutButton.Visibility = _showAbout is null ? Visibility.Collapsed : Visibility.Visible;
         LoadDraft();
         Localizer.Current.LanguageChanged += (_, _) =>
@@ -90,6 +91,9 @@ public partial class SettingsWindow : Window
         EverythingHttpPortBox.Text = _draft.EverythingHttpPort.ToString();
         EverythingHttpFallbackBox.IsChecked = _draft.EverythingHttpFallback;
         ActionHintBox.IsChecked = _draft.ShowActionHint;
+        FileDialogBox.IsChecked = _draft.FileDialogJump;
+        FileDialogHotkeyText.Text = HotkeyLogic.Format(_draft.FileDialogHotkey ?? HotkeyChord.CtrlG());
+        UpdateFileDialogEnabled();
         UpdateEverythingStatus();
         Select(SortBox, _draft.SortMode);
         Select(ThresholdBox, _draft.FocusThresholdMinutes);
@@ -105,7 +109,7 @@ public partial class SettingsWindow : Window
         Title = loc["settings.title"];
         TitleText.Text = loc["settings.title"];
         HotkeyLabel.Text = loc["settings.hotkey"];
-        RecordButton.Content = _recording ? loc["settings.recording"] : loc["settings.record"];
+        RecordButton.Content = _recording && !_recordDialog ? loc["settings.recording"] : loc["settings.record"];
         WinTabBox.Content = loc["settings.winTab"];
         WinTabNote.Text = loc["settings.winTabNote"];
         WinKeyBox.Content = loc["settings.winKey"];
@@ -115,6 +119,11 @@ public partial class SettingsWindow : Window
         StickyNote.Text = loc["settings.stickyNote"];
         QuickTapBox.Content = loc["settings.quickTap"];
         QuickTapNote.Text = loc["settings.quickTapNote"];
+        FileDialogBox.Content = loc["settings.fileDialog"];
+        FileDialogNote.Text = loc["settings.fileDialogNote"];
+        FileDialogHotkeyLabel.Text = loc["settings.fileDialogHotkey"];
+        FileDialogEdgeLabel.Text = loc["settings.fileDialogEdge"];
+        FileDialogRecordButton.Content = _recordDialog ? loc["settings.recording"] : loc["settings.record"];
         ThemeLabel.Text = loc["settings.theme"];
         LanguageLabel.Text = loc["settings.language"];
         SizeLabel.Text = loc["settings.size"];
@@ -229,6 +238,11 @@ public partial class SettingsWindow : Window
             (7, "7"),
             (8, "8")
         }, sidebarCount);
+        Fill(FileDialogEdgeBox, new (FileDialogPanelEdge, string)[]
+        {
+            (FileDialogPanelEdge.Bottom, loc["settings.fileDialogEdge.bottom"]),
+            (FileDialogPanelEdge.Right, loc["settings.fileDialogEdge.right"])
+        }, _draft.FileDialogPanelEdge);
         if (_everythingStatus is { } status)
             ApplyEverythingStatus(status);
     }
@@ -304,11 +318,42 @@ public partial class SettingsWindow : Window
 
     void Record_Click(object sender, RoutedEventArgs e)
     {
+        _recordDialog = false;
         _recording = true;
         HotkeyError.Visibility = Visibility.Collapsed;
         RecordButton.Content = Localizer.Current["settings.recording"];
+        FileDialogRecordButton.Content = Localizer.Current["settings.record"];
         _recordingChanged(true);
         Focus();
+    }
+
+    void FileDialogRecord_Click(object sender, RoutedEventArgs e)
+    {
+        _recordDialog = true;
+        _recording = true;
+        HotkeyError.Visibility = Visibility.Collapsed;
+        FileDialogRecordButton.Content = Localizer.Current["settings.recording"];
+        RecordButton.Content = Localizer.Current["settings.record"];
+        _recordingChanged(true);
+        Focus();
+    }
+
+    void FileDialogBox_Changed(object sender, RoutedEventArgs e) => UpdateFileDialogEnabled();
+
+    void FileDialogEdge_Changed(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (_loading || FileDialogEdgeBox is null) return;
+        _draft.FileDialogPanelEdge = Read(FileDialogEdgeBox, _draft.FileDialogPanelEdge);
+    }
+
+    void UpdateFileDialogEnabled()
+    {
+        if (FileDialogRecordButton is null) return;
+        var on = FileDialogBox.IsChecked == true;
+        FileDialogRecordButton.IsEnabled = on;
+        FileDialogHotkeyText.IsEnabled = on;
+        FileDialogEdgeBox.IsEnabled = on;
+        FileDialogNote.Opacity = on ? 1 : 0.55;
     }
 
     protected override void OnPreviewKeyDown(KeyEventArgs e)
@@ -342,8 +387,16 @@ public partial class SettingsWindow : Window
         }
         else
         {
-            _draft.Hotkey = chord;
-            HotkeyText.Text = HotkeyLogic.Format(chord);
+            if (_recordDialog)
+            {
+                _draft.FileDialogHotkey = chord;
+                FileDialogHotkeyText.Text = HotkeyLogic.Format(chord);
+            }
+            else
+            {
+                _draft.Hotkey = chord;
+                HotkeyText.Text = HotkeyLogic.Format(chord);
+            }
             HotkeyError.Visibility = Visibility.Collapsed;
         }
         e.Handled = true;
@@ -353,8 +406,11 @@ public partial class SettingsWindow : Window
     {
         if (!_recording) return;
         _recording = false;
+        _recordDialog = false;
         _recordingChanged(false);
         RecordButton.Content = Localizer.Current["settings.record"];
+        if (FileDialogRecordButton is not null)
+            FileDialogRecordButton.Content = Localizer.Current["settings.record"];
     }
 
     void Save_Click(object sender, RoutedEventArgs e)
@@ -409,6 +465,8 @@ public partial class SettingsWindow : Window
         _draft.DemotedApps = DemotedBox.Text
             .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
             .ToList();
+        _draft.FileDialogJump = FileDialogBox.IsChecked == true;
+        _draft.FileDialogPanelEdge = Read(FileDialogEdgeBox, _draft.FileDialogPanelEdge);
         _draft.ShowFrequentSidebar = SidebarBox.IsChecked == true;
         _draft.FrequentSidebarCount = Read(SidebarCountBox, _draft.FrequentSidebarCount);
         _draft.SidebarPinnedApps = SidebarPinnedBox.Text
@@ -593,7 +651,14 @@ public partial class SettingsWindow : Window
         ShowFrequentSidebar = source.ShowFrequentSidebar,
         FrequentSidebarCount = source.FrequentSidebarCount,
         SidebarPinnedApps = new List<string>(source.SidebarPinnedApps ?? new List<string>()),
-        SidebarHiddenApps = new List<string>(source.SidebarHiddenApps ?? new List<string>())
+        SidebarHiddenApps = new List<string>(source.SidebarHiddenApps ?? new List<string>()),
+        FileDialogJump = source.FileDialogJump,
+        FileDialogPanelEdge = source.FileDialogPanelEdge,
+        FileDialogHotkey = new HotkeyChord
+        {
+            Modifiers = source.FileDialogHotkey?.Modifiers ?? AppMods.Control,
+            VirtualKey = source.FileDialogHotkey?.VirtualKey ?? VirtualKeys.G
+        }
     };
 
     sealed class Choice<T>

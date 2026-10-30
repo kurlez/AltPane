@@ -226,7 +226,7 @@ public class FrequentAppsTests
         File.WriteAllText(oldPath, """{ "version": 7, "sortMode": "Recent", "demotedApps": [ "Outlook" ] }""");
         var migrated = SettingsStore.Load(oldPath);
         Assert.True(migrated.Migrated);
-        Assert.Equal(8, migrated.Settings.Version);
+        Assert.Equal(AppSettings.CurrentSchema, migrated.Settings.Version);
         Assert.True(migrated.Settings.ShowFrequentSidebar);
         Assert.Equal(8, migrated.Settings.FrequentSidebarCount);
         Assert.Empty(migrated.Settings.SidebarPinnedApps);

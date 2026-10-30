@@ -75,6 +75,11 @@ public static class SettingsStore
         settings.Hotkey ??= HotkeyChord.AltTab();
         if (!HotkeyLogic.IsValid(settings.Hotkey))
             settings.Hotkey = HotkeyChord.AltTab();
+        settings.FileDialogHotkey ??= HotkeyChord.CtrlG();
+        if (!HotkeyLogic.IsValid(settings.FileDialogHotkey))
+            settings.FileDialogHotkey = HotkeyChord.CtrlG();
+        if (!Enum.IsDefined(settings.FileDialogPanelEdge))
+            settings.FileDialogPanelEdge = FileDialogPanelEdge.Bottom;
         if (!Enum.IsDefined(settings.Theme)) settings.Theme = AppTheme.System;
         if (!Enum.IsDefined(settings.Size)) settings.Size = SwitcherSize.Comfortable;
         if (!Enum.IsDefined(settings.Placement)) settings.Placement = SwitcherPlacement.MouseCursor;

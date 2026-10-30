@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="AltPane"
         Width="560"
-        Height="840"
+        Height="920"
         MinWidth="480"
         MinHeight="560"
         WindowStyle="None"
@@ -45,6 +45,18 @@
           <TextBlock x:Name="StickyNote" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="22,0,0,8"/>
           <CheckBox x:Name="QuickTapBox" Margin="22,0,0,2"/>
           <TextBlock x:Name="QuickTapNote" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="44,0,0,14"/>
+
+          <CheckBox x:Name="FileDialogBox" Margin="0,4,0,2" Checked="FileDialogBox_Changed" Unchecked="FileDialogBox_Changed"/>
+          <TextBlock x:Name="FileDialogNote" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="22,0,0,8"/>
+          <TextBlock x:Name="FileDialogHotkeyLabel" FontWeight="SemiBold" Margin="22,0,0,6"/>
+          <DockPanel Margin="22,0,0,8">
+            <Button x:Name="FileDialogRecordButton" DockPanel.Dock="Right" Style="{DynamicResource ActionButton}" Margin="8,0,0,0" MinWidth="88" Click="FileDialogRecord_Click"/>
+            <Border Background="{DynamicResource SearchBgBrush}" BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="1" CornerRadius="8" Padding="10,8">
+              <TextBlock x:Name="FileDialogHotkeyText" VerticalAlignment="Center"/>
+            </Border>
+          </DockPanel>
+          <TextBlock x:Name="FileDialogEdgeLabel" FontWeight="SemiBold" Margin="22,0,0,6"/>
+          <ComboBox x:Name="FileDialogEdgeBox" Margin="22,0,0,14" SelectionChanged="FileDialogEdge_Changed"/>
 
           <TextBlock x:Name="ThemeLabel" FontWeight="SemiBold" Margin="0,0,0,6"/>
           <ComboBox x:Name="ThemeBox" Margin="0,0,0,10"/>

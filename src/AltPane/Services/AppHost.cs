@@ -14,6 +14,7 @@ internal sealed class AppHost : IDisposable
     readonly HotkeyService _hotkeys;
     readonly AppIndexService _apps;
     readonly FileIndexService _files;
+    readonly FileDialogJumpService _dialogs;
     Timer? _footprint;
     readonly TrayController _tray;
     SettingsWindow? _settingsWindow;
@@ -45,6 +46,8 @@ internal sealed class AppHost : IDisposable
             () => new EverythingClient().Probe().Running);
         _presenter.UseFileIndex(_files);
         _hotkeys = new HotkeyService(_presenter, () => Settings, () => _recording, System.Windows.Application.Current.Dispatcher);
+        _dialogs = new FileDialogJumpService(() => Settings, _files, System.Windows.Application.Current.Dispatcher);
+        _hotkeys.DialogChord = _dialogs.TakeChord;
         _presenter.Hotkeys = _hotkeys;
         _presenter.Notify += message => _tray?.Balloon(message);
         _presenter.PersistRequested += TrySave;
@@ -62,6 +65,7 @@ internal sealed class AppHost : IDisposable
         _presenter.CreateWindows();
         _apps.Start();
         _files.Start();
+        _dialogs.Start();
         _tray.Show();
         if (!Settings.OverridePaused && !_hotkeys.Install())
             _tray.Balloon(Localizer.Current["settings.hookFailed"]);
@@ -186,13 +190,18 @@ internal sealed class AppHost : IDisposable
         System.Windows.Application.Current.Shutdown();
     }
 
-    public void EmergencyUnhook() => _hotkeys.Uninstall();
+    public void EmergencyUnhook()
+    {
+        _hotkeys.Uninstall();
+        try { _dialogs.Stop(); } catch { }
+    }
 
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
         try { SystemEvents.UserPreferenceChanged -= OnPreference; } catch { }
+        try { _dialogs.Dispose(); } catch (Exception ex) { AppLog.Error(ex); }
         try { _hotkeys.Uninstall(); } catch (Exception ex) { AppLog.Error(ex); }
         try { _footprint?.Dispose(); } catch (Exception ex) { AppLog.Error(ex); }
         try { _presenter.DisposeWindowCache(); } catch (Exception ex) { AppLog.Error(ex); }
@@ -228,6 +237,7 @@ internal sealed class AppHost : IDisposable
         _presenter.InvalidateWindowCache();
         _apps.ApplySettings();
         _files.ApplySettings();
+        _dialogs.ApplySettings();
         _tray.Rebuild();
     }
 

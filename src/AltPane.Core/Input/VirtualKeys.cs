@@ -31,6 +31,7 @@ public static class VirtualKeys
     public const int RMenu = 0xA5;
     public const int E = 0x45;
     public const int F = 0x46;
+    public const int G = 0x47;
     public const int S = 0x53;
     public const int W = 0x57;
     public const int M = 0x4D;

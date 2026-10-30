@@ -19,7 +19,15 @@ jobs:
       - name: Version from the tag
         id: version
         shell: bash
-        run: echo "ver=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          # Major.Minor.Patch. The patch may be two digits (v0.4.10). Do not match a single digit.
+          if [[ ! "$tag" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            echo "Tag $GITHUB_REF_NAME is not Major.Minor.Patch" >&2
+            exit 1
+          fi
+          echo "ver=$tag" >> "$GITHUB_OUTPUT"
+          echo "assembly=${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}.0" >> "$GITHUB_OUTPUT"
       - name: Test
         run: dotnet test tests/AltPane.Tests/AltPane.Tests.csproj -c Release
       - name: Publish a framework-dependent single file
@@ -29,8 +37,8 @@ jobs:
           -p:DebugType=none
           -p:DebugSymbols=false
           -p:Version=${{ steps.version.outputs.ver }}
-          -p:AssemblyVersion=${{ steps.version.outputs.ver }}.0
-          -p:FileVersion=${{ steps.version.outputs.ver }}.0
+          -p:AssemblyVersion=${{ steps.version.outputs.assembly }}
+          -p:FileVersion=${{ steps.version.outputs.assembly }}
           -p:InformationalVersion=${{ steps.version.outputs.ver }}
           -o publish-fx
       - name: Zip the executable and write its SHA256

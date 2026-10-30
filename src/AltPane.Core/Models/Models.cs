@@ -139,6 +139,19 @@ public sealed class HotkeyChord
         Modifiers = ModifierKeys.Alt,
         VirtualKey = 0x09
     };
+
+    public static HotkeyChord CtrlG() => new()
+    {
+        Modifiers = ModifierKeys.Control,
+        VirtualKey = 0x47
+    };
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum FileDialogPanelEdge
+{
+    Bottom,
+    Right
 }
 
 public sealed class AppSettings
@@ -158,8 +171,11 @@ public sealed class AppSettings
     /// sort loads as focus time. Recent, app name, CPU, and memory stay.
     /// 8 adds the frequent-apps sidebar. <see cref="ShowFrequentSidebar"/> defaults on,
     /// <see cref="FrequentSidebarCount"/> defaults to 8, and the pin and hide lists start empty.
+    /// 9 adds file-dialog quick jump. <see cref="FileDialogJump"/> defaults on,
+    /// <see cref="FileDialogHotkey"/> defaults to Ctrl+G, and <see cref="FileDialogPanelEdge"/>
+    /// defaults to the bottom edge when those keys are missing. An explicit choice is kept.
     /// </summary>
-    public const int CurrentSchema = 8;
+    public const int CurrentSchema = 9;
 
     public int Version { get; set; } = CurrentSchema;
     public HotkeyChord? Hotkey { get; set; } = HotkeyChord.AltTab();
@@ -240,6 +256,10 @@ public sealed class AppSettings
     public bool ShowActionHint { get; set; } = true;
     /// <summary>When true, Win and Tab hook decisions are written to altpane.log.</summary>
     public bool VerboseLog { get; set; }
+    /// <summary>When true (the default), a foreground Open or Save dialog gets a folder jump panel.</summary>
+    public bool FileDialogJump { get; set; } = true;
+    public HotkeyChord? FileDialogHotkey { get; set; } = HotkeyChord.CtrlG();
+    public FileDialogPanelEdge FileDialogPanelEdge { get; set; } = FileDialogPanelEdge.Bottom;
 
     public static AppSettings CreateDefault() => new()
     {
@@ -279,6 +299,9 @@ public sealed class AppSettings
         EverythingHttpFallback = true,
         UseBuiltinFileIndex = true,
         BuiltinIndexFolders = new List<string>(),
-        ShowActionHint = true
+        ShowActionHint = true,
+        FileDialogJump = true,
+        FileDialogHotkey = HotkeyChord.CtrlG(),
+        FileDialogPanelEdge = FileDialogPanelEdge.Bottom
     };
 }
