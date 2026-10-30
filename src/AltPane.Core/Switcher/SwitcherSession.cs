@@ -41,6 +41,7 @@ public sealed class SwitcherSession
     string? _calcShown;
     readonly List<FileHit> _files = new();
     bool _fileHint;
+    FileSearchHint _fileHintKind;
 
     int Lead => _calcPlain is null ? 0 : 1;
     int Tail => _files.Count + (_fileHint ? 1 : 0);
@@ -64,6 +65,7 @@ public sealed class SwitcherSession
     public string? CalculationShown => _calcShown;
     public IReadOnlyList<FileHit> Files => _files;
     public bool FileSearchUnavailable => _fileHint;
+    public FileSearchHint FileHint => _fileHintKind;
     public bool SelectedIsCalculation => Lead == 1 && SelectedIndex == 0;
     public bool SelectedIsFileHint => _fileHint && SelectedIndex == Lead + _filtered.Count + _apps.Count + _files.Count;
     public WindowEntry? Selected
@@ -121,19 +123,22 @@ public sealed class SwitcherSession
         Clamp();
     }
 
-    public void SetFiles(IReadOnlyList<FileHit>? files, bool unavailable)
+    public void SetFiles(IReadOnlyList<FileHit>? files, FileSearchHint hint = FileSearchHint.None)
     {
         _files.Clear();
-        if (!unavailable && files is not null)
+        if (hint is FileSearchHint.None or FileSearchHint.Http && files is not null)
         {
             foreach (var file in files)
             {
-                if (file is null || string.IsNullOrWhiteSpace(file.FullPath)) continue;
+                if (file is null || string.IsNullOrWhiteSpace(file.FullPath) || FileSearch.IsExcluded(file.FullPath))
+                    continue;
                 _files.Add(file);
                 if (_files.Count >= FileSearch.MaxResults) break;
             }
         }
-        _fileHint = unavailable;
+        _fileHintKind = hint;
+        _fileHint = hint is FileSearchHint.NotRunning or FileSearchHint.IpcFailed
+            || (hint == FileSearchHint.Http && _files.Count == 0);
         Clamp();
     }
 

@@ -1,29 +1,66 @@
 using System.Diagnostics;
+using System.Net.Http;
 using System.Runtime.InteropServices;
 using System.Text;
+using AltPane.Core.Search;
 using Microsoft.Win32;
 
 namespace AltPane;
 
-internal readonly record struct EverythingStatus(bool Running, bool Installed, string? Executable);
+internal readonly record struct EverythingStatus(
+    bool Running,
+    bool Installed,
+    string? Executable,
+    EverythingReach Reach = EverythingReach.NotRunning,
+    EverythingLink Link = EverythingLink.None,
+    int? HttpPort = null);
 
 /// <summary>
 /// Asks a running Everything instance for files. The DLL is used when it sits next to
-/// AltPane or in Everything's install directory. Otherwise the documented IPC query is
-/// used, then es.exe. A missing or hung Everything returns no rows and never blocks startup.
+/// AltPane or in Everything's install directory. IPC is sent to
+/// <c>EVERYTHING_IPC_WNDCLASS</c>, then to <c>EVERYTHING_TASKBAR_NOTIFICATION</c> and
+/// the main <c>EVERYTHING</c> window when that class is missing or does not answer.
+/// <c>es.exe</c> is next. If IPC still has no reply, the local HTTP server is queried.
+/// A missing Everything returns no rows. Call <see cref="Query"/> off the UI thread.
 /// </summary>
 internal sealed class EverythingClient
 {
     const int CopyDataQueryW = 2;
     const int WmCopyData = 0x004A;
     const uint SmtoAbortIfHung = 0x0002;
+    const uint PmRemove = 0x0001;
+    const uint QsAllInput = 0x04FF;
+    const uint WaitTimeout = 258;
+    static readonly nint HwndMessage = new(-3);
+    static readonly HttpClient Http = new() { Timeout = Timeout.InfiniteTimeSpan };
     readonly object _gate = new();
+    EverythingLink _prefer;
+    int _preferPort;
 
     public EverythingStatus Probe()
     {
-        var running = FindEverythingWindow() != 0;
+        var ipc = FindClass(EverythingQuery.IpcClassName);
+        var taskbar = FindClass(EverythingQuery.TaskbarClassName);
+        var main = FindClass(EverythingQuery.MainClassName);
+        var running = ipc != 0 || taskbar != 0 || main != 0 || IsEverythingProcessRunning();
         var exe = FindInstalledExe();
         return new EverythingStatus(running, exe is not null, exe);
+    }
+
+    /// <summary>IPC ping, then HTTP. Must run off the UI thread.</summary>
+    public EverythingStatus Describe(int httpPort, bool httpFallback)
+    {
+        var status = Probe();
+        if (!status.Running)
+            return status with { Reach = EverythingReach.NotRunning };
+        var result = Query("ext:altpaneprobe", 1, 350, httpPort, httpFallback);
+        return status with
+        {
+            Reach = result.Reach,
+            Link = result.Link,
+            HttpPort = result.Port,
+            Running = true
+        };
     }
 
     public bool TryStart()
@@ -42,16 +79,63 @@ internal sealed class EverythingClient
         }
     }
 
-    public IReadOnlyList<string> Query(string search, int max, int timeoutMs)
+    public EverythingQuery.Result Query(string search, int max, int timeoutMs, int httpPort, bool httpFallback)
     {
-        if (string.IsNullOrWhiteSpace(search) || max <= 0) return Array.Empty<string>();
+        if (string.IsNullOrWhiteSpace(search) || max <= 0)
+        {
+            return new EverythingQuery.Result(
+                Array.Empty<string>(),
+                EverythingLink.None,
+                null,
+                EverythingReach.NotRunning,
+                Array.Empty<EverythingAttempt>());
+        }
         lock (_gate)
         {
-            var fromDll = TryDll(search, max);
-            if (fromDll is not null) return fromDll;
-            var fromIpc = TryIpc(search, max, timeoutMs);
-            if (fromIpc is not null) return fromIpc;
-            return TryEs(search, max, Math.Max(timeoutMs, 400));
+            var ipc = FindClass(EverythingQuery.IpcClassName);
+            var taskbar = FindClass(EverythingQuery.TaskbarClassName);
+            var main = FindClass(EverythingQuery.MainClassName);
+            var running = ipc != 0 || taskbar != 0 || main != 0 || IsEverythingProcessRunning();
+            var ipcBudget = Math.Clamp(timeoutMs, 50, 700);
+            var httpBudget = Math.Clamp(Math.Min(timeoutMs, 400), 50, 400);
+            var result = EverythingQuery.Run(
+                running,
+                link => link switch
+                {
+                    EverythingLink.Sdk => SdkPresent(),
+                    EverythingLink.Ipc => ipc != 0,
+                    EverythingLink.IpcTaskbar => taskbar != 0,
+                    EverythingLink.IpcWindow => main != 0,
+                    EverythingLink.Es => FindEs() is not null,
+                    _ => false
+                },
+                (link, port) => link switch
+                {
+                    EverythingLink.Sdk => TryDll(search, max),
+                    EverythingLink.Ipc => TryIpc(ipc, search, max, ipcBudget),
+                    EverythingLink.IpcTaskbar => TryIpc(taskbar, search, max, ipcBudget),
+                    EverythingLink.IpcWindow => TryIpc(main, search, max, ipcBudget),
+                    EverythingLink.Es => TryEs(search, max, Math.Max(ipcBudget, 400)),
+                    EverythingLink.Http => TryHttp(search, max, port ?? httpPort, httpBudget),
+                    _ => null
+                },
+                httpPort,
+                httpFallback,
+                _prefer,
+                _prefer == EverythingLink.Http ? _preferPort : null);
+            if (result.Link == EverythingLink.None)
+            {
+                _prefer = EverythingLink.None;
+                _preferPort = 0;
+            }
+            else
+            {
+                _prefer = result.Link;
+                _preferPort = result.Port ?? 0;
+            }
+            var tried = string.Join(",", result.Attempted.Select(item => EverythingQuery.Name(item.Link, item.Port)));
+            AppLog.Info($"Everything transport {EverythingQuery.Name(result.Link, result.Port)}, rows {result.Paths.Count}, reach {result.Reach}, tried {tried}");
+            return result;
         }
     }
 
@@ -151,9 +235,8 @@ internal sealed class EverythingClient
         return ptr;
     }
 
-    IReadOnlyList<string>? TryIpc(string search, int max, int timeoutMs)
+    IReadOnlyList<string>? TryIpc(nint everything, string search, int max, int timeoutMs)
     {
-        var everything = FindEverythingWindow();
         if (everything == 0) return null;
         byte[]? reply = null;
         nint hwnd = 0;
@@ -195,7 +278,10 @@ internal sealed class EverythingClient
                 try
                 {
                     Marshal.StructureToPtr(copy, copyPtr, false);
-                    SendMessageTimeout(everything, WmCopyData, hwnd, copyPtr, SmtoAbortIfHung, (uint)Math.Max(50, timeoutMs), out _);
+                    var budget = Math.Max(50, timeoutMs);
+                    var started = Environment.TickCount64;
+                    SendMessageTimeout(everything, WmCopyData, hwnd, copyPtr, SmtoAbortIfHung, (uint)budget, out _);
+                    PumpUntil(hwnd, started, budget, () => reply is not null);
                 }
                 finally
                 {
@@ -206,7 +292,7 @@ internal sealed class EverythingClient
             {
                 Marshal.FreeHGlobal(buffer);
             }
-            return reply is null ? null : ParseList(reply, max);
+            return reply is null ? null : EverythingIpc.Parse(reply, max);
         }
         catch (Exception)
         {
@@ -215,6 +301,7 @@ internal sealed class EverythingClient
         finally
         {
             if (hwnd != 0) DestroyWindow(hwnd);
+            UnregisterClass(className, wc.hInstance);
             GC.KeepAlive(proc);
         }
     }
@@ -232,46 +319,64 @@ internal sealed class EverythingClient
         return payload;
     }
 
-    static List<string>? ParseList(byte[] blob, int max)
+    static void Drain(nint hwnd, Func<bool> done)
     {
-        return TryItems(blob, 16, max) ?? TryItems(blob, 8, max);
-    }
-
-    static List<string>? TryItems(byte[] blob, int header, int max)
-    {
-        if (blob.Length < header + 12) return null;
-        var count = BitConverter.ToInt32(blob, 4);
-        if (count < 0 || count > 10_000) return null;
-        if (header + count * 12 > blob.Length) return null;
-        var list = new List<string>(Math.Min(count, max));
-        for (var i = 0; i < count && list.Count < max; i++)
+        while (!done() && PeekMessage(out var msg, hwnd, 0, 0, PmRemove))
         {
-            var at = header + i * 12;
-            var nameOffset = BitConverter.ToInt32(blob, at + 4);
-            var pathOffset = BitConverter.ToInt32(blob, at + 8);
-            if (nameOffset < 0 || pathOffset < 0 || nameOffset >= blob.Length || pathOffset >= blob.Length)
-                return null;
-            var name = ReadWide(blob, nameOffset);
-            var dir = ReadWide(blob, pathOffset);
-            if (name.Length == 0) continue;
-            list.Add(dir.Length == 0 ? name : Path.Combine(dir, name));
+            TranslateMessage(ref msg);
+            DispatchMessage(ref msg);
         }
-        return list;
     }
 
-    static string ReadWide(byte[] blob, int offset)
+    static void PumpUntil(nint hwnd, long started, int budget, Func<bool> done)
     {
-        var end = offset;
-        while (end + 1 < blob.Length && (blob[end] != 0 || blob[end + 1] != 0))
-            end += 2;
-        if (end <= offset) return "";
-        return Encoding.Unicode.GetString(blob, offset, end - offset);
+        while (!done())
+        {
+            while (PeekMessage(out var msg, hwnd, 0, 0, PmRemove))
+            {
+                TranslateMessage(ref msg);
+                DispatchMessage(ref msg);
+                if (done()) return;
+            }
+            var left = budget - (Environment.TickCount64 - started);
+            if (left <= 0)
+            {
+                Drain(hwnd, done);
+                return;
+            }
+            var wake = MsgWaitForMultipleObjects(0, null, false, (uint)left, QsAllInput);
+            if (wake == WaitTimeout)
+            {
+                Drain(hwnd, done);
+                return;
+            }
+            if (!PeekMessage(out _, hwnd, 0, 0, 0))
+                Thread.Sleep(15);
+        }
     }
 
-    static IReadOnlyList<string> TryEs(string search, int max, int timeoutMs)
+    static IReadOnlyList<string>? TryHttp(string search, int max, int port, int timeoutMs)
+    {
+        var budget = Math.Clamp(timeoutMs, 50, 2000);
+        var url = EverythingHttp.BuildUrl(port, search, max);
+        using var cancel = new CancellationTokenSource(budget);
+        try
+        {
+            var task = Http.GetStringAsync(url, cancel.Token);
+            if (!task.Wait(budget + 50)) return null;
+            if (!task.IsCompletedSuccessfully) return null;
+            return EverythingHttp.Parse(task.Result, max);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    static IReadOnlyList<string>? TryEs(string search, int max, int timeoutMs)
     {
         var es = FindEs();
-        if (es is null) return Array.Empty<string>();
+        if (es is null) return null;
         try
         {
             using var process = new Process
@@ -287,13 +392,14 @@ internal sealed class EverythingClient
             process.StartInfo.ArgumentList.Add("-n");
             process.StartInfo.ArgumentList.Add(max.ToString());
             process.StartInfo.ArgumentList.Add(search);
-            if (!process.Start()) return Array.Empty<string>();
+            if (!process.Start()) return null;
             var read = process.StandardOutput.ReadToEndAsync();
             if (!process.WaitForExit(timeoutMs))
             {
                 try { process.Kill(entireProcessTree: true); } catch { }
+                return null;
             }
-            if (!read.Wait(50)) return Array.Empty<string>();
+            if (!read.Wait(50) || process.ExitCode != 0) return null;
             var list = new List<string>();
             foreach (var line in read.Result.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
             {
@@ -304,7 +410,7 @@ internal sealed class EverythingClient
         }
         catch (Exception)
         {
-            return Array.Empty<string>();
+            return null;
         }
     }
 
@@ -332,7 +438,42 @@ internal sealed class EverythingClient
         return File.Exists(file) ? file : null;
     }
 
-    static nint FindEverythingWindow() => FindWindow("EVERYTHING_IPC_WNDCLASS", null);
+    bool SdkPresent()
+    {
+        foreach (var directory in SdkDirectories())
+        {
+            if (File.Exists(Path.Combine(directory, "Everything64.dll"))) return true;
+        }
+        return false;
+    }
+
+    static bool IsEverythingProcessRunning()
+    {
+        Process[] list;
+        try
+        {
+            list = Process.GetProcessesByName("Everything");
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+        try
+        {
+            return list.Length > 0;
+        }
+        finally
+        {
+            foreach (var process in list) process.Dispose();
+        }
+    }
+
+    static nint FindClass(string className)
+    {
+        var hwnd = FindWindow(className, null);
+        if (hwnd != 0) return hwnd;
+        return FindWindowEx(HwndMessage, 0, className, null);
+    }
 
     [UnmanagedFunctionPointer(CallingConvention.StdCall, CharSet = CharSet.Unicode)]
     delegate void SetSearchW(string text);
@@ -347,6 +488,18 @@ internal sealed class EverythingClient
     [UnmanagedFunctionPointer(CallingConvention.StdCall, CharSet = CharSet.Unicode)]
     delegate uint GetPath(uint index, StringBuilder buffer, uint capacity);
     delegate nint WndProc(nint hwnd, uint msg, nint wParam, nint lParam);
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct Msg
+    {
+        public nint hwnd;
+        public uint message;
+        public nint wParam;
+        public nint lParam;
+        public uint time;
+        public int x;
+        public int y;
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     struct CopyDataStruct
@@ -376,8 +529,26 @@ internal sealed class EverythingClient
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     static extern nint FindWindow(string className, string? windowName);
 
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    static extern nint FindWindowEx(nint parent, nint child, string className, string? windowName);
+
+    [DllImport("user32.dll")]
+    static extern bool PeekMessage(out Msg msg, nint hwnd, uint min, uint max, uint remove);
+
+    [DllImport("user32.dll")]
+    static extern bool TranslateMessage(ref Msg msg);
+
+    [DllImport("user32.dll")]
+    static extern nint DispatchMessage(ref Msg msg);
+
+    [DllImport("user32.dll")]
+    static extern uint MsgWaitForMultipleObjects(uint count, nint[]? handles, bool waitAll, uint milliseconds, uint wakeMask);
+
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     static extern ushort RegisterClassEx(ref WndClassEx lpwcx);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    static extern bool UnregisterClass(string className, nint instance);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     static extern nint CreateWindowEx(int exStyle, string className, string windowName, int style, int x, int y, int width, int height, nint parent, nint menu, nint instance, nint param);

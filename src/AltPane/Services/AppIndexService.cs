@@ -449,7 +449,7 @@ internal sealed class AppIndexService : IDisposable
         IReadOnlyList<string> paths;
         try
         {
-            paths = _everything.Query(built, 30, 200);
+            paths = _everything.Query(built, 30, 400, settings.EverythingHttpPort, settings.EverythingHttpFallback).Paths;
         }
         catch (Exception ex)
         {

@@ -90,6 +90,8 @@ public static class SettingsStore
             settings.EverythingExtensions = "exe,lnk,url,appref-ms";
         if (string.IsNullOrWhiteSpace(settings.DocumentExtensions))
             settings.DocumentExtensions = AltPane.Core.Search.FileSearch.DefaultList;
+        if (settings.EverythingHttpPort is < 1 or > 65535)
+            settings.EverythingHttpPort = 80;
     }
 
     static List<string> NormalizeNames(List<string>? items)

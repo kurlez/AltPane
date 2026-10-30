@@ -1027,6 +1027,7 @@ internal sealed class SwitcherPresenter
             CalculationPlain = _session?.CalculationPlain,
             Files = _session?.Files ?? Array.Empty<FileHit>(),
             FileSearchUnavailable = _session?.FileSearchUnavailable == true,
+            FileHint = _session?.FileHint ?? FileSearchHint.None,
             ActionHint = ActionHintText(settings),
             LaunchSection = _apps is { UsingBuiltInIndex: true }
                 ? loc["launch.section"] + "  ·  " + loc["launch.everythingOff"]
@@ -1258,7 +1259,7 @@ internal sealed class SwitcherPresenter
             || !FileSearch.TryPlan(_session.Query, settings.DocumentExtensions, settings.EverythingExcludedPaths, out _))
         {
             _fileTimer?.Stop();
-            _session.SetFiles(Array.Empty<FileHit>(), unavailable: false);
+            _session.SetFiles(Array.Empty<FileHit>(), FileSearchHint.None);
             return;
         }
         _fileTimer ??= new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(160) };
@@ -1276,26 +1277,40 @@ internal sealed class SwitcherPresenter
         var raw = _session.Query;
         if (!FileSearch.TryPlan(raw, settings.DocumentExtensions, settings.EverythingExcludedPaths, out var plan))
         {
-            _session.SetFiles(Array.Empty<FileHit>(), unavailable: false);
+            _session.SetFiles(Array.Empty<FileHit>(), FileSearchHint.None);
             if (_deck.IsVisible) Refresh();
             return;
         }
         var gen = _fileGen;
         var query = plan.Query;
+        var httpPort = settings.EverythingHttpPort;
+        var httpFallback = settings.EverythingHttpFallback;
         var clock = Stopwatch.StartNew();
         Task.Run(() =>
         {
-            var running = _files.Probe().Running;
-            if (!running) return (Unavailable: true, Files: (IReadOnlyList<FileHit>)Array.Empty<FileHit>());
-            var paths = _files.Query(query, FileSearch.MaxResults, 700);
-            var list = new List<FileHit>(paths.Count);
-            foreach (var path in paths)
+            try
             {
-                if (string.IsNullOrWhiteSpace(path)) continue;
-                list.Add(new FileHit(path, Path.GetFileName(path), Path.GetDirectoryName(path) ?? ""));
-                if (list.Count >= FileSearch.MaxResults) break;
+                var answer = _files.Query(query, FileSearch.MaxResults, 700, httpPort, httpFallback);
+                var hint = answer.Reach switch
+                {
+                    EverythingReach.NotRunning => FileSearchHint.NotRunning,
+                    EverythingReach.IpcFailed => FileSearchHint.IpcFailed,
+                    EverythingReach.ConnectedHttp => FileSearchHint.Http,
+                    _ => FileSearchHint.None
+                };
+                return (
+                    Hint: hint,
+                    Files: FileSearch.ToHits(answer.Paths),
+                    Transport: EverythingQuery.Name(answer.Link, answer.Port));
             }
-            return (Unavailable: false, Files: (IReadOnlyList<FileHit>)list);
+            catch (Exception ex)
+            {
+                AppLog.Error(ex);
+                return (
+                    Hint: FileSearchHint.IpcFailed,
+                    Files: (IReadOnlyList<FileHit>)Array.Empty<FileHit>(),
+                    Transport: "error");
+            }
         }).ContinueWith(task => _deck.Dispatcher.BeginInvoke(() =>
         {
             var elapsed = clock.ElapsedMilliseconds;
@@ -1303,13 +1318,13 @@ internal sealed class SwitcherPresenter
                 return;
             if (task.Status != TaskStatus.RanToCompletion)
             {
-                AppLog.Info($"file search {elapsed} ms, rows 0");
-                _session.SetFiles(Array.Empty<FileHit>(), unavailable: true);
+                AppLog.Info($"file search {elapsed} ms, rows 0, transport error");
+                _session.SetFiles(Array.Empty<FileHit>(), FileSearchHint.IpcFailed);
             }
             else
             {
-                AppLog.Info($"file search {elapsed} ms, rows {task.Result.Files.Count}");
-                _session.SetFiles(task.Result.Files, task.Result.Unavailable);
+                AppLog.Info($"file search {elapsed} ms, rows {task.Result.Files.Count}, transport {task.Result.Transport}");
+                _session.SetFiles(task.Result.Files, task.Result.Hint);
             }
             if (_deck.IsVisible) Refresh();
         }));

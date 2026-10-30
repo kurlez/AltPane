@@ -216,6 +216,10 @@ public sealed class AppSettings
     public List<string> EverythingExcludedPaths { get; set; } = new();
     /// <summary>Document extensions for file search. A blank value uses the built-in list. <c>f </c> or <c>file:</c> searches every type.</summary>
     public string DocumentExtensions { get; set; } = "doc,docx,xls,xlsx,ppt,pptx,pdf,txt,md,csv,rtf,odt,ods,odp,wps,et,dps,ofd,epub";
+    /// <summary>Everything HTTP server port used when IPC does not answer. 80 is Everything's default.</summary>
+    public int EverythingHttpPort { get; set; } = 80;
+    /// <summary>When the configured HTTP port does not answer, also try 8080.</summary>
+    public bool EverythingHttpFallback { get; set; } = true;
     /// <summary>When true (the default), the switcher shows the shortcuts for the selected row.</summary>
     public bool ShowActionHint { get; set; } = true;
     /// <summary>When true, Win and Tab hook decisions are written to altpane.log.</summary>
@@ -250,6 +254,8 @@ public sealed class AppSettings
         EverythingExtensions = "exe,lnk,url,appref-ms",
         EverythingExcludedPaths = new List<string>(),
         DocumentExtensions = "doc,docx,xls,xlsx,ppt,pptx,pdf,txt,md,csv,rtf,odt,ods,odp,wps,et,dps,ofd,epub",
+        EverythingHttpPort = 80,
+        EverythingHttpFallback = true,
         ShowActionHint = true
     };
 }

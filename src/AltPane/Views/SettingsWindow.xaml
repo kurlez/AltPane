@@ -88,6 +88,10 @@
           <CheckBox x:Name="EverythingBox" Margin="22,0,0,2"/>
           <TextBlock x:Name="EverythingNote" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="44,0,0,6"/>
           <TextBlock x:Name="EverythingStatus" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="44,0,0,6"/>
+          <TextBlock x:Name="EverythingHttpLabel" FontWeight="SemiBold" Margin="44,0,0,4"/>
+          <TextBlock x:Name="EverythingHttpHint" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="44,0,0,4"/>
+          <TextBox x:Name="EverythingHttpPortBox" Margin="44,0,0,4" Padding="8,4" Width="96" HorizontalAlignment="Left" LostFocus="EverythingHttp_Changed"/>
+          <CheckBox x:Name="EverythingHttpFallbackBox" Margin="44,0,0,8" Checked="EverythingHttp_Changed" Unchecked="EverythingHttp_Changed"/>
           <StackPanel Orientation="Horizontal" Margin="44,0,0,8">
             <Button x:Name="EverythingStartButton" Style="{DynamicResource ActionButton}" Margin="0,0,8,0" Click="EverythingStart_Click"/>
             <Button x:Name="EverythingSiteButton" Style="{DynamicResource ActionButton}" Click="EverythingSite_Click"/>

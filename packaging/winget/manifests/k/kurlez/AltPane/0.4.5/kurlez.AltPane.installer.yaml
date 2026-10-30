@@ -1,0 +1,18 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.6.0.schema.json
+
+PackageIdentifier: kurlez.AltPane
+PackageVersion: 0.4.5
+InstallerType: zip
+NestedInstallerType: portable
+NestedInstallerFiles:
+  - RelativeFilePath: AltPane.exe
+    PortableCommandAlias: altpane
+Dependencies:
+  PackageDependencies:
+    - PackageIdentifier: Microsoft.DotNet.DesktopRuntime.8
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/kurlez/AltPane/releases/download/v0.4.5/AltPane-0.4.5-win-x64.zip
+    InstallerSha256: 0000000000000000000000000000000000000000000000000000000000000000
+ManifestType: installer
+ManifestVersion: 1.6.0

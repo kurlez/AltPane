@@ -4,6 +4,7 @@ using System.Windows.Interop;
 using AltPane.Core.Input;
 using AltPane.Core.Localization;
 using AltPane.Core.Models;
+using AltPane.Core.Search;
 using WpfMods = System.Windows.Input.ModifierKeys;
 using AppMods = AltPane.Core.Models.ModifierKeys;
 
@@ -35,7 +36,7 @@ public partial class SettingsWindow : Window
         Closed += (_, _) => ThemeService.Changed -= OnThemeChanged;
         MaxHeight = SystemParameters.WorkArea.Height * 0.92;
         var version = typeof(SettingsWindow).Assembly.GetName().Version;
-        VersionText.Text = "AltPane " + (version?.ToString(3) ?? "0.4.4");
+        VersionText.Text = "AltPane " + (version?.ToString(3) ?? "0.4.5");
         AboutButton.Visibility = _showAbout is null ? Visibility.Collapsed : Visibility.Visible;
         LoadDraft();
         Localizer.Current.LanguageChanged += (_, _) =>
@@ -80,6 +81,8 @@ public partial class SettingsWindow : Window
         EverythingExtBox.Text = _draft.EverythingExtensions;
         EverythingExcludeBox.Text = string.Join(Environment.NewLine, _draft.EverythingExcludedPaths ?? new List<string>());
         DocumentExtBox.Text = _draft.DocumentExtensions;
+        EverythingHttpPortBox.Text = _draft.EverythingHttpPort.ToString();
+        EverythingHttpFallbackBox.IsChecked = _draft.EverythingHttpFallback;
         ActionHintBox.IsChecked = _draft.ShowActionHint;
         UpdateEverythingStatus();
         Select(SortBox, _draft.SortMode);
@@ -119,6 +122,9 @@ public partial class SettingsWindow : Window
         EverythingExtLabel.Text = loc["settings.everythingExt"];
         EverythingExcludeLabel.Text = loc["settings.everythingExclude"];
         EverythingExcludeHint.Text = loc["settings.everythingExcludeHint"];
+        EverythingHttpLabel.Text = loc["settings.everythingHttpPort"];
+        EverythingHttpHint.Text = loc["settings.everythingHttpPortHint"];
+        EverythingHttpFallbackBox.Content = loc["settings.everythingHttpFallback"];
         DocumentExtLabel.Text = loc["settings.documentExt"];
         DocumentExtNote.Text = loc["settings.documentExtNote"];
         ActionHintBox.Content = loc["settings.actionHint"];
@@ -197,6 +203,8 @@ public partial class SettingsWindow : Window
         if (presets.TrueForAll(item => item.Value != threshold))
             presets.Add((threshold, loc.Format("settings.threshold.custom", threshold)));
         Fill(ThresholdBox, presets, threshold);
+        if (_everythingStatus is { } status)
+            ApplyEverythingStatus(status);
     }
 
     static void Fill<T>(System.Windows.Controls.ComboBox box, IEnumerable<(T Value, string Label)> items, T selected) where T : struct
@@ -352,6 +360,8 @@ public partial class SettingsWindow : Window
         _draft.UseEverything = EverythingBox.IsChecked == true;
         _draft.EverythingExtensions = EverythingExtBox.Text.Trim();
         _draft.DocumentExtensions = DocumentExtBox.Text.Trim();
+        _draft.EverythingHttpPort = ReadHttpPort(EverythingHttpPortBox.Text);
+        _draft.EverythingHttpFallback = EverythingHttpFallbackBox.IsChecked == true;
         _draft.ShowActionHint = ActionHintBox.IsChecked == true;
         _draft.EverythingExcludedPaths = EverythingExcludeBox.Text
             .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
@@ -406,24 +416,58 @@ public partial class SettingsWindow : Window
         WinTabState.Text = Localizer.Current[WinTabBox.IsChecked == true ? "settings.winTabOn" : "settings.winTabOff"];
     }
 
+    int _everythingProbe;
+    EverythingStatus? _everythingStatus;
+
+    void EverythingHttp_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_loading || EverythingHttpPortBox is null) return;
+        _draft.EverythingHttpPort = ReadHttpPort(EverythingHttpPortBox.Text);
+        _draft.EverythingHttpFallback = EverythingHttpFallbackBox.IsChecked == true;
+        UpdateEverythingStatus();
+    }
+
+    static int ReadHttpPort(string? text) =>
+        int.TryParse(text?.Trim(), out var port) && port is >= 1 and <= 65535 ? port : 80;
+
     void UpdateEverythingStatus()
     {
         if (EverythingStatus is null) return;
-        try
+        var generation = ++_everythingProbe;
+        var port = EverythingHttpPortBox is null ? _draft.EverythingHttpPort : ReadHttpPort(EverythingHttpPortBox.Text);
+        var fallback = EverythingHttpFallbackBox?.IsChecked != false;
+        EverythingStatus.Text = Localizer.Current["settings.everythingChecking"];
+        EverythingStartButton.IsEnabled = false;
+        Task.Run(() =>
         {
-            var status = new EverythingClient().Probe();
-            EverythingStatus.Text = Localizer.Current[status.Running
-                ? "settings.everythingRunning"
-                : status.Installed
-                    ? "settings.everythingStopped"
-                    : "settings.everythingMissing"];
-            EverythingStartButton.IsEnabled = status.Installed && !status.Running;
-        }
-        catch (Exception ex)
+            try
+            {
+                return new EverythingClient().Describe(port, fallback);
+            }
+            catch (Exception ex)
+            {
+                AppLog.Error(ex);
+                return new EverythingStatus(false, false, null);
+            }
+        }).ContinueWith(task => Dispatcher.BeginInvoke(() =>
         {
-            AppLog.Error(ex);
-            EverythingStartButton.IsEnabled = false;
-        }
+            if (generation != _everythingProbe || EverythingStatus is null) return;
+            ApplyEverythingStatus(task.Result);
+        }));
+    }
+
+    void ApplyEverythingStatus(EverythingStatus status)
+    {
+        _everythingStatus = status;
+        var loc = Localizer.Current;
+        EverythingStatus.Text = status.Reach switch
+        {
+            EverythingReach.ConnectedHttp => loc["settings.everythingHttp"],
+            EverythingReach.IpcFailed => loc["settings.everythingIpcFailed"],
+            EverythingReach.Connected => loc["settings.everythingIpc"],
+            _ => status.Installed ? loc["settings.everythingNotRunning"] : loc["settings.everythingMissing"]
+        };
+        EverythingStartButton.IsEnabled = status.Installed && !status.Running;
     }
 
     void EverythingStart_Click(object sender, RoutedEventArgs e)
@@ -480,6 +524,8 @@ public partial class SettingsWindow : Window
         UseEverything = source.UseEverything,
         EverythingExtensions = source.EverythingExtensions,
         DocumentExtensions = source.DocumentExtensions,
+        EverythingHttpPort = source.EverythingHttpPort,
+        EverythingHttpFallback = source.EverythingHttpFallback,
         ShowActionHint = source.ShowActionHint,
         EverythingExcludedPaths = new List<string>(source.EverythingExcludedPaths ?? new List<string>()),
         VerboseLog = source.VerboseLog,

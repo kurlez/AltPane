@@ -4,9 +4,17 @@ namespace AltPane.Core.Search;
 
 public sealed record FileHit(string FullPath, string Name, string Directory);
 
+public enum FileSearchHint
+{
+    None = 0,
+    NotRunning,
+    IpcFailed,
+    Http
+}
+
 /// <summary>
-/// The Everything search string for document results. The process sends this
-/// string over the existing Everything IPC; nothing here talks to Everything.
+/// The Everything search string for document results, and the row model those
+/// paths become. Nothing here opens a socket or a window.
 /// </summary>
 public static class FileSearch
 {
@@ -45,8 +53,38 @@ public static class FileSearch
         var extensions = all ? null : Split(documentExtensions);
         var query = EverythingIndex.Build(text, extensions, excludedPaths, allowAnyExtension: all);
         if (query is null) return false;
-        plan = new Plan(query + " " + Sort, all, text);
+        plan = new Plan(FileSearchExclusions.Append(query) + " " + Sort, all, text);
         return true;
+    }
+
+    public static bool IsExcluded(string? path) => FileSearchExclusions.IsExcluded(path);
+
+    public static IReadOnlyList<FileHit> ToHits(IEnumerable<string>? paths)
+    {
+        var list = new List<FileHit>();
+        if (paths is null) return list;
+        foreach (var raw in paths)
+        {
+            if (string.IsNullOrWhiteSpace(raw) || IsExcluded(raw)) continue;
+            var full = raw.Trim().Trim('"').Replace('/', '\\');
+            var name = FileName(full);
+            if (name.Length == 0) continue;
+            list.Add(new FileHit(full, name, DirectoryOf(full)));
+            if (list.Count >= MaxResults) break;
+        }
+        return list;
+    }
+
+    static string FileName(string path)
+    {
+        var cut = path.LastIndexOf('\\');
+        return cut >= 0 ? path[(cut + 1)..] : path;
+    }
+
+    static string DirectoryOf(string path)
+    {
+        var cut = path.LastIndexOf('\\');
+        return cut > 0 ? path[..cut] : "";
     }
 
     public static IReadOnlyList<string> Split(string? text)

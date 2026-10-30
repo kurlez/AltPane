@@ -260,6 +260,7 @@ public sealed class SwitcherViewState
     public string? CalculationPlain { get; init; }
     public IReadOnlyList<FileHit> Files { get; init; } = Array.Empty<FileHit>();
     public bool FileSearchUnavailable { get; init; }
+    public FileSearchHint FileHint { get; init; }
     public string ActionHint { get; init; } = "";
     public bool ShowMonitorBadges { get; init; }
     public bool MonitorFilterOn { get; init; }
@@ -1013,20 +1014,28 @@ public partial class SwitcherWindow : Window
         while (_rows.Count > start)
             _rows.RemoveAt(_rows.Count - 1);
         var files = state.Files ?? Array.Empty<FileHit>();
+        var loc = Localizer.Current;
+        var section = state.FileHint == FileSearchHint.Http ? loc["file.http"] : "文件";
         for (var i = 0; i < files.Count; i++)
         {
             var file = files[i];
-            _rows.Add(new SwitcherRow(SwitcherKind.File, file.Name, file.Directory, IconLoader.Letter(ExtensionOf(file.Name)), i == 0 ? "文件" : "")
+            _rows.Add(new SwitcherRow(SwitcherKind.File, file.Name, file.Directory, IconLoader.Letter(ExtensionOf(file.Name)), i == 0 ? section : "")
             {
                 FilePath = file.FullPath
             });
         }
         if (state.FileSearchUnavailable)
         {
+            var (title, subtitle) = state.FileHint switch
+            {
+                FileSearchHint.IpcFailed => (loc["file.ipcFailed"], loc["file.ipcFailedHint"]),
+                FileSearchHint.Http => (loc["file.http"], loc["file.httpHint"]),
+                _ => (loc["file.notRunning"], loc["file.notRunningHint"])
+            };
             _rows.Add(new SwitcherRow(
                 SwitcherKind.FileHint,
-                "未检测到 Everything，文件搜索不可用",
-                "https://www.voidtools.com/",
+                title,
+                subtitle,
                 IconLoader.Letter("E"),
                 files.Count == 0 ? "文件" : ""));
         }

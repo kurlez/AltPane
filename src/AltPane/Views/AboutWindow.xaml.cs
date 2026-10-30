@@ -15,7 +15,7 @@ public partial class AboutWindow : Window
     {
         InitializeComponent();
         var version = typeof(AboutWindow).Assembly.GetName().Version;
-        VersionText.Text = "版本 " + (version?.ToString(3) ?? "0.4.4");
+        VersionText.Text = "版本 " + (version?.ToString(3) ?? "0.4.5");
         RuntimeText.Text = RuntimeInformation.FrameworkDescription;
         FolderText.Text = AppLog.DirectoryPath;
         AppIcon.Source = LoadIcon();
