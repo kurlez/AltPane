@@ -1,4 +1,5 @@
 using AltPane.Core.Models;
+using AltPane.Core.Switcher;
 
 namespace AltPane.Core.Input;
 
@@ -28,6 +29,7 @@ public enum HookCommand
     DemoteApp,
     RestorePriority,
     ActivateRow,
+    ActivateSidebar,
     RevealPath,
     CopyPath,
     CopyDirectory,
@@ -61,6 +63,7 @@ public readonly record struct HookResult(HookCommand Command, int Delta, bool La
     public static HookResult Demote() => new(HookCommand.DemoteApp, 0, false, false);
     public static HookResult RestorePriority() => new(HookCommand.RestorePriority, 0, false, false);
     public static HookResult ActivateRow(int index) => new(HookCommand.ActivateRow, index, false, false);
+    public static HookResult ActivateSidebar(int index) => new(HookCommand.ActivateSidebar, index, false, false);
     public static HookResult RevealPath() => new(HookCommand.RevealPath, 0, false, false);
     public static HookResult CopyPath() => new(HookCommand.CopyPath, 0, false, false);
     public static HookResult CopyDirectory() => new(HookCommand.CopyDirectory, 0, false, false);
@@ -161,6 +164,9 @@ public static class HookInterpreter
         if (DigitRow(input) is HookResult digit)
             return digit;
 
+        if (SidebarKey(input) is HookResult sidebar)
+            return sidebar;
+
         if (input.IsRepeat && IsNonRepeating(input))
             return HookResult.Swallow();
 
@@ -231,6 +237,9 @@ public static class HookInterpreter
         if (DigitRow(input) is HookResult digit)
             return digit;
 
+        if (SidebarKey(input) is HookResult sidebar)
+            return sidebar;
+
         if (input.Modifiers.Ctrl && !input.Modifiers.Win)
         {
             switch (input.VirtualKey)
@@ -286,6 +295,18 @@ public static class HookInterpreter
         if (!input.Modifiers.Ctrl || input.Modifiers.Win || input.Modifiers.Shift) return null;
         if (DigitSelect.Index(input.VirtualKey) is not int row) return null;
         return HookResult.ActivateRow(row);
+    }
+
+    /// <summary>
+    /// F1–F8 activate a sidebar slot while the switcher is open. Alt+F1–F8 is the
+    /// same chord when Alt is still held. Ctrl never selects the sidebar.
+    /// </summary>
+    static HookResult? SidebarKey(in HookInput input)
+    {
+        if (!SidebarShortcuts.IsActivation(in input)) return null;
+        return SidebarShortcuts.Index(input.VirtualKey) is int slot
+            ? HookResult.ActivateSidebar(slot)
+            : null;
     }
 
     static bool IsNonRepeating(in HookInput input)

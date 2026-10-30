@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using AltPane.Core.Filtering;
 using AltPane.Core.Input;
 using AltPane.Core.Models;
+using AltPane.Core.Switcher;
 
 namespace AltPane.Core.Settings;
 
@@ -85,6 +86,7 @@ public static class SettingsStore
         settings.ExcludedApps = NormalizeNames(settings.ExcludedApps);
         settings.PinnedApps = ProcessNames.NormalizeList(settings.PinnedApps);
         settings.DemotedApps = ProcessNames.NormalizeList(settings.DemotedApps);
+        SidebarLists.Sanitize(settings);
         settings.EverythingExcludedPaths = NormalizeNames(settings.EverythingExcludedPaths);
         settings.BuiltinIndexFolders = NormalizeNames(settings.BuiltinIndexFolders);
         if (string.IsNullOrWhiteSpace(settings.EverythingExtensions))

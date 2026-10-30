@@ -239,9 +239,17 @@ public class StableGroupedOrderTests
         var current = Load("""{ "version": 7, "sortMode": "Initial", "focusThresholdMinutes": 5 }""");
         Assert.Equal(LoadSortMode.Initial, current.Settings.SortMode);
         Assert.Equal(5, current.Settings.FocusThresholdMinutes);
-        Assert.False(current.Migrated);
+        Assert.True(current.Migrated);
+        Assert.True(current.Settings.ShowFrequentSidebar);
+        Assert.Equal(8, current.Settings.FrequentSidebarCount);
         Assert.True(current.Settings.ShowActionHint);
         Assert.Contains("pdf", current.Settings.DocumentExtensions, StringComparison.Ordinal);
+
+        var sidebar = Load("""{ "version": 8, "sortMode": "Initial", "showFrequentSidebar": false, "frequentSidebarCount": 6 }""");
+        Assert.False(sidebar.Migrated);
+        Assert.Equal(LoadSortMode.Initial, sidebar.Settings.SortMode);
+        Assert.False(sidebar.Settings.ShowFrequentSidebar);
+        Assert.Equal(6, sidebar.Settings.FrequentSidebarCount);
     }
 
     static SettingsLoadResult Load(string json)

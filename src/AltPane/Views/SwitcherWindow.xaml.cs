@@ -263,9 +263,45 @@ public sealed class SwitcherViewState
     public bool FileSearchUnavailable { get; init; }
     public FileSearchHint FileHint { get; init; }
     public string ActionHint { get; init; } = "";
+    public IReadOnlyList<FrequentApp> Sidebar { get; init; } = Array.Empty<FrequentApp>();
+    public IReadOnlyDictionary<string, ImageSource> SidebarIcons { get; init; } = new Dictionary<string, ImageSource>();
     public bool ShowMonitorBadges { get; init; }
     public bool MonitorFilterOn { get; init; }
     public string MonitorFilterText { get; init; } = "";
+}
+
+internal sealed class SidebarRow : INotifyPropertyChanged
+{
+    ImageSource? _icon;
+    bool _running;
+
+    public int Index { get; init; }
+    public string Key { get; init; } = "";
+    public string Name { get; init; } = "";
+    public string Shortcut { get; init; } = "";
+    public string ToolTip { get; init; } = "";
+    public bool Pinned { get; init; }
+    public ImageSource? Icon
+    {
+        get => _icon;
+        set
+        {
+            if (ReferenceEquals(_icon, value)) return;
+            _icon = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Icon)));
+        }
+    }
+    public bool Running
+    {
+        get => _running;
+        set
+        {
+            if (_running == value) return;
+            _running = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Running)));
+        }
+    }
+    public event PropertyChangedEventHandler? PropertyChanged;
 }
 
 public partial class SwitcherWindow : Window
@@ -291,6 +327,13 @@ public partial class SwitcherWindow : Window
     readonly MenuItem _menuCopyPath;
     readonly MenuItem _menuCopyDir;
     readonly MenuItem _menuCopyName;
+    readonly ObservableCollection<SidebarRow> _sidebarRows = new();
+    readonly ContextMenu _sidebarMenu;
+    readonly MenuItem _sidebarPin;
+    readonly MenuItem _sidebarUnpin;
+    readonly MenuItem _sidebarHide;
+    SidebarRow? _sidebarTarget;
+    int _extraWidth;
     DispatcherTimer? _toastTimer;
     int _renderedSelection = -2;
     bool _internalEdit;
@@ -356,6 +399,15 @@ public partial class SwitcherWindow : Window
         _menu.Opened += (_, _) => LocalizeMenu();
         WindowList.ItemsSource = _rows;
         WindowList.ContextMenu = _menu;
+        _sidebarPin = new MenuItem();
+        _sidebarUnpin = new MenuItem();
+        _sidebarHide = new MenuItem();
+        _sidebarPin.Click += (_, _) => { if (_sidebarTarget is { } row) SidebarPinRequested?.Invoke(row.Key); };
+        _sidebarUnpin.Click += (_, _) => { if (_sidebarTarget is { } row) SidebarUnpinRequested?.Invoke(row.Key); };
+        _sidebarHide.Click += (_, _) => { if (_sidebarTarget is { } row) SidebarHideRequested?.Invoke(row.Key); };
+        _sidebarMenu = new ContextMenu { Items = { _sidebarPin, _sidebarUnpin, _sidebarHide } };
+        _sidebarMenu.Opened += (_, _) => LocalizeSidebarMenu();
+        SidebarList.ItemsSource = _sidebarRows;
         TextCompositionManager.AddPreviewTextInputStartHandler(SearchBox, (_, e) => NoteComposition(e));
         TextCompositionManager.AddPreviewTextInputUpdateHandler(SearchBox, (_, e) => NoteComposition(e));
         TextCompositionManager.AddPreviewTextInputHandler(SearchBox, (_, _) => ClearComposition());
@@ -452,6 +504,10 @@ public partial class SwitcherWindow : Window
     public event Action? RevealRequested;
     public event Action<int>? RowActivated;
     public event Action<int>? RowHovered;
+    public event Action<int>? SidebarInvoked;
+    public event Action<string>? SidebarPinRequested;
+    public event Action<string>? SidebarUnpinRequested;
+    public event Action<string>? SidebarHideRequested;
 
     public DisplayBounds Host => _host;
     public Func<nint, bool>? IsCompanion { get; set; }
@@ -508,6 +564,7 @@ public partial class SwitcherWindow : Window
             : BrushOf("ButtonBorderBrush");
         StatusText.Text = state.Status ?? "";
         EmptyText.Text = state.EmptyText;
+        SyncSidebar(state);
         EmptyText.Visibility = string.IsNullOrEmpty(state.EmptyText) ? Visibility.Collapsed : Visibility.Visible;
 
         SyncRows(state);
@@ -587,6 +644,7 @@ public partial class SwitcherWindow : Window
     {
         _shownAt = DateTime.UtcNow;
         var (width, height) = SwitcherMetrics.GetSize(size);
+        width += _extraWidth;
         Width = width;
         Height = height;
         var reveal = !IsVisible;
@@ -863,6 +921,7 @@ public partial class SwitcherWindow : Window
     {
         var loc = Localizer.Current;
         SearchPlaceholder.Text = loc["search.placeholder"];
+        if (SidebarTitle is not null) SidebarTitle.Text = loc["sidebar.title"];
         _thisScreen = loc["monitor.thisScreen"];
         var kill = loc["action.kill"];
         foreach (var row in _rows)
@@ -1219,6 +1278,94 @@ public partial class SwitcherWindow : Window
         while (element is not null && element is not ListBoxItem)
             element = VisualTreeHelper.GetParent(element);
         return element is ListBoxItem item ? item.DataContext as SwitcherRow : null;
+    }
+
+    void SyncSidebar(SwitcherViewState state)
+    {
+        var apps = state.Sidebar ?? Array.Empty<FrequentApp>();
+        var show = apps.Count > 0;
+        SidebarHost.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        _extraWidth = show ? 84 : 0;
+        SidebarTitle.Text = Localizer.Current["sidebar.title"];
+        var same = _sidebarRows.Count == apps.Count;
+        if (same)
+        {
+            for (var i = 0; i < apps.Count; i++)
+            {
+                if (!string.Equals(_sidebarRows[i].Key, apps[i].Key, StringComparison.OrdinalIgnoreCase)
+                    || _sidebarRows[i].Pinned != apps[i].Pinned)
+                {
+                    same = false;
+                    break;
+                }
+            }
+        }
+        if (!same)
+        {
+            _sidebarRows.Clear();
+            for (var i = 0; i < apps.Count; i++)
+                _sidebarRows.Add(MakeSidebarRow(i, apps[i], state.SidebarIcons));
+            return;
+        }
+        for (var i = 0; i < apps.Count; i++)
+        {
+            var row = _sidebarRows[i];
+            row.Running = apps[i].Running;
+            if (state.SidebarIcons.TryGetValue(apps[i].Key, out var icon) && !ReferenceEquals(icon, row.Icon))
+                row.Icon = icon;
+        }
+    }
+
+    static SidebarRow MakeSidebarRow(int index, FrequentApp app, IReadOnlyDictionary<string, ImageSource> icons)
+    {
+        icons.TryGetValue(app.Key, out var icon);
+        var tip = string.IsNullOrWhiteSpace(app.LaunchPath) ? app.Name : app.Name + "\n" + app.LaunchPath;
+        return new SidebarRow
+        {
+            Index = index,
+            Key = app.Key,
+            Name = app.Name,
+            Shortcut = string.IsNullOrEmpty(app.Shortcut) ? SidebarShortcuts.Label(index) : app.Shortcut,
+            ToolTip = tip,
+            Pinned = app.Pinned,
+            Running = app.Running,
+            Icon = icon ?? IconLoader.Letter(app.Name)
+        };
+    }
+
+    void LocalizeSidebarMenu()
+    {
+        var loc = Localizer.Current;
+        _sidebarPin.Header = loc["menu.sidebarPin"];
+        _sidebarUnpin.Header = loc["menu.sidebarUnpin"];
+        _sidebarHide.Header = loc["menu.sidebarHide"];
+        var pinned = _sidebarTarget?.Pinned == true;
+        _sidebarPin.Visibility = pinned ? Visibility.Collapsed : Visibility.Visible;
+        _sidebarUnpin.Visibility = pinned ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    void SidebarItem_MouseMove(object sender, MouseEventArgs e)
+    {
+        var screen = PointToScreen(e.GetPosition(this));
+        AllowHover?.Invoke(screen.X, screen.Y);
+    }
+
+    void SidebarItem_Click(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not FrameworkElement { DataContext: SidebarRow row }) return;
+        _mouseGesture = true;
+        SidebarInvoked?.Invoke(row.Index);
+        e.Handled = true;
+    }
+
+    void SidebarItem_RightClick(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not FrameworkElement { DataContext: SidebarRow row }) return;
+        _sidebarTarget = row;
+        LocalizeSidebarMenu();
+        _sidebarMenu.PlacementTarget = (UIElement)sender;
+        _sidebarMenu.IsOpen = true;
+        e.Handled = true;
     }
 
     void Item_MouseMove(object sender, MouseEventArgs e)

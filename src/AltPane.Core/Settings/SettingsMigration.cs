@@ -18,6 +18,9 @@ namespace AltPane.Core.Settings;
 /// and demote lists and a 10 minute threshold when those keys are missing. A stored
 /// stable-grouped value is the same mode. An explicit recent, app name, CPU, or
 /// memory choice is not rewritten.
+/// Schema 8 adds the frequent-apps sidebar. It is shown, with 8 slots, and the
+/// sidebar pin and hide lists are empty when those keys are missing. An explicit
+/// choice saved at schema 8 is left as it was.
 /// </summary>
 public static class SettingsMigration
 {
@@ -53,6 +56,17 @@ public static class SettingsMigration
         if (stored < 6 && settings.SortMode == LoadSortMode.Initial)
         {
             settings.SortMode = LoadSortMode.FocusTime;
+            changed = true;
+        }
+
+        if (stored < 8)
+        {
+            if (!Has(root, "showFrequentSidebar"))
+                settings.ShowFrequentSidebar = true;
+            if (!Has(root, "frequentSidebarCount") || settings.FrequentSidebarCount is < 6 or > 8)
+                settings.FrequentSidebarCount = 8;
+            settings.SidebarPinnedApps ??= new List<string>();
+            settings.SidebarHiddenApps ??= new List<string>();
             changed = true;
         }
 

@@ -72,6 +72,18 @@
           <TextBlock x:Name="DemotedHint" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,6"/>
           <TextBox x:Name="DemotedBox" AcceptsReturn="True" Height="56" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
                    FontFamily="Cascadia Mono, Consolas, Segoe UI" Padding="8" Margin="0,0,0,10"/>
+          <CheckBox x:Name="SidebarBox" Margin="0,0,0,2"/>
+          <TextBlock x:Name="SidebarNote" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="22,0,0,8"/>
+          <TextBlock x:Name="SidebarCountLabel" FontWeight="SemiBold" Margin="0,0,0,4"/>
+          <ComboBox x:Name="SidebarCountBox" Margin="0,0,0,10" Width="120" HorizontalAlignment="Left"/>
+          <TextBlock x:Name="SidebarPinnedLabel" FontWeight="SemiBold" Margin="0,0,0,4"/>
+          <TextBlock x:Name="SidebarPinnedHint" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,6"/>
+          <TextBox x:Name="SidebarPinnedBox" AcceptsReturn="True" Height="56" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
+                   FontFamily="Cascadia Mono, Consolas, Segoe UI" Padding="8" Margin="0,0,0,10"/>
+          <TextBlock x:Name="SidebarHiddenLabel" FontWeight="SemiBold" Margin="0,0,0,4"/>
+          <TextBlock x:Name="SidebarHiddenHint" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,6"/>
+          <TextBox x:Name="SidebarHiddenBox" AcceptsReturn="True" Height="56" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
+                   FontFamily="Cascadia Mono, Consolas, Segoe UI" Padding="8" Margin="0,0,0,10"/>
           <CheckBox x:Name="ConfirmKillBox" Margin="0,0,0,6"/>
           <CheckBox x:Name="KillTreeBox" Margin="0,0,0,6"/>
           <CheckBox x:Name="DesktopBox" Margin="0,0,0,6"/>

@@ -10,6 +10,7 @@ internal static class IconLoader
     public const int Edge = 32;
     static readonly object Gate = new();
     static readonly Dictionary<string, ImageSource> Hits = new(StringComparer.OrdinalIgnoreCase);
+    static readonly Dictionary<string, IconPixels> Pending = new(StringComparer.OrdinalIgnoreCase);
     static readonly HashSet<string> Misses = new(StringComparer.OrdinalIgnoreCase);
     static readonly Dictionary<string, ImageSource> Letters = new(StringComparer.Ordinal);
 
@@ -41,7 +42,7 @@ internal static class IconLoader
         var key = Key(path, index);
         lock (Gate)
         {
-            if (Hits.ContainsKey(key) || Misses.Contains(key)) return false;
+            if (Hits.ContainsKey(key) || Misses.Contains(key) || Pending.ContainsKey(key)) return false;
         }
 
         IconPixels decoded;
@@ -79,6 +80,38 @@ internal static class IconLoader
             pixels.Bgra,
             stride);
         source.Freeze();
+        return source;
+    }
+
+    /// <summary>Keep decoded pixels from a background thread. The UI thread freezes them.</summary>
+    public static void Keep(string? path, int index, in IconPixels pixels)
+    {
+        if (string.IsNullOrWhiteSpace(path) || pixels.Width <= 0 || pixels.Bgra is null) return;
+        lock (Gate)
+        {
+            var key = Key(path, index);
+            if (Hits.ContainsKey(key)) return;
+            Pending[key] = pixels;
+            Misses.Remove(key);
+        }
+    }
+
+    /// <summary>Turn a background prefetch into a frozen image. Safe on the UI thread.</summary>
+    public static ImageSource? Materialize(string? path, int index)
+    {
+        var cached = Cached(path, index);
+        if (cached is not null) return cached;
+        if (string.IsNullOrWhiteSpace(path)) return null;
+        var key = Key(path, index);
+        IconPixels pixels;
+        lock (Gate)
+        {
+            if (!Pending.TryGetValue(key, out pixels)) return null;
+        }
+        var source = Freeze(pixels);
+        if (source is null) return null;
+        Store(path, index, source);
+        lock (Gate) Pending.Remove(key);
         return source;
     }
 

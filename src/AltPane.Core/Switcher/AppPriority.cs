@@ -241,6 +241,7 @@ public sealed class AppUsageTable
 
     readonly object _gate = new();
     readonly Dictionary<string, Row> _rows = new(StringComparer.OrdinalIgnoreCase);
+    readonly Dictionary<string, LaunchNote> _launches = new(StringComparer.OrdinalIgnoreCase);
 
     public static string DefaultPath()
     {
@@ -251,12 +252,61 @@ public sealed class AppUsageTable
     /// <summary>Remember the app without adding focus. Starts the one-day bootstrap clock.</summary>
     public void NoteSeen(string? key, DateTime utc) => Touch(key, utc, 0);
 
-    public void NoteFocus(string? key, TimeSpan focused, DateTime utc)
+    public void NoteFocus(string? key, TimeSpan focused, DateTime utc, string? displayName = null, string? launchPath = null)
     {
         if (focused <= TimeSpan.Zero) return;
         var minutes = Math.Min(MaxFocusMinutes, focused.TotalMinutes);
         if (minutes <= 0) return;
-        Touch(key, utc, minutes);
+        var cap = (long)TimeSpan.FromMinutes(MaxFocusMinutes).TotalMilliseconds;
+        var milliseconds = (long)Math.Min(cap, focused.TotalMilliseconds);
+        Touch(key, utc, minutes, displayName, launchPath, milliseconds);
+    }
+
+    /// <summary>
+    /// Remember how to start the app without adding focus. A shortcut replaces an exe.
+    /// A process that has never been focused is kept only in memory, so the usage file
+    /// stays the apps the person actually used.
+    /// </summary>
+    public void RememberLaunch(string? key, string? displayName, string? launchPath)
+    {
+        var name = ProcessNames.Normalize(key);
+        if (name.Length == 0 || FrequentApps.IsSelf(name)) return;
+        lock (_gate)
+        {
+            if (!_launches.TryGetValue(name, out var known))
+                known = new LaunchNote();
+            if (!string.IsNullOrWhiteSpace(displayName))
+                known.DisplayName = displayName.Trim();
+            known.LaunchPath = FrequentApps.PreferLaunchPath(known.LaunchPath, launchPath);
+            _launches[name] = known;
+            if (_rows.TryGetValue(name, out var row))
+                ApplyLaunch(row, known.DisplayName, known.LaunchPath);
+        }
+    }
+
+    public IReadOnlyList<AppFocusRecord> Export()
+    {
+        lock (_gate)
+        {
+            var records = new List<AppFocusRecord>(_rows.Count + _launches.Count);
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var pair in _rows)
+            {
+                seen.Add(pair.Key);
+                _launches.TryGetValue(pair.Key, out var known);
+                var name = !string.IsNullOrWhiteSpace(pair.Value.DisplayName)
+                    ? pair.Value.DisplayName
+                    : known?.DisplayName ?? "";
+                var path = FrequentApps.PreferLaunchPath(pair.Value.LaunchPath, known?.LaunchPath);
+                records.Add(new AppFocusRecord(pair.Key, name, path, CopySamples(pair.Value.Samples)));
+            }
+            foreach (var pair in _launches)
+            {
+                if (!seen.Add(pair.Key)) continue;
+                records.Add(new AppFocusRecord(pair.Key, pair.Value.DisplayName, pair.Value.LaunchPath, Array.Empty<FocusSample>()));
+            }
+            return records;
+        }
     }
 
     public PrioritySnapshot Snapshot(
@@ -329,13 +379,42 @@ public sealed class AppUsageTable
             {
                 var key = ProcessNames.Normalize(app.Key);
                 if (key.Length == 0) continue;
-                _rows[key] = new Row
+                var row = new Row
                 {
                     FocusMinutes = Math.Max(0, app.FocusMinutes),
                     Above = app.Above,
                     FirstSeenUtcTicks = app.FirstSeenUtcTicks,
-                    UpdatedUtcTicks = app.UpdatedUtcTicks
+                    UpdatedUtcTicks = app.UpdatedUtcTicks,
+                    DisplayName = app.DisplayName ?? "",
+                    LaunchPath = app.LaunchPath ?? ""
                 };
+                if (app.Samples is not null)
+                {
+                    foreach (var sample in app.Samples)
+                    {
+                        if (sample.Milliseconds <= 0 || sample.UtcTicks <= 0) continue;
+                        row.Samples.Add(new Sample
+                        {
+                            UtcTicks = sample.UtcTicks,
+                            Milliseconds = sample.Milliseconds,
+                            Solicited = sample.Solicited
+                        });
+                    }
+                }
+                if (row.Samples.Count == 0 && row.FocusMinutes > 0 && row.UpdatedUtcTicks > 0)
+                {
+                    var seeded = (long)Math.Round(row.FocusMinutes * 60_000d);
+                    if (seeded > 0)
+                    {
+                        row.Samples.Add(new Sample
+                        {
+                            UtcTicks = row.UpdatedUtcTicks,
+                            Milliseconds = seeded,
+                            Solicited = true
+                        });
+                    }
+                }
+                _rows[key] = row;
             }
         }
     }
@@ -355,7 +434,17 @@ public sealed class AppUsageTable
                     FocusMinutes = pair.Value.FocusMinutes,
                     Above = pair.Value.Above,
                     FirstSeenUtcTicks = pair.Value.FirstSeenUtcTicks,
-                    UpdatedUtcTicks = pair.Value.UpdatedUtcTicks
+                    UpdatedUtcTicks = pair.Value.UpdatedUtcTicks,
+                    DisplayName = string.IsNullOrEmpty(pair.Value.DisplayName) ? null : pair.Value.DisplayName,
+                    LaunchPath = string.IsNullOrEmpty(pair.Value.LaunchPath) ? null : pair.Value.LaunchPath,
+                    Samples = pair.Value.Samples.Count == 0
+                        ? null
+                        : pair.Value.Samples.Select(sample => new UsageSample
+                        {
+                            UtcTicks = sample.UtcTicks,
+                            Milliseconds = sample.Milliseconds,
+                            Solicited = sample.Solicited
+                        }).ToList()
                 })
                 .ToList();
             file = new UsageFile { Apps = apps };
@@ -369,10 +458,10 @@ public sealed class AppUsageTable
         File.Move(temporary, path, overwrite: true);
     }
 
-    void Touch(string? key, DateTime utc, double minutes)
+    void Touch(string? key, DateTime utc, double minutes, string? displayName = null, string? launchPath = null, long sampleMilliseconds = 0)
     {
         var name = ProcessNames.Normalize(key);
-        if (name.Length == 0) return;
+        if (name.Length == 0 || FrequentApps.IsSelf(name)) return;
         if (utc.Kind == DateTimeKind.Unspecified)
             utc = DateTime.SpecifyKind(utc, DateTimeKind.Utc);
         lock (_gate)
@@ -386,7 +475,43 @@ public sealed class AppUsageTable
             if (row.FirstSeenUtcTicks <= 0) row.FirstSeenUtcTicks = utc.Ticks;
             row.FocusMinutes += minutes;
             row.UpdatedUtcTicks = utc.Ticks;
+            ApplyLaunch(row, displayName, launchPath);
+            if (sampleMilliseconds > 0)
+            {
+                row.Samples.Add(new Sample
+                {
+                    UtcTicks = utc.Ticks,
+                    Milliseconds = sampleMilliseconds,
+                    Solicited = true
+                });
+                Prune(row, utc);
+            }
         }
+    }
+
+    static void ApplyLaunch(Row row, string? displayName, string? launchPath)
+    {
+        if (!string.IsNullOrWhiteSpace(displayName))
+            row.DisplayName = displayName.Trim();
+        if (!string.IsNullOrWhiteSpace(launchPath))
+            row.LaunchPath = FrequentApps.PreferLaunchPath(row.LaunchPath, launchPath);
+    }
+
+    static void Prune(Row row, DateTime utc)
+    {
+        var cutoff = utc.AddDays(-(FrequentApps.DefaultWindow.TotalDays + 1)).Ticks;
+        row.Samples.RemoveAll(sample => sample.UtcTicks < cutoff || sample.Milliseconds <= 0);
+        const int cap = 128;
+        if (row.Samples.Count > cap)
+            row.Samples.RemoveRange(0, row.Samples.Count - cap);
+    }
+
+    static List<FocusSample> CopySamples(List<Sample> samples)
+    {
+        var copy = new List<FocusSample>(samples.Count);
+        foreach (var sample in samples)
+            copy.Add(new FocusSample(sample.UtcTicks, sample.Milliseconds, sample.Solicited));
+        return copy;
     }
 
     UsageTier Classify(Row row, string key, IReadOnlyCollection<string>? pinned, IReadOnlyCollection<string>? demoted, DateTime utc, int threshold)
@@ -431,6 +556,22 @@ public sealed class AppUsageTable
         public bool Above;
         public long FirstSeenUtcTicks;
         public long UpdatedUtcTicks;
+        public string DisplayName = "";
+        public string LaunchPath = "";
+        public List<Sample> Samples = new();
+    }
+
+    sealed class Sample
+    {
+        public long UtcTicks;
+        public long Milliseconds;
+        public bool Solicited = true;
+    }
+
+    sealed class LaunchNote
+    {
+        public string DisplayName = "";
+        public string LaunchPath = "";
     }
 
     sealed class UsageFile
@@ -445,5 +586,15 @@ public sealed class AppUsageTable
         public bool Above { get; set; }
         public long FirstSeenUtcTicks { get; set; }
         public long UpdatedUtcTicks { get; set; }
+        public string? DisplayName { get; set; }
+        public string? LaunchPath { get; set; }
+        public List<UsageSample>? Samples { get; set; }
+    }
+
+    sealed class UsageSample
+    {
+        public long UtcTicks { get; set; }
+        public long Milliseconds { get; set; }
+        public bool Solicited { get; set; } = true;
     }
 }

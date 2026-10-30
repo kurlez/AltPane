@@ -41,4 +41,7 @@ public static class VirtualKeys
     public const int B = 0x42;
     public const int P = 0x50;
     public const int U = 0x55;
+    public const int F1 = 0x70;
+    public const int F4 = 0x73;
+    public const int F8 = 0x77;
 }

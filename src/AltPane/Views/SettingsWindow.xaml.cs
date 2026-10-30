@@ -36,7 +36,7 @@ public partial class SettingsWindow : Window
         Closed += (_, _) => ThemeService.Changed -= OnThemeChanged;
         MaxHeight = SystemParameters.WorkArea.Height * 0.92;
         var version = typeof(SettingsWindow).Assembly.GetName().Version;
-        VersionText.Text = "AltPane " + (version?.ToString(3) ?? "0.4.7");
+        VersionText.Text = "AltPane " + (version?.ToString(3) ?? "0.4.8");
         AboutButton.Visibility = _showAbout is null ? Visibility.Collapsed : Visibility.Visible;
         LoadDraft();
         Localizer.Current.LanguageChanged += (_, _) =>
@@ -71,6 +71,9 @@ public partial class SettingsWindow : Window
         ExcludedAppsBox.Text = string.Join(Environment.NewLine, _draft.ExcludedApps);
         PinnedBox.Text = string.Join(Environment.NewLine, _draft.PinnedApps ?? new List<string>());
         DemotedBox.Text = string.Join(Environment.NewLine, _draft.DemotedApps ?? new List<string>());
+        SidebarBox.IsChecked = _draft.ShowFrequentSidebar;
+        SidebarPinnedBox.Text = string.Join(Environment.NewLine, _draft.SidebarPinnedApps ?? new List<string>());
+        SidebarHiddenBox.Text = string.Join(Environment.NewLine, _draft.SidebarHiddenApps ?? new List<string>());
         Select(ThemeBox, _draft.Theme);
         Select(LanguageBox, _draft.Language);
         Select(SizeBox, _draft.Size);
@@ -147,6 +150,13 @@ public partial class SettingsWindow : Window
         PinnedHint.Text = loc["settings.pinnedAppsHint"];
         DemotedLabel.Text = loc["settings.demotedApps"];
         DemotedHint.Text = loc["settings.demotedAppsHint"];
+        SidebarBox.Content = loc["settings.showSidebar"];
+        SidebarNote.Text = loc["settings.showSidebarNote"];
+        SidebarCountLabel.Text = loc["settings.sidebarCount"];
+        SidebarPinnedLabel.Text = loc["settings.sidebarPinned"];
+        SidebarPinnedHint.Text = loc["settings.sidebarPinnedHint"];
+        SidebarHiddenLabel.Text = loc["settings.sidebarHidden"];
+        SidebarHiddenHint.Text = loc["settings.sidebarHiddenHint"];
         ConfirmKillBox.Content = loc["settings.confirmKill"];
         KillTreeBox.Content = loc["settings.killTree"];
         DesktopBox.Content = loc["settings.desktops"];
@@ -212,6 +222,13 @@ public partial class SettingsWindow : Window
         if (presets.TrueForAll(item => item.Value != threshold))
             presets.Add((threshold, loc.Format("settings.threshold.custom", threshold)));
         Fill(ThresholdBox, presets, threshold);
+        var sidebarCount = _draft.FrequentSidebarCount is < 6 or > 8 ? 8 : _draft.FrequentSidebarCount;
+        Fill(SidebarCountBox, new (int, string)[]
+        {
+            (6, "6"),
+            (7, "7"),
+            (8, "8")
+        }, sidebarCount);
         if (_everythingStatus is { } status)
             ApplyEverythingStatus(status);
     }
@@ -392,6 +409,14 @@ public partial class SettingsWindow : Window
         _draft.DemotedApps = DemotedBox.Text
             .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
             .ToList();
+        _draft.ShowFrequentSidebar = SidebarBox.IsChecked == true;
+        _draft.FrequentSidebarCount = Read(SidebarCountBox, _draft.FrequentSidebarCount);
+        _draft.SidebarPinnedApps = SidebarPinnedBox.Text
+            .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+            .ToList();
+        _draft.SidebarHiddenApps = SidebarHiddenBox.Text
+            .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+            .ToList();
         _draft.WelcomeShown = _original.WelcomeShown;
         try
         {
@@ -564,7 +589,11 @@ public partial class SettingsWindow : Window
         IndexPath = source.IndexPath,
         ExcludedApps = new List<string>(source.ExcludedApps ?? new List<string>()),
         PinnedApps = new List<string>(source.PinnedApps ?? new List<string>()),
-        DemotedApps = new List<string>(source.DemotedApps ?? new List<string>())
+        DemotedApps = new List<string>(source.DemotedApps ?? new List<string>()),
+        ShowFrequentSidebar = source.ShowFrequentSidebar,
+        FrequentSidebarCount = source.FrequentSidebarCount,
+        SidebarPinnedApps = new List<string>(source.SidebarPinnedApps ?? new List<string>()),
+        SidebarHiddenApps = new List<string>(source.SidebarHiddenApps ?? new List<string>())
     };
 
     sealed class Choice<T>

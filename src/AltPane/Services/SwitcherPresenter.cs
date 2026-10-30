@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Windows.Threading;
 using AltPane.Core.Actions;
 using AltPane.Core.Apps;
+using AltPane.Core.Filtering;
 using AltPane.Core.Input;
 using AltPane.Core.Load;
 using AltPane.Core.Layout;
@@ -18,6 +19,8 @@ internal sealed class SwitcherPresenter
     readonly SwitcherDeck _deck;
     readonly Dictionary<long, System.Windows.Media.ImageSource> _icons = new();
     readonly Dictionary<string, System.Windows.Media.ImageSource> _appIcons = new(StringComparer.OrdinalIgnoreCase);
+    readonly Dictionary<string, System.Windows.Media.ImageSource> _sidebarIcons = new(StringComparer.OrdinalIgnoreCase);
+    IReadOnlyList<FrequentApp> _sidebar = Array.Empty<FrequentApp>();
     AppIndexService? _apps;
     FileIndexService? _fileIndex;
     readonly DispatcherTimer _statusTimer;
@@ -164,6 +167,14 @@ internal sealed class SwitcherPresenter
         window.CopyNameRequested += () => CopySelection(directory: true, nameOnly: true);
         window.RevealRequested += RevealSelection;
         window.RowActivated += ActivateVisible;
+        window.SidebarInvoked += index =>
+        {
+            _deck.NoteClick(window);
+            ActivateSidebar(index);
+        };
+        window.SidebarPinRequested += key => SetSidebar(SidebarLists.Pin, key, "sidebar.pinned");
+        window.SidebarUnpinRequested += key => SetSidebar(SidebarLists.Unpin, key, "sidebar.unpinned");
+        window.SidebarHideRequested += key => SetSidebar(SidebarLists.Hide, key, "sidebar.hidden");
         window.RowHovered += index =>
         {
             if (_session?.SelectIndex(index) == true) Refresh();
@@ -193,6 +204,7 @@ internal sealed class SwitcherPresenter
     {
         _apps = apps;
         apps.Updated += () => _deck.Dispatcher.BeginInvoke(ReloadApps);
+        _windows.RememberCatalog(apps.Visible);
     }
 
     public void UseFileIndex(FileIndexService index) => _fileIndex = index;
@@ -320,6 +332,9 @@ internal sealed class SwitcherPresenter
                 break;
             case UiOp.ActivateRow row:
                 ActivateVisible(row.Index);
+                break;
+            case UiOp.ActivateSidebar side:
+                ActivateSidebar(side.Index);
                 break;
             case UiOp.RevealPath:
                 RevealSelection();
@@ -462,6 +477,7 @@ internal sealed class SwitcherPresenter
             foreach (var handle in stale) _icons.Remove(handle);
         }
         _displayCount = -1;
+        CaptureSidebar();
         PendingShow = true;
         _iconGeneration++;
     }
@@ -493,6 +509,7 @@ internal sealed class SwitcherPresenter
         _arm.Clear();
         _statusSticky = false;
         _displayCount = -1;
+        CaptureSidebar();
         PendingShow = true;
         _iconGeneration++;
     }
@@ -603,6 +620,7 @@ internal sealed class SwitcherPresenter
 
     void ReloadApps()
     {
+        _windows.RememberCatalog(_apps?.Visible);
         _windows.RestampNames();
         if (_session is null) return;
         foreach (var entry in _session.All)
@@ -1046,6 +1064,11 @@ internal sealed class SwitcherPresenter
             : settings.StickySwitcher || _searchMode
                 ? loc.Format("hint.sticky", trigger)
                 : loc.Format("hint.gesture", trigger);
+        var openApps = OpenApps();
+        var sidebar = settings.ShowFrequentSidebar
+            ? FrequentApps.WithRunning(_sidebar, openApps)
+            : Array.Empty<FrequentApp>();
+        ResolveSidebarIcons(sidebar);
         var showLoad = settings.ShowLoad;
         var systemText = !showLoad
             ? ""
@@ -1086,7 +1109,9 @@ internal sealed class SwitcherPresenter
             Files = _session?.Files ?? Array.Empty<FileHit>(),
             FileSearchUnavailable = _session?.FileSearchUnavailable == true,
             FileHint = _session?.FileHint ?? FileSearchHint.None,
-            ActionHint = ActionHintText(settings),
+            ActionHint = SidebarHint(ActionHintText(settings), settings, sidebar.Count),
+            Sidebar = sidebar,
+            SidebarIcons = _sidebarIcons,
             LaunchSection = appsMode
                 ? loc["apps.section"]
                 : _apps is { UsingBuiltInIndex: true }
@@ -1182,6 +1207,12 @@ internal sealed class SwitcherPresenter
             var path = string.IsNullOrWhiteSpace(hit.App.IconLocation) ? hit.App.ResolvedPath : hit.App.IconLocation;
             apps.Add((hit.App.Id, path ?? "", hit.App.IconIndex, hit.App.LaunchPath ?? ""));
         }
+        var sidebar = new List<(string Key, string Path)>(_sidebar.Count);
+        foreach (var app in _sidebar)
+        {
+            if (!string.IsNullOrWhiteSpace(app.LaunchPath))
+                sidebar.Add((app.Key, app.LaunchPath));
+        }
 
         ThreadPool.QueueUserWorkItem(_ =>
         {
@@ -1193,6 +1224,19 @@ internal sealed class SwitcherPresenter
 
             var appPixels = new List<(string Id, string Path, int Index, IconLoader.IconPixels Pixels)>();
             var appReady = new List<(string Id, System.Windows.Media.ImageSource Icon)>();
+            var sidebarPixels = new List<(string Key, string Path, IconLoader.IconPixels Pixels)>();
+            var sidebarReady = new List<(string Key, System.Windows.Media.ImageSource Icon)>();
+            foreach (var item in sidebar)
+            {
+                var cached = IconLoader.Cached(item.Path, 0);
+                if (cached is not null)
+                {
+                    sidebarReady.Add((item.Key, cached));
+                    continue;
+                }
+                if (DecodeOnce(item.Path, 0, memo, out var pixels))
+                    sidebarPixels.Add((item.Key, item.Path, pixels));
+            }
             foreach (var item in apps)
             {
                 var cached = IconLoader.Cached(item.Path, item.Index) ?? IconLoader.Cached(item.Launch, 0);
@@ -1222,6 +1266,25 @@ internal sealed class SwitcherPresenter
                 {
                     foreach (var item in appReady)
                         _appIcons[item.Id] = item.Icon;
+                }
+                foreach (var item in sidebarPixels)
+                {
+                    var source = IconLoader.Freeze(item.Pixels);
+                    if (source is null) continue;
+                    IconLoader.Store(item.Path, 0, source);
+                    if (generation == _iconGeneration)
+                        _sidebarIcons[item.Key] = source;
+                }
+                if (generation == _iconGeneration)
+                {
+                    foreach (var item in sidebarReady)
+                        _sidebarIcons[item.Key] = item.Icon;
+                    foreach (var item in sidebar)
+                    {
+                        var ready = IconLoader.Materialize(item.Path, 0);
+                        if (ready is not null)
+                            _sidebarIcons[item.Key] = ready;
+                    }
                 }
                 if (generation == _iconGeneration && _deck.IsVisible)
                     Refresh();
@@ -1286,6 +1349,140 @@ internal sealed class SwitcherPresenter
     }
 
     void OnSpace() => Hotkeys?.RequestCommit();
+
+    void CaptureSidebar()
+    {
+        try
+        {
+            _sidebar = _windows.SidebarFor(_settings());
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error(ex);
+            _sidebar = Array.Empty<FrequentApp>();
+        }
+    }
+
+    List<OpenAppWindow> OpenApps()
+    {
+        var list = new List<OpenAppWindow>();
+        if (_session is null) return list;
+        foreach (var entry in _session.All)
+        {
+            var key = AppIdentity.Key(entry);
+            if (key.Length == 0) continue;
+            list.Add(new OpenAppWindow(key, entry.Handle, Activations.Rank(entry.Handle)));
+        }
+        return list;
+    }
+
+    void ResolveSidebarIcons(IReadOnlyList<FrequentApp> sidebar)
+    {
+        var live = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var app in sidebar)
+        {
+            live.Add(app.Key);
+            var icon = IconLoader.Materialize(app.LaunchPath, 0);
+            if (icon is not null)
+                _sidebarIcons[app.Key] = icon;
+            else if (!_sidebarIcons.ContainsKey(app.Key))
+                _sidebarIcons[app.Key] = IconLoader.Letter(app.Name);
+        }
+        if (_sidebarIcons.Count == live.Count) return;
+        var stale = new List<string>();
+        foreach (var key in _sidebarIcons.Keys)
+        {
+            if (!live.Contains(key)) stale.Add(key);
+        }
+        foreach (var key in stale) _sidebarIcons.Remove(key);
+    }
+
+    static string SidebarHint(string hint, AppSettings settings, int count)
+    {
+        if (!settings.ShowActionHint || count <= 0) return hint;
+        var suffix = Localizer.Current.Format("hint.sidebar", count);
+        return string.IsNullOrEmpty(hint) ? suffix : hint + "  ·  " + suffix;
+    }
+
+    void ActivateSidebar(int index)
+    {
+        if (_session is null || _sidebar.Count == 0) return;
+        var shown = FrequentApps.WithRunning(_sidebar, OpenApps());
+        if ((uint)index >= (uint)shown.Count) return;
+        var app = shown[index];
+        var window = FindSidebarWindow(app);
+        var host = MoveDestination(null);
+        if (window is not null)
+        {
+            DismissSwitcher();
+            Hotkeys?.RequestIdle();
+            ActivateEntry(window, host);
+            return;
+        }
+        var path = app.LaunchPath;
+        var name = app.Name;
+        DismissForExternal();
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            Notify?.Invoke(Localizer.Current.Format("launch.failed", name));
+            return;
+        }
+        LaunchStored(path, name);
+    }
+
+    WindowEntry? FindSidebarWindow(FrequentApp app)
+    {
+        if (_session is null) return null;
+        if (app.WindowHandle != 0)
+        {
+            foreach (var entry in _session.All)
+            {
+                if (entry.Handle == app.WindowHandle && NativeMethods.IsWindow((nint)entry.Handle))
+                    return entry;
+            }
+        }
+        WindowEntry? best = null;
+        var rank = int.MaxValue;
+        foreach (var entry in _session.All)
+        {
+            if (!string.Equals(AppIdentity.Key(entry), app.Key, StringComparison.OrdinalIgnoreCase)) continue;
+            if (!NativeMethods.IsWindow((nint)entry.Handle)) continue;
+            var next = Activations.Rank(entry.Handle);
+            if (best is null || next < rank)
+            {
+                best = entry;
+                rank = next;
+            }
+        }
+        return best;
+    }
+
+    void LaunchStored(string path, string name)
+    {
+        var shortcut = FrequentApps.IsShortcut(path);
+        var app = new AppEntry
+        {
+            Name = string.IsNullOrWhiteSpace(name) ? path : name,
+            LaunchPath = path,
+            ResolvedPath = shortcut ? "" : path,
+            Kind = shortcut ? AppKind.Shortcut : AppKind.Executable,
+            ProcessName = ProcessNames.Normalize(Path.GetFileNameWithoutExtension(path))
+        };
+        if (!AppLauncher.TryLaunch(app, admin: false, out var error) && error is not null)
+            Notify?.Invoke(Localizer.Current.Format(error, app.Name));
+    }
+
+    void SetSidebar(Action<AppSettings, string> apply, string? key, string messageKey)
+    {
+        if (string.IsNullOrWhiteSpace(key)) return;
+        var settings = _settings();
+        apply(settings, key);
+        try { PersistRequested?.Invoke(); }
+        catch (Exception ex) { AppLog.Error(ex); }
+        CaptureSidebar();
+        ShowStatus(Localizer.Current[messageKey]);
+        if (_deck.IsVisible) Refresh();
+    }
 
     void ActivateVisible(int index)
     {

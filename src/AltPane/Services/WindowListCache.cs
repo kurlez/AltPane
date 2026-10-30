@@ -39,6 +39,12 @@ internal sealed class WindowListCache : IDisposable
     bool _ready;
     bool _stale = true;
     bool _usageDirty;
+    bool _sidebarDirty = true;
+    bool _sidebarReady;
+    int _sidebarStamp;
+    IReadOnlyList<FrequentApp> _sidebar = Array.Empty<FrequentApp>();
+    IReadOnlyList<AppEntry>? _catalog;
+    IReadOnlyList<AppEntry>? _appliedCatalog;
     long _armedHandle;
     long _armedAt;
     long _nextUsageSave;
@@ -108,6 +114,37 @@ internal sealed class WindowListCache : IDisposable
     public PrioritySnapshot Priority(AppSettings settings) =>
         _usage.Snapshot(settings.PinnedApps, settings.DemotedApps, DateTime.UtcNow, settings.FocusThresholdMinutes);
 
+    /// <summary>
+    /// The sidebar ranked on the background thread. A settings change ranks again
+    /// from memory. Icons are not decoded here.
+    /// </summary>
+    public IReadOnlyList<FrequentApp> SidebarFor(AppSettings settings)
+    {
+        if (settings is null || !settings.ShowFrequentSidebar)
+            return Array.Empty<FrequentApp>();
+        var stamp = SidebarStamp(settings);
+        lock (_gate)
+        {
+            if (_sidebarReady && stamp == _sidebarStamp)
+                return _sidebar;
+        }
+        var ranked = RankSidebar(settings);
+        lock (_gate)
+        {
+            _sidebar = ranked;
+            _sidebarStamp = stamp;
+            _sidebarReady = true;
+            _sidebarDirty = false;
+        }
+        return ranked;
+    }
+
+    public void RememberCatalog(IReadOnlyList<AppEntry>? apps)
+    {
+        Volatile.Write(ref _catalog, apps);
+        _sidebarDirty = true;
+    }
+
     public void RestampNames()
     {
         lock (_gate)
@@ -138,6 +175,8 @@ internal sealed class WindowListCache : IDisposable
             Install();
             try { _usage.Load(AppUsageTable.DefaultPath()); }
             catch (Exception ex) { AppLog.Error(ex); }
+            try { MaintainSidebar(); }
+            catch (Exception ex) { AppLog.Error(ex); }
             while (!_stop)
             {
                 if (!Pump()) break;
@@ -154,6 +193,8 @@ internal sealed class WindowListCache : IDisposable
                 }
                 if (_stop) break;
                 ApplyDwell(_dwell.Poll(Environment.TickCount64));
+                try { MaintainSidebar(); }
+                catch (Exception ex) { AppLog.Error(ex); }
                 MaybeSaveUsage();
                 NativeMethods.MsgWaitForMultipleObjects(0, 0, false, 200, NativeMethods.QsAllInput);
             }
@@ -389,12 +430,120 @@ internal sealed class WindowListCache : IDisposable
 
     void Credit(long hwnd, TimeSpan focus)
     {
-        var key = KeyFor(hwnd);
-        if (key.Length == 0) return;
+        var described = Describe(hwnd);
+        if (described.Key.Length == 0) return;
         var utc = DateTime.UtcNow;
-        if (focus > TimeSpan.Zero) _usage.NoteFocus(key, focus, utc);
-        else _usage.NoteSeen(key, utc);
+        if (focus > TimeSpan.Zero)
+        {
+            _usage.NoteFocus(described.Key, focus, utc, described.Name, described.Path);
+            _sidebarDirty = true;
+        }
+        else
+        {
+            _usage.NoteSeen(described.Key, utc);
+        }
         _usageDirty = true;
+    }
+
+    readonly record struct WindowIdentity(string Key, string Name, string Path);
+
+    WindowIdentity Describe(long hwnd)
+    {
+        lock (_gate)
+        {
+            foreach (var entry in _windows)
+            {
+                if (entry.Handle != hwnd) continue;
+                var name = string.IsNullOrWhiteSpace(entry.DisplayProcessName) ? entry.ProcessName : entry.DisplayProcessName;
+                return new WindowIdentity(AppIdentity.Key(entry), name ?? "", entry.IconPath ?? "");
+            }
+        }
+        return new WindowIdentity(KeyFor(hwnd), "", "");
+    }
+
+    void MaintainSidebar()
+    {
+        ApplyCatalog();
+        var settings = _settings();
+        var stamp = SidebarStamp(settings);
+        if (!_sidebarDirty && _sidebarReady && stamp == _sidebarStamp) return;
+        var ranked = settings.ShowFrequentSidebar ? RankSidebar(settings) : Array.Empty<FrequentApp>();
+        lock (_gate)
+        {
+            _sidebar = ranked;
+            _sidebarStamp = stamp;
+            _sidebarReady = true;
+            _sidebarDirty = false;
+        }
+        if (ranked.Count > 0) WarmIcons(ranked);
+    }
+
+    void ApplyCatalog()
+    {
+        var catalog = Volatile.Read(ref _catalog);
+        if (ReferenceEquals(catalog, _appliedCatalog)) return;
+        _appliedCatalog = catalog;
+        if (catalog is null) return;
+        foreach (var app in catalog)
+        {
+            var key = ProcessNames.Normalize(app.ProcessName);
+            var path = !string.IsNullOrWhiteSpace(app.ResolvedPath) ? app.ResolvedPath : app.LaunchPath;
+            if (key.Length == 0 && !string.IsNullOrWhiteSpace(path))
+                key = ProcessNames.Normalize(Path.GetFileNameWithoutExtension(path));
+            var launch = app.Kind == AppKind.Shortcut && !string.IsNullOrWhiteSpace(app.LaunchPath)
+                ? app.LaunchPath
+                : path;
+            _usage.RememberLaunch(key, app.Name, launch);
+        }
+        _sidebarDirty = true;
+    }
+
+    IReadOnlyList<FrequentApp> RankSidebar(AppSettings settings) =>
+        FrequentApps.Rank(
+            _usage.Export(),
+            DateTime.UtcNow,
+            FrequentApps.DefaultWindow,
+            settings.FrequentSidebarCount,
+            settings.SidebarPinnedApps,
+            settings.SidebarHiddenApps,
+            settings.DemotedApps,
+            null);
+
+    static void WarmIcons(IReadOnlyList<FrequentApp> apps)
+    {
+        foreach (var app in apps)
+        {
+            if (string.IsNullOrWhiteSpace(app.LaunchPath)) continue;
+            try
+            {
+                if (IconLoader.Cached(app.LaunchPath, 0) is not null) continue;
+                if (!IconLoader.TryDecode(app.LaunchPath, 0, out var pixels)) continue;
+                IconLoader.Keep(app.LaunchPath, 0, pixels);
+            }
+            catch (Exception ex)
+            {
+                AppLog.Error(ex);
+            }
+        }
+    }
+
+    static int SidebarStamp(AppSettings settings)
+    {
+        var hash = new HashCode();
+        hash.Add(settings.ShowFrequentSidebar);
+        hash.Add(settings.FrequentSidebarCount);
+        AddStamp(ref hash, settings.SidebarPinnedApps);
+        AddStamp(ref hash, settings.SidebarHiddenApps);
+        AddStamp(ref hash, settings.DemotedApps);
+        return hash.ToHashCode();
+    }
+
+    static void AddStamp(ref HashCode hash, IReadOnlyList<string>? items)
+    {
+        if (items is null) return;
+        hash.Add(items.Count);
+        foreach (var item in items)
+            hash.Add(item, StringComparer.OrdinalIgnoreCase);
     }
 
     void RememberSeen(List<WindowEntry> windows)

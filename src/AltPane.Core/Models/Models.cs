@@ -156,8 +156,10 @@ public sealed class AppSettings
     /// It adds <see cref="PinnedApps"/>, <see cref="DemotedApps"/>, and
     /// <see cref="FocusThresholdMinutes"/> (10 when missing). A stored stable-grouped
     /// sort loads as focus time. Recent, app name, CPU, and memory stay.
+    /// 8 adds the frequent-apps sidebar. <see cref="ShowFrequentSidebar"/> defaults on,
+    /// <see cref="FrequentSidebarCount"/> defaults to 8, and the pin and hide lists start empty.
     /// </summary>
-    public const int CurrentSchema = 7;
+    public const int CurrentSchema = 8;
 
     public int Version { get; set; } = CurrentSchema;
     public HotkeyChord? Hotkey { get; set; } = HotkeyChord.AltTab();
@@ -210,6 +212,14 @@ public sealed class AppSettings
     public List<string> PinnedApps { get; set; } = new();
     /// <summary>Process names kept under Rarely used. Built-in VPN and tray tools are demoted too.</summary>
     public List<string> DemotedApps { get; set; } = new();
+    /// <summary>When true (the default), every switcher shows the frequent-apps sidebar.</summary>
+    public bool ShowFrequentSidebar { get; set; } = true;
+    /// <summary>How many sidebar slots to show. Clamped to 6–8, which is also the F1–F8 range.</summary>
+    public int FrequentSidebarCount { get; set; } = 8;
+    /// <summary>Process names pinned to the sidebar, in the order they should appear.</summary>
+    public List<string> SidebarPinnedApps { get; set; } = new();
+    /// <summary>Process names left out of the sidebar even when they are used often.</summary>
+    public List<string> SidebarHiddenApps { get; set; } = new();
     /// <summary>When true (the default), a chosen window on another monitor is moved onto the switcher's monitor.</summary>
     public bool MoveToSwitcherMonitor { get; set; } = true;
     /// <summary>When true (the default), a search with no built-in hit also asks Everything, if it is running.</summary>
@@ -244,6 +254,10 @@ public sealed class AppSettings
         ExcludedApps = new List<string>(),
         PinnedApps = new List<string>(),
         DemotedApps = new List<string>(),
+        ShowFrequentSidebar = true,
+        FrequentSidebarCount = 8,
+        SidebarPinnedApps = new List<string>(),
+        SidebarHiddenApps = new List<string>(),
         ShowLoad = true,
         SortMode = LoadSortMode.FocusTime,
         FocusThresholdMinutes = 10,

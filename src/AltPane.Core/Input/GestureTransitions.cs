@@ -30,6 +30,7 @@ public abstract record UiOp
     public sealed record DemoteApp : UiOp;
     public sealed record RestorePriority : UiOp;
     public sealed record ActivateRow(int Index) : UiOp;
+    public sealed record ActivateSidebar(int Index) : UiOp;
     public sealed record RevealPath : UiOp;
     public sealed record CopyPath : UiOp;
     public sealed record CopyDirectory : UiOp;
@@ -187,6 +188,8 @@ public static class GestureTransitions
                 return state.SwitcherOpen ? new(state, new UiOp.RestorePriority()) : new(state, null);
             case HookCommand.ActivateRow:
                 return state.SwitcherOpen ? new(state, new UiOp.ActivateRow(result.Delta)) : new(state, null);
+            case HookCommand.ActivateSidebar:
+                return state.SwitcherOpen ? new(state, new UiOp.ActivateSidebar(result.Delta)) : new(state, null);
             case HookCommand.RevealPath:
                 return state.SwitcherOpen ? new(state, new UiOp.RevealPath()) : new(state, null);
             case HookCommand.CopyPath:
