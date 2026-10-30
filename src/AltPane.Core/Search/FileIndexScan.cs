@@ -224,7 +224,7 @@ public static class FileIndexScan
         var directories = new List<string>();
         var directoryIds = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         var files = new List<FileSlot>();
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var walked = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var skipped = 0;
 
         foreach (var raw in roots)
@@ -246,12 +246,17 @@ public static class FileIndexScan
 
         var directoryArray = directories.ToArray();
         var fileArray = files.ToArray();
+        directories.Clear();
+        files.Clear();
+        directoryIds.Clear();
+        walked.Clear();
         var index = new FileIndex(directoryArray, fileArray, FileIndex.Estimate(directoryArray, fileArray));
         return new FileScanResult(index, skipped);
 
         void Walk(string directory, int depth)
         {
             if (depth > FileIndexRules.MaxDepth || files.Count >= FileIndexRules.MaxEntries) return;
+            if (!walked.Add(directory)) return;
             IReadOnlyList<FileNode> children;
             try
             {
@@ -269,7 +274,7 @@ public static class FileIndexScan
                 var full = FileIndexPaths.Combine(directory, child.Name);
                 if (child.Directory)
                 {
-                    if (FileIndexRules.SkipDirectory(child, full, userExclusions))
+                    if (FileIndexRules.SkipDirectory(child, full, userExclusions) || FileIndexWatch.IsAltPaneStore(full))
                     {
                         skipped++;
                         continue;
@@ -278,8 +283,7 @@ public static class FileIndexScan
                     continue;
                 }
                 if (FileIndexRules.SkipFile(child)) continue;
-                if (FileIndexPaths.IsExcluded(full, userExclusions)) continue;
-                if (!seen.Add(full)) continue;
+                if (FileExcluded(directory, child.Name, userExclusions)) continue;
                 if (!directoryIds.TryGetValue(directory, out var directoryId))
                 {
                     directoryId = directories.Count;
@@ -290,33 +294,74 @@ public static class FileIndexScan
             }
         }
     }
+
+    static bool FileExcluded(string directory, string name, IReadOnlyList<string>? userExclusions)
+    {
+        if (FileSearch.IsExcluded(name) || FileSearch.IsExcluded(directory)) return true;
+        if (FileIndexWatch.IsAltPaneStore(directory)) return true;
+        if (userExclusions is null || userExclusions.Count == 0) return false;
+        foreach (var root in userExclusions)
+        {
+            if (FileIndexPaths.IsUnder(directory, root)) return true;
+        }
+        return FileIndexPaths.IsExcluded(FileIndexPaths.Combine(directory, name), userExclusions);
+    }
 }
 
 /// <summary>
-/// Watcher decisions that do not touch the operating system. A change waits for
-/// the debounce. A buffer overflow rescans immediately.
+/// Watcher decisions that do not touch the operating system. A normal change is
+/// applied after the debounce. A buffer overflow waits out a backoff before a
+/// full rescan, and AltPane's own files never count as a change.
 /// </summary>
 public static class FileIndexWatch
 {
     public const int DebounceMilliseconds = 400;
+    public static readonly TimeSpan OverflowBackoff = TimeSpan.FromMinutes(5);
+    public static readonly TimeSpan ReachableRecheck = TimeSpan.FromMinutes(1);
 
     public static bool IsOverflow(Exception? error) => error is InternalBufferOverflowException;
+
+    /// <summary>
+    /// The background walk runs only while the built-in index is on and Everything
+    /// is not already answering. A loaded snapshot is kept either way.
+    /// </summary>
+    public static bool ShouldBackgroundScan(bool indexEnabled, bool everythingReachable) =>
+        indexEnabled && !everythingReachable;
+
+    /// <summary>AltPane's own snapshot and log must not wake the watcher.</summary>
+    public static bool IsAltPaneStore(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return false;
+        var text = path.Replace('/', '\\');
+        return text.Contains(@"\AppData\Local\AltPane\", StringComparison.OrdinalIgnoreCase)
+            || text.Contains(@"\AppData\Roaming\AltPane\", StringComparison.OrdinalIgnoreCase)
+            || text.EndsWith(@"\AppData\Local\AltPane", StringComparison.OrdinalIgnoreCase)
+            || text.EndsWith(@"\AppData\Roaming\AltPane", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static bool IsUnderAppData(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return false;
+        var parts = path.Replace('/', '\\').Split('\\', StringSplitOptions.RemoveEmptyEntries);
+        foreach (var part in parts)
+        {
+            if (part.Equals("AppData", StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        return false;
+    }
 
     public static bool Ignore(string? fullPath, IReadOnlyList<string>? watchedRoots, IReadOnlyList<string>? userExclusions)
     {
         if (string.IsNullOrWhiteSpace(fullPath)) return true;
+        if (IsAltPaneStore(fullPath)) return true;
         if (FileIndexPaths.IsExcluded(fullPath, userExclusions)) return true;
-        var parts = fullPath.Replace('/', '\\').Split('\\', StringSplitOptions.RemoveEmptyEntries);
-        var underAppData = false;
-        foreach (var part in parts)
+        if (!IsUnderAppData(fullPath)) return false;
+        if (watchedRoots is null) return true;
+        foreach (var root in watchedRoots)
         {
-            if (part.Equals("AppData", StringComparison.OrdinalIgnoreCase))
-            {
-                underAppData = true;
-                break;
-            }
+            if (!IsUnderAppData(root)) continue;
+            if (FileIndexPaths.IsUnder(fullPath, root)) return false;
         }
-        if (!underAppData) return false;
-        return !FileIndexPaths.IsUnderAny(fullPath, watchedRoots);
+        return true;
     }
 }

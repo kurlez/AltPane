@@ -250,3 +250,170 @@ public static class FileIndexQuery
         return false;
     }
 }
+
+/// <summary>
+/// One-file updates for the watcher. A normal create, delete, or rename does not
+/// walk the profile again.
+/// </summary>
+public static class FileIndexEdit
+{
+    public static FileIndex Upsert(FileIndex index, string? fullPath)
+    {
+        var normal = FileIndexPaths.Normalize(fullPath);
+        var (directory, name) = Split(normal);
+        if (name.Length == 0 || FileIndexPaths.IsExcluded(normal, null) || FileIndexWatch.IsAltPaneStore(normal))
+            return index;
+        if (Contains(index, directory, name)) return index;
+        var directories = new List<string>(CopyDirectories(index));
+        var id = DirectoryId(directories, directory);
+        var files = new FileSlot[index.Count + 1];
+        for (var i = 0; i < index.Count; i++) files[i] = index.Files[i];
+        files[^1] = new FileSlot(id, name);
+        return Finish(directories, files);
+    }
+
+    public static FileIndex Remove(FileIndex index, string? fullPath)
+    {
+        var normal = FileIndexPaths.Normalize(fullPath);
+        if (normal.Length == 0 || index.Count == 0) return index;
+        var keep = new List<FileSlot>(index.Count);
+        var removed = false;
+        foreach (var slot in index.Files)
+        {
+            var full = index.FullPath(slot);
+            if (full.Equals(normal, StringComparison.OrdinalIgnoreCase) || FileIndexPaths.IsUnder(full, normal))
+            {
+                removed = true;
+                continue;
+            }
+            keep.Add(slot);
+        }
+        return removed ? Rebuild(index, keep) : index;
+    }
+
+    static FileIndex Rebuild(List<string> directories, List<FileSlot> keep) =>
+        Finish(directories, keep.ToArray());
+
+    public static FileIndex Absorb(FileIndex into, FileIndex extra)
+    {
+        if (extra.Count == 0) return into;
+        var directories = new List<string>(CopyDirectories(into));
+        var files = new List<FileSlot>(into.Count + extra.Count);
+        foreach (var slot in into.Files) files.Add(slot);
+        var map = new Dictionary<int, int>();
+        foreach (var slot in extra.Files)
+        {
+            if (!map.TryGetValue(slot.DirectoryId, out var id))
+            {
+                id = DirectoryId(directories, extra.Directory(slot.DirectoryId));
+                map[slot.DirectoryId] = id;
+            }
+            if (Listed(files, directories, id, slot.Name)) continue;
+            files.Add(new FileSlot(id, slot.Name));
+        }
+        return Finish(directories, files.ToArray());
+    }
+
+    public static FileIndex ReplaceChildren(FileIndex index, string? directory, IReadOnlyList<string> names)
+    {
+        var normal = FileIndexPaths.Normalize(directory);
+        if (normal.Length == 0) return index;
+        var keep = new List<FileSlot>(index.Count);
+        foreach (var slot in index.Files)
+        {
+            if (index.Directory(slot.DirectoryId).Equals(normal, StringComparison.OrdinalIgnoreCase)) continue;
+            keep.Add(slot);
+        }
+        var directories = new List<string>(CopyDirectories(index));
+        var id = -1;
+        foreach (var name in names)
+        {
+            if (string.IsNullOrWhiteSpace(name)) continue;
+            var full = FileIndexPaths.Combine(normal, name);
+            if (FileIndexPaths.IsExcluded(full, null) || FileIndexWatch.IsAltPaneStore(full)) continue;
+            if (id < 0) id = DirectoryId(directories, normal);
+            keep.Add(new FileSlot(id, name));
+        }
+        return Rebuild(directories, keep);
+    }
+
+    static bool Listed(List<FileSlot> files, List<string> directories, int directoryId, string name)
+    {
+        var directory = directories[directoryId];
+        foreach (var slot in files)
+        {
+            if (!slot.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) continue;
+            if ((uint)slot.DirectoryId >= (uint)directories.Count) continue;
+            if (directories[slot.DirectoryId].Equals(directory, StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        return false;
+    }
+
+    static bool Contains(FileIndex index, string directory, string name)
+    {
+        for (var i = 0; i < index.Count; i++)
+        {
+            var slot = index.Files[i];
+            if (!slot.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) continue;
+            if (index.Directory(slot.DirectoryId).Equals(directory, StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        return false;
+    }
+
+    static (string Directory, string Name) Split(string normal)
+    {
+        if (normal.Length == 0) return ("", "");
+        var cut = normal.LastIndexOf('\\');
+        if (cut <= 0) return ("", normal);
+        return (normal[..cut], normal[(cut + 1)..]);
+    }
+
+    static string[] CopyDirectories(FileIndex index)
+    {
+        var directories = new string[index.DirectoryCount];
+        for (var i = 0; i < directories.Length; i++) directories[i] = index.Directory(i);
+        return directories;
+    }
+
+    static int DirectoryId(List<string> directories, string directory)
+    {
+        for (var i = 0; i < directories.Count; i++)
+        {
+            if (directories[i].Equals(directory, StringComparison.OrdinalIgnoreCase)) return i;
+        }
+        directories.Add(directory);
+        return directories.Count - 1;
+    }
+
+    static FileIndex Rebuild(FileIndex index, List<FileSlot> keep)
+    {
+        var used = new bool[index.DirectoryCount];
+        foreach (var slot in keep)
+        {
+            if ((uint)slot.DirectoryId < (uint)used.Length) used[slot.DirectoryId] = true;
+        }
+        var map = new int[used.Length];
+        var directories = new List<string>();
+        for (var i = 0; i < used.Length; i++)
+        {
+            if (!used[i])
+            {
+                map[i] = -1;
+                continue;
+            }
+            map[i] = directories.Count;
+            directories.Add(index.Directory(i));
+        }
+        var files = new FileSlot[keep.Count];
+        for (var i = 0; i < keep.Count; i++)
+            files[i] = new FileSlot(map[keep[i].DirectoryId], keep[i].Name);
+        return Finish(directories.ToArray(), files);
+    }
+
+    static FileIndex Finish(IReadOnlyList<string> directories, FileSlot[] files)
+    {
+        var copy = new string[directories.Count];
+        for (var i = 0; i < copy.Length; i++) copy[i] = directories[i];
+        return new FileIndex(copy, files, FileIndex.Estimate(copy, files));
+    }
+}

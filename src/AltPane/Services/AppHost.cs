@@ -38,7 +38,11 @@ internal sealed class AppHost : IDisposable
         _presenter = new SwitcherPresenter(() => Settings);
         _apps = new AppIndexService(() => Settings);
         _presenter.UseApps(_apps);
-        _files = new FileIndexService(() => Settings);
+        _files = new FileIndexService(
+            () => Settings,
+            new AltPane.Core.Search.PhysicalFileTree(),
+            AltPane.Core.Search.FileIndexStore.DefaultPath(),
+            () => new EverythingClient().Probe().Running);
         _presenter.UseFileIndex(_files);
         _hotkeys = new HotkeyService(_presenter, () => Settings, () => _recording, System.Windows.Application.Current.Dispatcher);
         _presenter.Hotkeys = _hotkeys;

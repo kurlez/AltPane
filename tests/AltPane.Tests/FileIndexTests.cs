@@ -168,6 +168,56 @@ public class FileIndexTests
         Assert.False(FileIndexWatch.Ignore(@"C:\Users\a\Documents\a.pdf", roots, null));
         Assert.True(FileIndexWatch.Ignore(@"C:\Users\a\Documents\.cursor\a.md", roots, null));
         Assert.True(FileIndexWatch.Ignore(@"D:\Secret\a.pdf", roots, new[] { @"D:\Secret" }));
+
+        var profile = new[] { @"C:\Users\a", @"C:\Users\a\AppData\Roaming\Microsoft\Windows\Start Menu" };
+        Assert.True(FileIndexWatch.Ignore(@"C:\Users\a\AppData\Local\AltPane\file-index.bin", profile, null));
+        Assert.True(FileIndexWatch.Ignore(@"C:\Users\a\AppData\Roaming\AltPane\altpane.log", profile, null));
+        Assert.True(FileIndexWatch.Ignore(@"C:\Users\a\AppData\Local\Temp\note.tmp", profile, null));
+        Assert.False(FileIndexWatch.Ignore(@"C:\Users\a\AppData\Roaming\Microsoft\Windows\Start Menu\Code.lnk", profile, null));
+        Assert.False(FileIndexWatch.Ignore(@"C:\Users\a\Documents\报告.pdf", profile, null));
+        Assert.False(FileIndexWatch.ShouldBackgroundScan(indexEnabled: true, everythingReachable: true));
+        Assert.True(FileIndexWatch.ShouldBackgroundScan(indexEnabled: true, everythingReachable: false));
+        Assert.False(FileIndexWatch.ShouldBackgroundScan(indexEnabled: false, everythingReachable: false));
+        Assert.True(FileIndexWatch.OverflowBackoff >= TimeSpan.FromMinutes(5));
+    }
+
+    [Fact]
+    public void An_incremental_edit_adds_and_removes_one_file_without_a_full_walk()
+    {
+        var index = Index((@"C:\Docs", "a.pdf"), (@"C:\Docs", "报告.docx"));
+        var added = FileIndexEdit.Upsert(index, @"C:\Docs\c.pdf");
+        Assert.Equal(3, added.Count);
+        Assert.Equal(1, added.DirectoryCount);
+        Assert.Contains(added.Files, slot => slot.Name == "c.pdf");
+
+        var removed = FileIndexEdit.Remove(added, @"C:\Docs\a.pdf");
+        Assert.Equal(2, removed.Count);
+        Assert.DoesNotContain(removed.Files, slot => slot.Name == "a.pdf");
+        Assert.Contains(removed.Files, slot => slot.Name == "报告.docx");
+
+        var replaced = FileIndexEdit.ReplaceChildren(removed, @"C:\Docs", new[] { "only.txt", "报告.docx" });
+        Assert.Equal(new[] { "only.txt", "报告.docx" }, replaced.Files.Select(slot => slot.Name).ToArray());
+        Assert.Equal(0, FileIndexEdit.Remove(replaced, @"C:\Docs").Count);
+        Assert.Same(index, FileIndexEdit.Upsert(index, @"C:\Users\a\AppData\Local\AltPane\file-index.bin"));
+
+        var extra = Index((@"C:\Other", "nested.pdf"));
+        var absorbed = FileIndexEdit.Absorb(index, extra);
+        Assert.Contains(absorbed.Files, slot => slot.Name == "nested.pdf");
+        Assert.Contains(absorbed.Files, slot => slot.Name == "报告.docx");
+    }
+
+    [Fact]
+    public void File_rows_use_the_row_number_and_not_a_long_pinyin_badge()
+    {
+        var name = "202610智能制作业务季度会项目终版v10.pptx";
+        var letters = NameIndex.Letters(name);
+        Assert.True(letters.Length > FileRowBadge.MaxLength);
+        Assert.Equal("", FileRowBadge.Index(name));
+        Assert.Equal(letters[..4], FileRowBadge.Cap(letters));
+        Assert.Equal("wx", NameIndex.Letters("微信"));
+        var described = NameIndex.Describe("微信");
+        Assert.Equal("wx", described.Letters);
+        Assert.Equal(2, described.Minimum);
     }
 
     [Fact]

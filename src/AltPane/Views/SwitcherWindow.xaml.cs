@@ -530,7 +530,11 @@ public partial class SwitcherWindow : Window
             row.ApplyMonitor(state.ShowMonitorBadges, entry, _host.Number, _thisScreen);
         }
         for (var i = 0; i < _rows.Count; i++)
+        {
             _rows[i].SetDigit(DigitSelect.Label(i));
+            if (_rows[i].Kind == SwitcherKind.File)
+                _rows[i].SetIndex(FileRowBadge.Index(_rows[i].Title));
+        }
 
         for (var i = 0; i < state.Apps.Count; i++)
         {
@@ -1021,10 +1025,12 @@ public partial class SwitcherWindow : Window
         for (var i = 0; i < files.Count; i++)
         {
             var file = files[i];
-            _rows.Add(new SwitcherRow(SwitcherKind.File, file.Name, file.Directory, IconLoader.Letter(ExtensionOf(file.Name)), i == 0 ? section : "")
+            var row = new SwitcherRow(SwitcherKind.File, file.Name, file.Directory, IconLoader.Letter(ExtensionOf(file.Name)), i == 0 ? section : "")
             {
                 FilePath = file.FullPath
-            });
+            };
+            row.SetIndex(FileRowBadge.Index(file.Name));
+            _rows.Add(row);
         }
         if (state.FileSearchUnavailable)
         {

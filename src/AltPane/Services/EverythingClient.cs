@@ -25,7 +25,6 @@ internal readonly record struct EverythingStatus(
 /// </summary>
 internal sealed class EverythingClient
 {
-    const int CopyDataQueryW = 2;
     const int WmCopyData = 0x004A;
     const uint SmtoAbortIfHung = 0x0002;
     const uint PmRemove = 0x0001;
@@ -34,8 +33,7 @@ internal sealed class EverythingClient
     static readonly nint HwndMessage = new(-3);
     static readonly HttpClient Http = new() { Timeout = Timeout.InfiniteTimeSpan };
     readonly object _gate = new();
-    EverythingLink _prefer;
-    int _preferPort;
+    EverythingQuery.TransportPick _pick;
 
     public EverythingStatus Probe()
     {
@@ -121,18 +119,12 @@ internal sealed class EverythingClient
                 },
                 httpPort,
                 httpFallback,
-                _prefer,
-                _prefer == EverythingLink.Http ? _preferPort : null);
-            if (result.Link == EverythingLink.None)
-            {
-                _prefer = EverythingLink.None;
-                _preferPort = 0;
-            }
-            else
-            {
-                _prefer = result.Link;
-                _preferPort = result.Port ?? 0;
-            }
+                _pick.Link,
+                _pick.Link == EverythingLink.Http ? _pick.Port : null,
+                EverythingQuery.IsNonTrivial(search),
+                _pick.Link,
+                _pick.Link == EverythingLink.Http ? _pick.Port : null);
+            _pick = EverythingQuery.Remember(_pick, result.Link, result.Port, result.Paths.Count);
             var tried = string.Join(",", result.Attempted.Select(item => EverythingQuery.Name(item.Link, item.Port)));
             AppLog.Info($"Everything transport {EverythingQuery.Name(result.Link, result.Port)}, rows {result.Paths.Count}, reach {result.Reach}, tried {tried}");
             return result;
@@ -245,12 +237,13 @@ internal sealed class EverythingClient
             if (msg == WmCopyData)
             {
                 var data = Marshal.PtrToStructure<CopyDataStruct>(l);
-                if (data.cbData > 0 && data.lpData != 0)
-                {
-                    var bytes = new byte[data.cbData];
-                    Marshal.Copy(data.lpData, bytes, 0, bytes.Length);
-                    reply = bytes;
-                }
+                if (data.dwData != new nint(EverythingIpc.ReplyMessage))
+                    return 1;
+                if (data.cbData <= 0 || data.lpData == 0)
+                    return 1;
+                var bytes = new byte[data.cbData];
+                Marshal.Copy(data.lpData, bytes, 0, bytes.Length);
+                reply = bytes;
                 return 1;
             }
             return DefWindowProc(h, msg, w, l);
@@ -268,20 +261,23 @@ internal sealed class EverythingClient
         {
             hwnd = CreateWindowEx(0, className, "", 0, 0, 0, 0, 0, new nint(-3), 0, wc.hInstance, 0);
             if (hwnd == 0) return null;
-            var payload = BuildQuery(hwnd, search, max);
+            var payload = EverythingIpc.BuildQuery(unchecked((uint)hwnd.ToInt64()), search, max);
             var buffer = Marshal.AllocHGlobal(payload.Length);
             try
             {
                 Marshal.Copy(payload, 0, buffer, payload.Length);
-                var copy = new CopyDataStruct { dwData = new nint(CopyDataQueryW), cbData = payload.Length, lpData = buffer };
+                var copy = new CopyDataStruct { dwData = new nint(EverythingIpc.QueryW), cbData = payload.Length, lpData = buffer };
                 var copyPtr = Marshal.AllocHGlobal(Marshal.SizeOf<CopyDataStruct>());
                 try
                 {
                     Marshal.StructureToPtr(copy, copyPtr, false);
                     var budget = Math.Max(50, timeoutMs);
                     var started = Environment.TickCount64;
-                    SendMessageTimeout(everything, WmCopyData, hwnd, copyPtr, SmtoAbortIfHung, (uint)budget, out _);
-                    PumpUntil(hwnd, started, budget, () => reply is not null);
+                    var accepted = SendMessageTimeout(everything, WmCopyData, hwnd, copyPtr, SmtoAbortIfHung, (uint)budget, out _) != 0;
+                    if (accepted || reply is not null)
+                        PumpUntil(hwnd, started, budget, () => reply is not null);
+                    else
+                        Drain(hwnd, () => reply is not null);
                 }
                 finally
                 {
@@ -292,7 +288,8 @@ internal sealed class EverythingClient
             {
                 Marshal.FreeHGlobal(buffer);
             }
-            return reply is null ? null : EverythingIpc.Parse(reply, max);
+            if (reply is null) return null;
+            return EverythingIpc.Parse(reply, max);
         }
         catch (Exception)
         {
@@ -304,19 +301,6 @@ internal sealed class EverythingClient
             UnregisterClass(className, wc.hInstance);
             GC.KeepAlive(proc);
         }
-    }
-
-    static byte[] BuildQuery(nint replyWindow, string search, int max)
-    {
-        var chars = Encoding.Unicode.GetBytes(search + "\0");
-        var payload = new byte[20 + chars.Length];
-        BitConverter.GetBytes(unchecked((uint)replyWindow.ToInt64())).CopyTo(payload, 0);
-        BitConverter.GetBytes(0u).CopyTo(payload, 4);
-        BitConverter.GetBytes(0u).CopyTo(payload, 8);
-        BitConverter.GetBytes(0u).CopyTo(payload, 12);
-        BitConverter.GetBytes((uint)max).CopyTo(payload, 16);
-        chars.CopyTo(payload, 20);
-        return payload;
     }
 
     static void Drain(nint hwnd, Func<bool> done)
@@ -362,10 +346,14 @@ internal sealed class EverythingClient
         using var cancel = new CancellationTokenSource(budget);
         try
         {
-            var task = Http.GetStringAsync(url, cancel.Token);
-            if (!task.Wait(budget + 50)) return null;
-            if (!task.IsCompletedSuccessfully) return null;
-            return EverythingHttp.Parse(task.Result, max);
+            var task = Http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancel.Token);
+            if (!task.Wait(budget + 50) || !task.IsCompletedSuccessfully) return null;
+            using var response = task.Result;
+            if (!response.IsSuccessStatusCode) return null;
+            var read = response.Content.ReadAsByteArrayAsync(cancel.Token);
+            if (!read.Wait(budget + 50) || !read.IsCompletedSuccessfully) return null;
+            var charset = response.Content.Headers.ContentType?.CharSet;
+            return EverythingHttp.Parse(EverythingHttp.Decode(read.Result, charset), max);
         }
         catch (Exception)
         {

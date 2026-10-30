@@ -51,6 +51,19 @@ public static class EverythingQuery
 
     public delegate IReadOnlyList<string>? Send(EverythingLink link, int? port);
 
+    public readonly record struct TransportPick(EverythingLink Link, int Port);
+
+    /// <summary>
+    /// A probe such as <c>ext:altpaneprobe</c> may legitimately return no rows.
+    /// A user search is non-trivial: an empty list from another transport is not
+    /// trusted once a transport has already returned rows.
+    /// </summary>
+    public static bool IsNonTrivial(string? search)
+    {
+        if (string.IsNullOrWhiteSpace(search)) return false;
+        return !search.Trim().Equals("ext:altpaneprobe", StringComparison.OrdinalIgnoreCase);
+    }
+
     public static Result Run(
         bool running,
         Func<EverythingLink, bool> available,
@@ -58,7 +71,10 @@ public static class EverythingQuery
         int httpPort,
         bool tryPort8080,
         EverythingLink prefer = EverythingLink.None,
-        int? preferPort = null)
+        int? preferPort = null,
+        bool nonTrivial = false,
+        EverythingLink knownGood = EverythingLink.None,
+        int? knownGoodPort = null)
     {
         ArgumentNullException.ThrowIfNull(available);
         ArgumentNullException.ThrowIfNull(send);
@@ -68,24 +84,18 @@ public static class EverythingQuery
         if (running && prefer != EverythingLink.None && PreferIsOpen(prefer, preferPort, httpPort, tryPort8080, available))
         {
             var port = prefer == EverythingLink.Http ? preferPort : null;
-            attempted.Add(new EverythingAttempt(prefer, port));
-            var reply = send(prefer, port);
-            if (reply is not null)
-            {
-                var reach = prefer == EverythingLink.Http ? EverythingReach.ConnectedHttp : EverythingReach.Connected;
-                return Finish(reply, prefer, port, reach, attempted);
-            }
-            skipped.Add(new EverythingAttempt(prefer, port));
+            var preferred = Try(prefer, port, prefer == EverythingLink.Http ? EverythingReach.ConnectedHttp : EverythingReach.Connected, available, send, attempted, skipped, nonTrivial, knownGood, knownGoodPort, preferBypassesAvailable: true);
+            if (preferred is not null) return preferred.Value;
         }
 
-        var sdk = Try(EverythingLink.Sdk, null, EverythingReach.Connected, available, send, attempted, skipped);
+        var sdk = Try(EverythingLink.Sdk, null, EverythingReach.Connected, available, send, attempted, skipped, nonTrivial, knownGood, knownGoodPort, false);
         if (sdk is not null) return sdk.Value;
         foreach (var link in IpcOrder)
         {
-            var ipc = Try(link, null, EverythingReach.Connected, available, send, attempted, skipped);
+            var ipc = Try(link, null, EverythingReach.Connected, available, send, attempted, skipped, nonTrivial, knownGood, knownGoodPort, false);
             if (ipc is not null) return ipc.Value;
         }
-        var es = Try(EverythingLink.Es, null, EverythingReach.Connected, available, send, attempted, skipped);
+        var es = Try(EverythingLink.Es, null, EverythingReach.Connected, available, send, attempted, skipped, nonTrivial, knownGood, knownGoodPort, false);
         if (es is not null) return es.Value;
 
         if (!running)
@@ -93,10 +103,24 @@ public static class EverythingQuery
 
         foreach (var port in EverythingHttp.Ports(httpPort, tryPort8080))
         {
-            var http = Try(EverythingLink.Http, port, EverythingReach.ConnectedHttp, available, send, attempted, skipped);
+            var http = Try(EverythingLink.Http, port, EverythingReach.ConnectedHttp, available, send, attempted, skipped, nonTrivial, knownGood, knownGoodPort, false);
             if (http is not null) return http.Value;
         }
         return Finish(Array.Empty<string>(), EverythingLink.None, null, EverythingReach.IpcFailed, attempted);
+    }
+
+    /// <summary>
+    /// Keep a transport that returned rows. A later empty reply, including
+    /// ipc-taskbar, does not move ahead of it. ipc-taskbar is not cached on an
+    /// empty reply, so it is not tried first next time.
+    /// </summary>
+    public static TransportPick Remember(TransportPick current, EverythingLink link, int? port, int rowCount)
+    {
+        if (link == EverythingLink.None) return current;
+        if (rowCount > 0) return new TransportPick(link, port ?? 0);
+        if (current.Link != EverythingLink.None) return current;
+        if (link == EverythingLink.IpcTaskbar) return current;
+        return new TransportPick(link, port ?? 0);
     }
 
     public static string Name(EverythingLink link, int? port) => link switch
@@ -129,14 +153,44 @@ public static class EverythingQuery
         Func<EverythingLink, bool> available,
         Send send,
         List<EverythingAttempt> attempted,
-        List<EverythingAttempt> skipped)
+        List<EverythingAttempt> skipped,
+        bool nonTrivial,
+        EverythingLink knownGood,
+        int? knownGoodPort,
+        bool preferBypassesAvailable)
     {
         if (skipped.Contains(new EverythingAttempt(link, port))) return null;
-        if (link != EverythingLink.Http && !available(link)) return null;
+        if (!preferBypassesAvailable && link != EverythingLink.Http && !available(link)) return null;
         attempted.Add(new EverythingAttempt(link, port));
         var reply = send(link, port);
-        if (reply is null) return null;
+        if (reply is null)
+        {
+            skipped.Add(new EverythingAttempt(link, port));
+            return null;
+        }
+        if (DistrustEmpty(nonTrivial, reply, link, port, knownGood, knownGoodPort))
+        {
+            skipped.Add(new EverythingAttempt(link, port));
+            return null;
+        }
         return Finish(reply, link, port, reach, attempted);
+    }
+
+    /// <summary>
+    /// Zero rows on a non-trivial query is not a reason to stop when a different
+    /// transport has already produced rows.
+    /// </summary>
+    public static bool DistrustEmpty(
+        bool nonTrivial,
+        IReadOnlyList<string> reply,
+        EverythingLink link,
+        int? port,
+        EverythingLink knownGood,
+        int? knownGoodPort)
+    {
+        if (!nonTrivial || reply.Count > 0 || knownGood == EverythingLink.None) return false;
+        if (knownGood != link) return true;
+        return knownGood == EverythingLink.Http && knownGoodPort != port;
     }
 
     static Result Finish(

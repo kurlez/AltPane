@@ -10,6 +10,13 @@ internal static class ProcessFootprint
         NativeMethods.SetProcessWorkingSetSize(NativeMethods.GetCurrentProcess(), (nint)(-1), (nint)(-1));
     }
 
+    /// <summary>One compacting collection after a file-index scan, then return idle pages.</summary>
+    public static void TrimOnce()
+    {
+        GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
+        NativeMethods.SetProcessWorkingSetSize(NativeMethods.GetCurrentProcess(), (nint)(-1), (nint)(-1));
+    }
+
     public static long Megabytes()
     {
         var process = System.Diagnostics.Process.GetCurrentProcess();

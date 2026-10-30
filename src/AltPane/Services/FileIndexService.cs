@@ -6,33 +6,47 @@ namespace AltPane;
 
 /// <summary>
 /// Builds the built-in file index off the UI thread at low priority, keeps a
-/// compact snapshot in memory, and refreshes it from filesystem watchers.
-/// Search only reads the latest snapshot.
+/// compact snapshot in memory, and applies filesystem changes one path at a time.
+/// While Everything is reachable the snapshot is kept and the disk is not walked.
 /// </summary>
 internal sealed class FileIndexService : IDisposable
 {
     readonly Func<AppSettings> _settings;
     readonly IFileTree _tree;
     readonly string _snapshotPath;
+    readonly Func<bool>? _everythingReachable;
     readonly AutoResetEvent _wake = new(false);
     readonly object _watchGate = new();
     readonly List<FileSystemWatcher> _watchers = new();
+    readonly List<string> _pending = new();
     Timer? _debounce;
     Thread? _thread;
     int _generation;
     int _disposed;
+    int _scannedGeneration = -1;
+    bool _needFull;
+    DateTimeOffset _fullNotBefore;
+    DateTimeOffset _overflowLoggedUntil;
+    string[] _watchRoots = Array.Empty<string>();
+    IReadOnlyList<string>? _watchExclusions = Array.Empty<string>();
     volatile FileIndex _current = FileIndex.Empty;
 
     public FileIndexService(Func<AppSettings> settings)
-        : this(settings, new PhysicalFileTree(), FileIndexStore.DefaultPath())
+        : this(settings, new PhysicalFileTree(), FileIndexStore.DefaultPath(), null)
     {
     }
 
     public FileIndexService(Func<AppSettings> settings, IFileTree tree, string snapshotPath)
+        : this(settings, tree, snapshotPath, null)
+    {
+    }
+
+    public FileIndexService(Func<AppSettings> settings, IFileTree tree, string snapshotPath, Func<bool>? everythingReachable)
     {
         _settings = settings;
         _tree = tree;
         _snapshotPath = snapshotPath;
+        _everythingReachable = everythingReachable;
     }
 
     public FileIndex Current => _current;
@@ -52,7 +66,12 @@ internal sealed class FileIndexService : IDisposable
 
     public void ApplySettings()
     {
-        Interlocked.Increment(ref _generation);
+        lock (_watchGate)
+        {
+            Interlocked.Increment(ref _generation);
+            _needFull = true;
+            _fullNotBefore = DateTimeOffset.MinValue;
+        }
         _wake.Set();
     }
 
@@ -88,7 +107,7 @@ internal sealed class FileIndexService : IDisposable
         {
             try
             {
-                ScanIfEnabled();
+                Pump();
             }
             catch (Exception ex)
             {
@@ -98,7 +117,7 @@ internal sealed class FileIndexService : IDisposable
         }
     }
 
-    void ScanIfEnabled()
+    void Pump()
     {
         var settings = _settings();
         if (!settings.UseBuiltinFileIndex)
@@ -107,7 +126,42 @@ internal sealed class FileIndexService : IDisposable
             return;
         }
 
+        if (!FileIndexWatch.ShouldBackgroundScan(true, EverythingReachable()))
+        {
+            StopWatchers();
+            Schedule(FileIndexWatch.ReachableRecheck);
+            return;
+        }
+
+        bool needFull;
+        DateTimeOffset fullNotBefore;
+        lock (_watchGate)
+        {
+            needFull = _needFull;
+            fullNotBefore = _fullNotBefore;
+        }
+        var now = DateTimeOffset.UtcNow;
+        if (needFull && now < fullNotBefore)
+        {
+            Schedule(fullNotBefore - now);
+            return;
+        }
+
         var generation = Volatile.Read(ref _generation);
+        if (_scannedGeneration == generation && !needFull)
+        {
+            if (TakePending() > 0)
+                ApplyPending(settings.EverythingExcludedPaths);
+            return;
+        }
+
+        FullScan(settings, generation);
+    }
+
+    void FullScan(AppSettings settings, int generation)
+    {
+        StopWatchers();
+        lock (_watchGate) _pending.Clear();
         var exclusions = settings.EverythingExcludedPaths;
         var roots = DiscoverRoots(settings);
         var clock = System.Diagnostics.Stopwatch.StartNew();
@@ -124,9 +178,91 @@ internal sealed class FileIndexService : IDisposable
         {
             AppLog.Error(ex);
         }
+        lock (_watchGate)
+        {
+            _scannedGeneration = generation;
+            _needFull = false;
+        }
+        ProcessFootprint.TrimOnce();
         AppLog.Info(
             $"file index scan {clock.ElapsedMilliseconds} ms, entries {result.Index.Count}, memory {result.Index.EstimatedBytes} bytes, working set {ProcessFootprint.Megabytes()} MB");
         BindWatchers(roots, exclusions);
+    }
+
+    int TakePending()
+    {
+        lock (_watchGate) return _pending.Count;
+    }
+
+    void ApplyPending(IReadOnlyList<string>? exclusions)
+    {
+        List<string> paths;
+        lock (_watchGate)
+        {
+            if (_pending.Count == 0) return;
+            paths = new List<string>(_pending);
+            _pending.Clear();
+        }
+        var index = _current;
+        foreach (var path in paths)
+        {
+            if (FileIndexWatch.Ignore(path, _watchRoots, exclusions)) continue;
+            index = ApplyOne(index, path, exclusions);
+        }
+        if (ReferenceEquals(index, _current)) return;
+        _current = index;
+        try
+        {
+            FileIndexStore.Save(_snapshotPath, index);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error(ex);
+        }
+    }
+
+    FileIndex ApplyOne(FileIndex index, string path, IReadOnlyList<string>? exclusions)
+    {
+        try
+        {
+            if (_tree.Exists(path))
+            {
+                var partial = FileIndexScan.Run(new[] { path }, _tree, exclusions);
+                return FileIndexEdit.Absorb(FileIndexEdit.Remove(index, path), partial.Index);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return index;
+        }
+        try
+        {
+            if (File.Exists(path)) return FileIndexEdit.Upsert(index, path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return index;
+        }
+        return FileIndexEdit.Remove(index, path);
+    }
+
+    bool EverythingReachable()
+    {
+        try
+        {
+            return _everythingReachable?.Invoke() == true;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error(ex);
+            return false;
+        }
+    }
+
+    void Schedule(TimeSpan delay)
+    {
+        if (delay < TimeSpan.Zero) delay = TimeSpan.Zero;
+        try { _debounce?.Change(delay, Timeout.InfiniteTimeSpan); } catch { }
     }
 
     /// <summary>
@@ -139,6 +275,7 @@ internal sealed class FileIndexService : IDisposable
         var profile = FileIndexPaths.Normalize(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
         foreach (var root in roots)
         {
+            if (FileIndexWatch.IsAltPaneStore(root)) continue;
             if (profile.Length == 0 || !root.Equals(profile, StringComparison.OrdinalIgnoreCase))
             {
                 yield return (root, true);
@@ -157,7 +294,7 @@ internal sealed class FileIndexService : IDisposable
             }
             foreach (var child in children)
             {
-                if (ParentWouldSkip(child, exclusions)) continue;
+                if (ParentWouldSkip(child, exclusions) || FileIndexWatch.IsAltPaneStore(child)) continue;
                 yield return (child, true);
             }
         }
@@ -167,6 +304,8 @@ internal sealed class FileIndexService : IDisposable
     {
         StopWatchers();
         if (Volatile.Read(ref _disposed) != 0) return;
+        _watchRoots = roots as string[] ?? roots.ToArray();
+        _watchExclusions = exclusions;
         lock (_watchGate)
         {
             foreach (var target in WatchTargets(roots, exclusions))
@@ -177,15 +316,16 @@ internal sealed class FileIndexService : IDisposable
                     var watcher = new FileSystemWatcher(target.Path)
                     {
                         IncludeSubdirectories = target.Recursive,
-                        NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.LastWrite,
+                        NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName,
                         InternalBufferSize = 64 * 1024,
-                        EnableRaisingEvents = true
+                        EnableRaisingEvents = false
                     };
-                    watcher.Changed += (_, e) => OnChange(e.FullPath, roots, exclusions);
-                    watcher.Created += (_, e) => OnChange(e.FullPath, roots, exclusions);
-                    watcher.Deleted += (_, e) => OnChange(e.FullPath, roots, exclusions);
-                    watcher.Renamed += (_, e) => OnChange(e.FullPath, roots, exclusions);
-                    watcher.Error += (_, e) => OnError(e.GetException());
+                    watcher.Changed += OnWatcher;
+                    watcher.Created += OnWatcher;
+                    watcher.Deleted += OnWatcher;
+                    watcher.Renamed += OnRenamed;
+                    watcher.Error += OnWatcherError;
+                    watcher.EnableRaisingEvents = true;
                     _watchers.Add(watcher);
                 }
                 catch (Exception ex)
@@ -196,20 +336,40 @@ internal sealed class FileIndexService : IDisposable
         }
     }
 
-    void OnChange(string? path, IReadOnlyList<string> roots, IReadOnlyList<string>? exclusions)
+    void OnWatcher(object? sender, FileSystemEventArgs e) => Note(e.FullPath);
+
+    void OnRenamed(object? sender, RenamedEventArgs e)
     {
-        if (FileIndexWatch.Ignore(path, roots, exclusions)) return;
-        _debounce?.Change(FileIndexWatch.DebounceMilliseconds, Timeout.Infinite);
+        Note(e.OldFullPath);
+        Note(e.FullPath);
     }
 
-    void OnError(Exception? error)
+    void Note(string? path)
     {
-        if (FileIndexWatch.IsOverflow(error))
-            AppLog.Info("file index watcher overflow, rescanning");
-        else if (error is not null)
-            AppLog.Info("file index watcher error: " + error.GetType().Name);
-        _debounce?.Change(Timeout.Infinite, Timeout.Infinite);
-        _wake.Set();
+        if (FileIndexWatch.Ignore(path, _watchRoots, _watchExclusions)) return;
+        lock (_watchGate) _pending.Add(path!);
+        Schedule(TimeSpan.FromMilliseconds(FileIndexWatch.DebounceMilliseconds));
+    }
+
+    void OnWatcherError(object? sender, ErrorEventArgs e)
+    {
+        var error = e.GetException();
+        if (!FileIndexWatch.IsOverflow(error))
+        {
+            if (error is not null)
+                AppLog.Info("file index watcher error: " + error.GetType().Name);
+            return;
+        }
+        var now = DateTimeOffset.UtcNow;
+        lock (_watchGate)
+        {
+            if (now < _overflowLoggedUntil) return;
+            _overflowLoggedUntil = now + FileIndexWatch.OverflowBackoff;
+            _needFull = true;
+            _fullNotBefore = now + FileIndexWatch.OverflowBackoff;
+        }
+        AppLog.Info("file index watcher overflow, full rescan in 5 min");
+        Schedule(FileIndexWatch.OverflowBackoff);
     }
 
     void StopWatchers()
@@ -221,6 +381,11 @@ internal sealed class FileIndexService : IDisposable
                 try
                 {
                     watcher.EnableRaisingEvents = false;
+                    watcher.Changed -= OnWatcher;
+                    watcher.Created -= OnWatcher;
+                    watcher.Deleted -= OnWatcher;
+                    watcher.Renamed -= OnRenamed;
+                    watcher.Error -= OnWatcherError;
                     watcher.Dispose();
                 }
                 catch
@@ -288,7 +453,8 @@ internal sealed class FileIndexService : IDisposable
         {
             return true;
         }
-        return FileIndexRules.SkipDirectory(new FileNode(name, true, hidden, system, reparse), path, userExclusions);
+        return FileIndexRules.SkipDirectory(new FileNode(name, true, hidden, system, reparse), path, userExclusions)
+            || FileIndexWatch.IsAltPaneStore(path);
     }
 
     static void TryBackground()
