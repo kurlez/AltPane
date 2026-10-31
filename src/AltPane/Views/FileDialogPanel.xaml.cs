@@ -36,13 +36,17 @@ public partial class FileDialogPanel : Window
     public event Action<string>? QueryChanged;
     public event Action<string>? NavigateRequested;
     public event Action? DismissRequested;
+    public event Action? LayoutChanged;
 
     public string Query => SearchBox.Text ?? "";
+    public bool IsExpanded { get; private set; }
+    public int RowCount => Rows.Items.Count;
 
     public void SetHint(string hotkeyText)
     {
-        HintText.Text = Localizer.Current.Format("dialog.hint", hotkeyText);
-        Placeholder.Text = Localizer.Current["dialog.placeholder"];
+        var hint = Localizer.Current.Format("dialog.hint", hotkeyText);
+        Placeholder.Text = Localizer.Current.Format("dialog.placeholder", hotkeyText);
+        SearchHost.ToolTip = hint;
         EmptyText.Text = Localizer.Current["dialog.empty"];
     }
 
@@ -53,6 +57,7 @@ public partial class FileDialogPanel : Window
             selected = current.Path;
         Rows.ItemsSource = rows;
         EmptyText.Visibility = rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        LayoutChanged?.Invoke();
         var index = 0;
         if (!string.IsNullOrEmpty(selected))
         {
@@ -80,8 +85,8 @@ public partial class FileDialogPanel : Window
     {
         scaleX = scaleX <= 0 ? 1 : scaleX;
         scaleY = scaleY <= 0 ? 1 : scaleY;
-        Width = Math.Max(160, width / scaleX);
-        Height = Math.Max(120, height / scaleY);
+        Width = Math.Max(120, width / scaleX);
+        Height = Math.Max(28, height / scaleY);
         ShowActivated = false;
         if (!IsVisible) Show();
         var hwnd = new WindowInteropHelper(this).Handle;
@@ -95,8 +100,12 @@ public partial class FileDialogPanel : Window
         new WindowInteropHelper(this).Owner = owner;
     }
 
-    public void FocusSearch()
+    public void FocusSearch(bool selectAll = true)
     {
+        var opened = !IsExpanded;
+        IsExpanded = true;
+        PopupHost.Visibility = Visibility.Visible;
+        if (opened) LayoutChanged?.Invoke();
         var hwnd = new WindowInteropHelper(this).EnsureHandle();
         ApplyExtended(hwnd, noActivate: false);
         ShowActivated = true;
@@ -104,11 +113,22 @@ public partial class FileDialogPanel : Window
         WindowActions.TryActivate(hwnd);
         SearchBox.Focus();
         Keyboard.Focus(SearchBox);
-        SearchBox.SelectAll();
+        if (selectAll) SearchBox.SelectAll();
+    }
+
+    public void Collapse(bool clearQuery)
+    {
+        var wasOpen = IsExpanded || PopupHost.Visibility == Visibility.Visible;
+        IsExpanded = false;
+        PopupHost.Visibility = Visibility.Collapsed;
+        if (clearQuery && SearchBox.Text.Length > 0)
+            SearchBox.Text = "";
+        if (wasOpen) LayoutChanged?.Invoke();
     }
 
     public void ReturnFocus(nint dialog)
     {
+        Collapse(clearQuery: true);
         var hwnd = new WindowInteropHelper(this).Handle;
         if (hwnd != 0) ApplyExtended(hwnd, noActivate: true);
         ShowActivated = false;
@@ -121,6 +141,8 @@ public partial class FileDialogPanel : Window
         if (SearchBox.IsKeyboardFocusWithin) return;
         var hwnd = new WindowInteropHelper(this).Handle;
         if (hwnd != 0) ApplyExtended(hwnd, noActivate: true);
+        if (!IsExpanded) return;
+        Collapse(clearQuery: false);
     }
 
     public void ClearQuery()
@@ -173,6 +195,12 @@ public partial class FileDialogPanel : Window
         if (ItemsControl.ContainerFromElement(Rows, source) is not ListBoxItem item) return;
         if (item.Content is DialogFolderRow row && row.Path.Length > 0)
             NavigateRequested?.Invoke(row.Path);
+    }
+
+    void Search_MouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (IsExpanded && SearchBox.IsKeyboardFocusWithin) return;
+        FocusSearch(selectAll: false);
     }
 
     void Search_TextChanged(object sender, TextChangedEventArgs e)

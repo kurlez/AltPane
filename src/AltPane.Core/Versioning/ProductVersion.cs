@@ -9,7 +9,7 @@ namespace AltPane.Core.Versioning;
 /// </summary>
 public static class ProductVersion
 {
-    public const string Fallback = "0.4.12";
+    public const string Fallback = "0.4.13";
 
     public static string Display(Version? version, string fallback = Fallback)
     {

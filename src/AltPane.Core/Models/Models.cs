@@ -171,6 +171,11 @@ public sealed class HotkeyChord
     };
 }
 
+/// <summary>
+/// Where the compact search bar sits along the file dialog's bottom edge.
+/// <see cref="Bottom"/> is the bottom-left corner. <see cref="Right"/> is the bottom-right corner.
+/// Older files used these names for a tall panel on the bottom or the right side.
+/// </summary>
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum FileDialogPanelEdge
 {

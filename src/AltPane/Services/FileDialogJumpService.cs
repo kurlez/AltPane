@@ -44,6 +44,7 @@ internal sealed class FileDialogJumpService : IDisposable
     IReadOnlyList<string> _recent = Array.Empty<string>();
     int _armedVk;
     bool _started;
+    bool _suggestionsOpen;
     bool _disposed;
 
     public FileDialogJumpService(Func<AppSettings> settings, FileIndexService files, Dispatcher dispatcher)
@@ -76,7 +77,10 @@ internal sealed class FileDialogJumpService : IDisposable
         {
             Start();
             if (_panel is { IsVisible: true })
+            {
                 _panel.SetHint(HotkeyLogic.Format(_settings().FileDialogHotkey ?? HotkeyChord.CtrlG()));
+                if (_dialog != 0) Place();
+            }
         }
         else
         {
@@ -177,9 +181,9 @@ internal sealed class FileDialogJumpService : IDisposable
         var panel = EnsurePanel();
         panel.AttachTo(hwnd);
         panel.SetHint(HotkeyLogic.Format(_settings().FileDialogHotkey ?? HotkeyChord.CtrlG()));
+        if (changed)
+            panel.Collapse(clearQuery: true);
         Place();
-        if (changed || string.IsNullOrWhiteSpace(panel.Query))
-            ShowSuggestions(panel.Query);
         StartFollow();
     }
 
@@ -227,15 +231,26 @@ internal sealed class FileDialogJumpService : IDisposable
         var scaleX = work.DpiX <= 0 ? 1d : work.DpiX / 96d;
         var scaleY = work.DpiY <= 0 ? 1d : work.DpiY / 96d;
         var edge = _settings().FileDialogPanelEdge;
-        var thickDip = edge == FileDialogPanelEdge.Right ? 300 : 248;
-        var thick = (int)Math.Round(thickDip * (edge == FileDialogPanelEdge.Right ? scaleX : scaleY));
-        var gap = (int)Math.Round(6 * scaleY);
-        var slot = DialogPanelLayout.Dock(
-            new RectangleMath.RectI(rect.Left, rect.Top, Math.Max(1, rect.Right - rect.Left), Math.Max(1, rect.Bottom - rect.Top)),
-            new RectangleMath.RectI(work.X, work.Y, work.Width, work.Height),
+        var dialog = new RectangleMath.RectI(rect.Left, rect.Top, Math.Max(1, rect.Right - rect.Left), Math.Max(1, rect.Bottom - rect.Top));
+        var area = new RectangleMath.RectI(work.X, work.Y, work.Width, work.Height);
+        var bar = DialogPanelLayout.Dock(
+            dialog,
+            area,
             edge,
-            Math.Max(1, thick),
-            gap);
+            Dip(DialogPanelLayout.BarWidthDip, scaleX),
+            Dip(DialogPanelLayout.BarHeightDip, scaleY),
+            gap: 0,
+            inset: Dip(DialogPanelLayout.CornerInsetDip, scaleX),
+            buttonReserve: Dip(DialogPanelLayout.ButtonReserveDip, scaleX));
+        var listDip = 0;
+        if (_panel.IsExpanded)
+        {
+            var rows = _panel.RowCount;
+            listDip = rows <= 0
+                ? DialogPanelLayout.EmptyListDip
+                : Math.Min(rows, DialogPanelLayout.MaxVisibleRows) * DialogPanelLayout.RowHeightDip;
+        }
+        var slot = listDip > 0 ? DialogPanelLayout.ExpandUp(bar, area, Dip(listDip, scaleY)) : bar;
         _panel.MoveTo(slot.X, slot.Y, slot.Width, slot.Height, scaleX, scaleY);
         _lastRect = rect;
         _haveRect = true;
@@ -271,6 +286,12 @@ internal sealed class FileDialogJumpService : IDisposable
     void OnQuery(string text)
     {
         _pendingQuery = text ?? "";
+        if (_panel is not { IsExpanded: true })
+        {
+            _searchTimer?.Stop();
+            _searchGen++;
+            return;
+        }
         if (string.IsNullOrWhiteSpace(_pendingQuery))
         {
             _searchTimer?.Stop();
@@ -469,10 +490,27 @@ internal sealed class FileDialogJumpService : IDisposable
         _panel.QueryChanged += OnQuery;
         _panel.NavigateRequested += Navigate;
         _panel.DismissRequested += Dismiss;
+        _panel.LayoutChanged += OnPanelLayout;
         _panel.Closed += (_, _) => _panel = null;
         _panel.SetHint(HotkeyLogic.Format(_settings().FileDialogHotkey ?? HotkeyChord.CtrlG()));
         return _panel;
     }
+
+    void OnPanelLayout()
+    {
+        if (_dialog == 0 || _panel is null) return;
+        Place();
+        if (!_panel.IsExpanded)
+        {
+            _suggestionsOpen = false;
+            return;
+        }
+        if (_suggestionsOpen) return;
+        _suggestionsOpen = true;
+        ShowSuggestions(_panel.Query);
+    }
+
+    static int Dip(int dip, double scale) => Math.Max(1, (int)Math.Round(dip * (scale <= 0 ? 1 : scale)));
 
     bool IsPanel(nint hwnd)
     {

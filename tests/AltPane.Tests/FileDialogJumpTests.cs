@@ -298,25 +298,40 @@ public class DialogNavigationTests
 public class DialogPanelAndVersionTests
 {
     [Fact]
-    public void The_panel_docks_to_the_requested_edge_and_flips_at_the_work_area()
+    public void The_search_bar_sits_on_the_bottom_edge_and_the_list_opens_upward()
     {
         var work = new RectangleMath.RectI(0, 0, 1000, 800);
-        var below = DialogPanelLayout.Dock(new RectangleMath.RectI(100, 100, 400, 300), work, FileDialogPanelEdge.Bottom, 200, 8);
-        Assert.False(below.Flipped);
-        Assert.Equal(new DialogPanelLayout.Slot(100, 408, 400, 200, false), below);
+        var dialog = new RectangleMath.RectI(100, 100, 400, 300);
+        var left = DialogPanelLayout.Dock(dialog, work, FileDialogPanelEdge.Bottom, 280, 32, gap: 0, inset: 8, buttonReserve: 148);
+        Assert.False(left.Flipped);
+        Assert.Equal(new DialogPanelLayout.Slot(108, 400, 280, 32, false), left);
 
-        var above = DialogPanelLayout.Dock(new RectangleMath.RectI(100, 700, 400, 80), work, FileDialogPanelEdge.Bottom, 200, 8);
-        Assert.True(above.Flipped);
-        Assert.Equal(492, above.Y);
-
-        var right = DialogPanelLayout.Dock(new RectangleMath.RectI(100, 40, 300, 500), work, FileDialogPanelEdge.Right, 220, 8);
+        var right = DialogPanelLayout.Dock(dialog, work, FileDialogPanelEdge.Right, 280, 32, gap: 0, inset: 8, buttonReserve: 148);
         Assert.False(right.Flipped);
-        Assert.Equal(408, right.X);
-        Assert.Equal(220, right.Width);
+        Assert.Equal(new DialogPanelLayout.Slot(212, 400, 280, 32, false), right);
 
-        var left = DialogPanelLayout.Dock(new RectangleMath.RectI(800, 40, 180, 500), work, FileDialogPanelEdge.Right, 220, 8);
-        Assert.True(left.Flipped);
-        Assert.Equal(800 - 8 - 220, left.X);
+        var narrow = DialogPanelLayout.Dock(new RectangleMath.RectI(100, 100, 200, 300), work, FileDialogPanelEdge.Bottom, 280, 32, 0, 8, 148);
+        Assert.Equal(184, narrow.Width);
+        Assert.Equal(108, narrow.X);
+
+        var crowded = new RectangleMath.RectI(100, 700, 400, 80);
+        var inside = DialogPanelLayout.Dock(crowded, work, FileDialogPanelEdge.Bottom, 280, 32, 0, 8, 148);
+        Assert.True(inside.Flipped);
+        Assert.Equal(740, inside.Y);
+        Assert.Equal(32, inside.Height);
+
+        var insideRight = DialogPanelLayout.Dock(new RectangleMath.RectI(100, 700, 800, 80), work, FileDialogPanelEdge.Right, 280, 32, 0, 8, 148);
+        Assert.True(insideRight.Flipped);
+        Assert.Equal(900 - 8 - 148 - 280, insideRight.X);
+        Assert.Equal(280, insideRight.Width);
+
+        var popup = DialogPanelLayout.ExpandUp(left, work, 120);
+        Assert.Equal(new DialogPanelLayout.Slot(108, 280, 280, 152, false), popup);
+        Assert.Equal(left.Y + left.Height, popup.Y + popup.Height);
+
+        var tight = DialogPanelLayout.ExpandUp(new DialogPanelLayout.Slot(10, 4, 200, 32, true), work, 200);
+        Assert.Equal(0, tight.Y);
+        Assert.Equal(36, tight.Height);
     }
 
     [Fact]
@@ -329,11 +344,14 @@ public class DialogPanelAndVersionTests
         Assert.Equal("0.4.10", ProductVersion.Display(new Version(0, 4, 10, 0)));
         Assert.Equal("0.4.11", ProductVersion.Display(new Version(0, 4, 11, 0)));
         Assert.Equal("0.4.12", ProductVersion.Display(new Version(0, 4, 12, 0)));
-        Assert.Equal("0.4.12", ProductVersion.Display(null));
+        Assert.Equal("0.4.13", ProductVersion.Display(new Version(0, 4, 13, 0)));
+        Assert.Equal("0.4.13", ProductVersion.Display(null));
         Assert.True(ProductVersion.Compare("0.4.11", "0.4.12") < 0);
+        Assert.True(ProductVersion.Compare("0.4.12", "0.4.13") < 0);
         Assert.Equal("0.4.10.0", ProductVersion.AssemblyVersion("v0.4.10"));
         Assert.Equal("0.4.11.0", ProductVersion.AssemblyVersion("v0.4.11"));
         Assert.Equal("0.4.12.0", ProductVersion.AssemblyVersion("v0.4.12"));
+        Assert.Equal("0.4.13.0", ProductVersion.AssemblyVersion("v0.4.13"));
         Assert.Equal("0.4.10.0", ProductVersion.AssemblyVersion("0.4.10"));
         Assert.False(ProductVersion.TryParse("0.4", out _));
     }
