@@ -328,9 +328,12 @@ public class DialogPanelAndVersionTests
         Assert.True(string.Compare("0.4.10", "0.4.9", StringComparison.Ordinal) < 0);
         Assert.Equal("0.4.10", ProductVersion.Display(new Version(0, 4, 10, 0)));
         Assert.Equal("0.4.11", ProductVersion.Display(new Version(0, 4, 11, 0)));
-        Assert.Equal("0.4.11", ProductVersion.Display(null));
+        Assert.Equal("0.4.12", ProductVersion.Display(new Version(0, 4, 12, 0)));
+        Assert.Equal("0.4.12", ProductVersion.Display(null));
+        Assert.True(ProductVersion.Compare("0.4.11", "0.4.12") < 0);
         Assert.Equal("0.4.10.0", ProductVersion.AssemblyVersion("v0.4.10"));
         Assert.Equal("0.4.11.0", ProductVersion.AssemblyVersion("v0.4.11"));
+        Assert.Equal("0.4.12.0", ProductVersion.AssemblyVersion("v0.4.12"));
         Assert.Equal("0.4.10.0", ProductVersion.AssemblyVersion("0.4.10"));
         Assert.False(ProductVersion.TryParse("0.4", out _));
     }

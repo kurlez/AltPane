@@ -36,6 +36,7 @@ internal sealed class SwitcherPresenter
     nint _restore;
     string? _status;
     int _iconGeneration;
+    int _pairRepair;
     int _fileIconGeneration;
     long _enumerationMs;
     bool _warmed;
@@ -427,16 +428,34 @@ internal sealed class SwitcherPresenter
     void ActivatePair(WindowEntry entry)
     {
         var focus = (nint)entry.FocusHandle;
-        var otherHandle = entry.FocusHandle == entry.TileLeft ? entry.TileRight : entry.TileLeft;
-        var other = (nint)otherHandle;
+        var other = (nint)(entry.FocusHandle == entry.TileLeft ? entry.TileRight : entry.TileLeft);
+        AppLog.Info($"Pair select \"{entry.TileLeftTitle}\" 0x{entry.TileLeft:X} + \"{entry.TileRightTitle}\" 0x{entry.TileRight:X}, focus 0x{entry.FocusHandle:X}.");
         if (!NativeMethods.IsWindow(focus) && !NativeMethods.IsWindow(other))
         {
             Notify?.Invoke(Localizer.Current["activate.missing"]);
             return;
         }
         _windows.ArmActivation(entry.FocusHandle);
-        if (!WindowActions.TryActivatePair(other, focus))
+        var token = ++_pairRepair;
+        var result = WindowActions.TryActivatePair(other, focus);
+        if (!result.FocusActive)
             Notify?.Invoke(Localizer.Current["activate.failed"]);
+        if (other == 0 || other == focus || !NativeMethods.IsWindow(other) || NativeMethods.IsIconic(other))
+            return;
+        // Hide() can activate whatever was underneath after we return. Check again
+        // once that message has been processed, and raise the partner if it lost.
+        _deck.Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, () =>
+        {
+            if (token != _pairRepair) return;
+            if (WindowActions.PairIsRaised(other, focus))
+            {
+                AppLog.Info($"Pair activate settled focus 0x{focus:X} other 0x{other:X}.");
+                return;
+            }
+            AppLog.Info($"Pair activate partner still behind after the switcher hid; raising again. focus 0x{focus:X} other 0x{other:X}.");
+            var again = WindowActions.TryActivatePair(other, focus);
+            AppLog.Info($"Pair activate retry focusOk={again.FocusActive} partner={again.PartnerRaised} {again.Detail}");
+        });
     }
 
     UsageTier TileTier(PrioritySnapshot priority, WindowEntry entry)

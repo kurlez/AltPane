@@ -73,6 +73,7 @@ internal delegate void WinEventProc(
 internal static class NativeMethods
 {
     public const int WhKeyboardLl = 13;
+    public const int GwHwndNext = 2;
     public const int GwOwner = 4;
     public const uint GaRootOwner = 3;
     public const int GwlExStyle = -20;
@@ -255,6 +256,18 @@ internal static class NativeMethods
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool SetWindowPos(nint hWnd, nint hWndInsertAfter, int x, int y, int cx, int cy, uint uFlags);
 
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern nint BeginDeferWindowPos(int nNumWindows);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern nint DeferWindowPos(nint hWinPosInfo, nint hWnd, nint hWndInsertAfter, int x, int y, int cx, int cy, uint uFlags);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool EndDeferWindowPos(nint hWinPosInfo);
+
+    [DllImport("user32.dll")]
+    public static extern nint GetTopWindow(nint hWnd);
+
     [DllImport("dwmapi.dll")]
     public static extern int DwmGetWindowAttribute(nint hwnd, int dwAttribute, out int pvAttribute, int cbAttribute);
 
@@ -313,6 +326,13 @@ internal static class NativeMethods
     public const uint SwpNoMove = 0x0002;
     public const uint SwpNoSize = 0x0001;
     public const uint SwpNoZOrder = 0x0004;
+    public const uint SwpNoOwnerZOrder = 0x0200;
+    public const uint SwpNoSendChanging = 0x0400;
+    public static readonly nint HwndTop = 0;
+    public static readonly nint HwndTopMost = -1;
+    public static readonly nint HwndNoTopMost = -2;
+    public const long WsExTopMost = 0x00000008;
+    public const long WsExToolWindow = 0x00000080;
 
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool GetWindowPlacement(nint hwnd, ref WindowPlacementNative placement);
