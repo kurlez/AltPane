@@ -104,6 +104,20 @@ public sealed class WindowEntry
     public int MonitorHeight { get; set; }
     public bool MonitorPrimary { get; set; }
     public string MonitorFriendlyName { get; set; } = "";
+    /// <summary>True when this row raises two side-by-side windows together. The two windows stay in the list as well.</summary>
+    public bool IsTilePair { get; init; }
+    /// <summary>Reading-order first window (left, or top). Zero on a normal row.</summary>
+    public long TileLeft { get; init; }
+    /// <summary>Reading-order second window (right, or bottom).</summary>
+    public long TileRight { get; init; }
+    /// <summary>Which of the two windows keeps the keyboard focus.</summary>
+    public long FocusHandle { get; init; }
+    public string SecondTitle { get; init; } = "";
+    public string SecondIconPath { get; init; } = "";
+    public string TileLeftTitle { get; init; } = "";
+    public string TileLeftProcess { get; init; } = "";
+    public string TileRightTitle { get; init; } = "";
+    public string TileRightProcess { get; init; } = "";
 
     public WindowEntry Copy() => new()
     {
@@ -125,7 +139,17 @@ public sealed class WindowEntry
         MonitorWidth = MonitorWidth,
         MonitorHeight = MonitorHeight,
         MonitorPrimary = MonitorPrimary,
-        MonitorFriendlyName = MonitorFriendlyName
+        MonitorFriendlyName = MonitorFriendlyName,
+        IsTilePair = IsTilePair,
+        TileLeft = TileLeft,
+        TileRight = TileRight,
+        FocusHandle = FocusHandle,
+        SecondTitle = SecondTitle,
+        SecondIconPath = SecondIconPath,
+        TileLeftTitle = TileLeftTitle,
+        TileLeftProcess = TileLeftProcess,
+        TileRightTitle = TileRightTitle,
+        TileRightProcess = TileRightProcess
     };
 }
 
@@ -174,8 +198,10 @@ public sealed class AppSettings
     /// 9 adds file-dialog quick jump. <see cref="FileDialogJump"/> defaults on,
     /// <see cref="FileDialogHotkey"/> defaults to Ctrl+G, and <see cref="FileDialogPanelEdge"/>
     /// defaults to the bottom edge when those keys are missing. An explicit choice is kept.
+    /// 10 adds combined rows for windows tiled side by side. <see cref="CombineTiledWindows"/>
+    /// defaults on when the key is missing. An explicit off is kept.
     /// </summary>
-    public const int CurrentSchema = 9;
+    public const int CurrentSchema = 10;
 
     public int Version { get; set; } = CurrentSchema;
     public HotkeyChord? Hotkey { get; set; } = HotkeyChord.AltTab();
@@ -260,6 +286,10 @@ public sealed class AppSettings
     public bool FileDialogJump { get; set; } = true;
     public HotkeyChord? FileDialogHotkey { get; set; } = HotkeyChord.CtrlG();
     public FileDialogPanelEdge FileDialogPanelEdge { get; set; } = FileDialogPanelEdge.Bottom;
+    /// <summary>
+    /// When true (the default), two windows tiled on the same monitor also appear as one extra row.
+    /// </summary>
+    public bool CombineTiledWindows { get; set; } = true;
 
     public static AppSettings CreateDefault() => new()
     {
@@ -302,6 +332,7 @@ public sealed class AppSettings
         ShowActionHint = true,
         FileDialogJump = true,
         FileDialogHotkey = HotkeyChord.CtrlG(),
-        FileDialogPanelEdge = FileDialogPanelEdge.Bottom
+        FileDialogPanelEdge = FileDialogPanelEdge.Bottom,
+        CombineTiledWindows = true
     };
 }

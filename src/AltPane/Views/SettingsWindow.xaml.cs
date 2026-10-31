@@ -81,6 +81,7 @@ public partial class SettingsWindow : Window
         Select(PlacementBox, _draft.Placement);
         MonitorBadgesBox.IsChecked = _draft.ShowMonitorBadges;
         MoveBox.IsChecked = _draft.MoveToSwitcherMonitor;
+        TilePairsBox.IsChecked = _draft.CombineTiledWindows;
         VerboseBox.IsChecked = _draft.VerboseLog;
         EverythingBox.IsChecked = _draft.UseEverything;
         EverythingExtBox.Text = _draft.EverythingExtensions;
@@ -132,6 +133,8 @@ public partial class SettingsWindow : Window
         MonitorBadgesNote.Text = loc["settings.monitorBadgesNote"];
         MoveBox.Content = loc["settings.move"];
         MoveNote.Text = loc["settings.moveNote"];
+        TilePairsBox.Content = loc["settings.tilePairs"];
+        TilePairsNote.Text = loc["settings.tilePairsNote"];
         VerboseBox.Content = loc["settings.verbose"];
         VerboseNote.Text = loc["settings.verboseNote"];
         EverythingBox.Content = loc["settings.everything"];
@@ -439,6 +442,7 @@ public partial class SettingsWindow : Window
         _draft.Placement = Read(PlacementBox, _draft.Placement);
         _draft.ShowMonitorBadges = MonitorBadgesBox.IsChecked == true;
         _draft.MoveToSwitcherMonitor = MoveBox.IsChecked == true;
+        _draft.CombineTiledWindows = TilePairsBox.IsChecked == true;
         _draft.VerboseLog = VerboseBox.IsChecked == true;
         _draft.UseEverything = EverythingBox.IsChecked == true;
         _draft.EverythingExtensions = EverythingExtBox.Text.Trim();
@@ -619,6 +623,7 @@ public partial class SettingsWindow : Window
         Placement = source.Placement,
         ShowMonitorBadges = source.ShowMonitorBadges,
         MoveToSwitcherMonitor = source.MoveToSwitcherMonitor,
+        CombineTiledWindows = source.CombineTiledWindows,
         UseEverything = source.UseEverything,
         EverythingExtensions = source.EverythingExtensions,
         DocumentExtensions = source.DocumentExtensions,

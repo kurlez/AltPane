@@ -95,6 +95,7 @@ internal static class NativeMethods
     public const uint SmtoAbortIfHung = 0x0002;
     public const int IconBig = 1;
     public const int IconSmall2 = 2;
+    public const int DwmwaExtendedFrameBounds = 9;
     public const int DwmwaCloaked = 14;
     public const int DwmwaUseImmersiveDarkModeLegacy = 19;
     public const int DwmwaUseImmersiveDarkMode = 20;
@@ -256,6 +257,9 @@ internal static class NativeMethods
 
     [DllImport("dwmapi.dll")]
     public static extern int DwmGetWindowAttribute(nint hwnd, int dwAttribute, out int pvAttribute, int cbAttribute);
+
+    [DllImport("dwmapi.dll", EntryPoint = "DwmGetWindowAttribute")]
+    public static extern int DwmGetWindowAttributeRect(nint hwnd, int dwAttribute, out NativeRect pvAttribute, int cbAttribute);
 
     [DllImport("dwmapi.dll")]
     public static extern int DwmSetWindowAttribute(nint hwnd, int dwAttribute, ref int pvAttribute, int cbAttribute);

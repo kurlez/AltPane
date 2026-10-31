@@ -327,8 +327,10 @@ public class DialogPanelAndVersionTests
         Assert.Equal(0, ProductVersion.Compare("0.4.10", "0.4.10.0"));
         Assert.True(string.Compare("0.4.10", "0.4.9", StringComparison.Ordinal) < 0);
         Assert.Equal("0.4.10", ProductVersion.Display(new Version(0, 4, 10, 0)));
-        Assert.Equal("0.4.10", ProductVersion.Display(null));
+        Assert.Equal("0.4.11", ProductVersion.Display(new Version(0, 4, 11, 0)));
+        Assert.Equal("0.4.11", ProductVersion.Display(null));
         Assert.Equal("0.4.10.0", ProductVersion.AssemblyVersion("v0.4.10"));
+        Assert.Equal("0.4.11.0", ProductVersion.AssemblyVersion("v0.4.11"));
         Assert.Equal("0.4.10.0", ProductVersion.AssemblyVersion("0.4.10"));
         Assert.False(ProductVersion.TryParse("0.4", out _));
     }
@@ -342,7 +344,7 @@ public class DialogPanelAndVersionTests
         File.WriteAllText(oldPath, """{ "version": 8, "showFrequentSidebar": false }""");
         var migrated = SettingsStore.Load(oldPath);
         Assert.True(migrated.Migrated);
-        Assert.Equal(9, migrated.Settings.Version);
+        Assert.Equal(AppSettings.CurrentSchema, migrated.Settings.Version);
         Assert.True(migrated.Settings.FileDialogJump);
         Assert.Equal(FileDialogPanelEdge.Bottom, migrated.Settings.FileDialogPanelEdge);
         Assert.Equal(VirtualKeys.G, migrated.Settings.FileDialogHotkey!.VirtualKey);
@@ -354,7 +356,9 @@ public class DialogPanelAndVersionTests
         { "version": 9, "fileDialogJump": false, "fileDialogPanelEdge": "Right", "fileDialogHotkey": { "modifiers": 6, "virtualKey": 71 } }
         """);
         var kept = SettingsStore.Load(chosen);
-        Assert.False(kept.Migrated);
+        Assert.True(kept.Migrated);
+        Assert.Equal(AppSettings.CurrentSchema, kept.Settings.Version);
+        Assert.True(kept.Settings.CombineTiledWindows);
         Assert.False(kept.Settings.FileDialogJump);
         Assert.Equal(FileDialogPanelEdge.Right, kept.Settings.FileDialogPanelEdge);
         Assert.Equal(ModifierKeys.Control | ModifierKeys.Shift, kept.Settings.FileDialogHotkey!.Modifiers);

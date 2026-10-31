@@ -9,6 +9,31 @@ internal enum KillAttempt
 
 internal static class WindowActions
 {
+    /// <summary>
+    /// Brings <paramref name="other"/> forward without focusing it, then activates
+    /// <paramref name="focus"/>. Neither call moves or resizes a restored window.
+    /// </summary>
+    public static bool TryActivatePair(nint other, nint focus)
+    {
+        if (other != 0 && other != focus)
+            RaiseInPlace(other);
+        return TryActivate(focus);
+    }
+
+    public static void RaiseInPlace(nint hwnd)
+    {
+        if (hwnd == 0 || !NativeMethods.IsWindow(hwnd) || NativeMethods.IsIconic(hwnd)) return;
+        NativeMethods.ShowWindow(hwnd, NativeMethods.SwShowNoActivate);
+        NativeMethods.SetWindowPos(
+            hwnd,
+            0,
+            0,
+            0,
+            0,
+            0,
+            NativeMethods.SwpNoMove | NativeMethods.SwpNoSize | NativeMethods.SwpNoActivate);
+    }
+
     public static bool TryActivate(nint hwnd)
     {
         if (hwnd == 0 || !NativeMethods.IsWindow(hwnd)) return false;

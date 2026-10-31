@@ -349,6 +349,21 @@ public sealed class SwitcherSession
 
     public bool RemoveHandle(long handle)
     {
+        var related = new List<long>();
+        foreach (var entry in _all)
+        {
+            if (!entry.IsTilePair || entry.Handle == handle) continue;
+            if (entry.TileLeft == handle || entry.TileRight == handle)
+                related.Add(entry.Handle);
+        }
+        var removed = RemoveSingle(handle);
+        foreach (var pair in related)
+            removed |= RemoveSingle(pair);
+        return removed;
+    }
+
+    bool RemoveSingle(long handle)
+    {
         var index = _all.FindIndex(w => w.Handle == handle);
         if (index < 0) return false;
         var selectedHandle = Selected?.Handle ?? 0;
@@ -463,7 +478,7 @@ public sealed class SwitcherSession
         foreach (var handle in _frozen)
         {
             if (!byHandle.TryGetValue(handle, out var entry)) continue;
-            if (!SearchMatcher.Matches(_query, entry.Title, entry.DisplayProcessName)) continue;
+            if (!MatchesEntry(_query, entry)) continue;
             if (_monitorFilter > 0 && entry.MonitorNumber != _monitorFilter) continue;
             filtered.Add(entry);
         }
@@ -553,6 +568,14 @@ public sealed class SwitcherSession
         if (ResultCount == 0) SelectedIndex = -1;
         else if (SelectedIndex >= ResultCount) SelectedIndex = ResultCount - 1;
         else if (SelectedIndex < 0) SelectedIndex = 0;
+    }
+
+    static bool MatchesEntry(string query, WindowEntry entry)
+    {
+        if (SearchMatcher.Matches(query, entry.Title, entry.DisplayProcessName)) return true;
+        if (!entry.IsTilePair || string.IsNullOrWhiteSpace(query)) return false;
+        return SearchMatcher.Matches(query, entry.TileLeftTitle, entry.TileLeftProcess)
+            || SearchMatcher.Matches(query, entry.TileRightTitle, entry.TileRightProcess);
     }
 
     long IncludeExactIndex(List<WindowEntry> filtered, Dictionary<long, WindowEntry> byHandle, string token)

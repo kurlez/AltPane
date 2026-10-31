@@ -13,6 +13,8 @@ namespace AltPane.Core.Switcher;
 /// last, under the "rarely used" separator, and is also ordered by recent use.
 /// A short-tier window never takes row 0 while a main-tier window exists.
 /// With no activation history, both tiers follow Z-order.
+/// A combined tile row sorts as recently as its more recently used window and
+/// never takes the previous-window slot at row 0.
 /// </summary>
 public static class StableGroupedOrder
 {
@@ -47,7 +49,7 @@ public static class StableGroupedOrder
         {
             var tier = Band(items[a], tierOf).CompareTo(Band(items[b], tierOf));
             if (tier != 0) return tier;
-            var rank = Mru(items[a].Handle, mruRank).CompareTo(Mru(items[b].Handle, mruRank));
+            var rank = UsageRank(items[a], mruRank).CompareTo(UsageRank(items[b], mruRank));
             if (rank != 0) return rank;
             var z = items[a].OriginalIndex.CompareTo(items[b].OriginalIndex);
             if (z != 0) return z;
@@ -98,6 +100,11 @@ public static class StableGroupedOrder
             var tier = tierOf?.Invoke(filtered[i]) ?? UsageTier.Frequent;
             var previousTier = i > 0 && tierOf is not null ? tierOf(filtered[i - 1]) : (UsageTier?)null;
             var startsInfrequent = tier == UsageTier.Infrequent && previousTier != UsageTier.Infrequent && infrequentHeading.Length > 0;
+            if (filtered[i].IsTilePair)
+            {
+                sections[i] = startsInfrequent ? infrequentHeading : "";
+                continue;
+            }
             var sameGroup = i > 0 && string.Equals(name, InitialOrder.AppName(filtered[i - 1]), StringComparison.OrdinalIgnoreCase);
             if (string.IsNullOrWhiteSpace(name) || sameGroup)
             {
@@ -140,9 +147,10 @@ public static class StableGroupedOrder
         for (var i = 0; i < items.Count; i++)
         {
             var entry = items[i];
+            if (entry.IsTilePair) continue;
             if (foregroundHandle != 0 && entry.Handle == foregroundHandle) continue;
             if (skip?.Invoke(entry) == true) continue;
-            var rank = Mru(entry.Handle, mruRank);
+            var rank = UsageRank(entry, mruRank);
             var z = entry.OriginalIndex;
             var better = best is null
                 || rank < bestRank
@@ -159,11 +167,23 @@ public static class StableGroupedOrder
 
     static int RecentRank(WindowEntry entry, long foregroundHandle, Func<long, int>? mruRank)
     {
-        if (foregroundHandle != 0 && entry.Handle == foregroundHandle) return -1;
-        return Mru(entry.Handle, mruRank);
+        if (!entry.IsTilePair && foregroundHandle != 0 && entry.Handle == foregroundHandle) return -1;
+        return UsageRank(entry, mruRank);
     }
 
-    static int Mru(long handle, Func<long, int>? mruRank)
+    /// <summary>
+    /// A combined row uses the more recent of its two windows, so it sits with
+    /// that window instead of at the bottom with an unknown handle.
+    /// </summary>
+    static int UsageRank(WindowEntry entry, Func<long, int>? mruRank)
+    {
+        if (!entry.IsTilePair) return RankHandle(entry.Handle, mruRank);
+        var left = RankHandle(entry.TileLeft, mruRank);
+        var right = RankHandle(entry.TileRight, mruRank);
+        return left < right ? left : right;
+    }
+
+    static int RankHandle(long handle, Func<long, int>? mruRank)
     {
         if (mruRank is null) return int.MaxValue;
         var rank = mruRank(handle);

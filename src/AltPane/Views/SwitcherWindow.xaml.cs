@@ -36,6 +36,7 @@ internal sealed class SwitcherRow : INotifyPropertyChanged
         Kind = SwitcherKind.Window;
         Entry = entry;
         _icon = icon;
+        ShowSecondIcon = entry.IsTilePair;
         Title = entry.Title;
         _subtitle = string.IsNullOrWhiteSpace(entry.DisplayProcessName) ? entry.ProcessName : entry.DisplayProcessName;
         IndexLabel = index;
@@ -64,6 +65,7 @@ internal sealed class SwitcherRow : INotifyPropertyChanged
     }
 
     public WindowEntry? Entry { get; }
+    public bool ShowSecondIcon { get; }
     public AppHit? AppHit { get; }
     public SwitcherKind Kind { get; } = SwitcherKind.Window;
     public string? FilePath { get; init; }
@@ -230,6 +232,18 @@ internal sealed class SwitcherRow : INotifyPropertyChanged
         }
     }
 
+    ImageSource? _secondIcon;
+    public ImageSource? SecondIcon
+    {
+        get => _secondIcon;
+        set
+        {
+            if (ReferenceEquals(_secondIcon, value)) return;
+            _secondIcon = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SecondIcon)));
+        }
+    }
+
     public event PropertyChangedEventHandler? PropertyChanged;
 }
 
@@ -323,6 +337,7 @@ public partial class SwitcherWindow : Window
     readonly MenuItem _menuDemote;
     readonly MenuItem _menuRestorePriority;
     bool _menuForApp;
+    bool _menuTile;
     SwitcherKind _menuKind;
     readonly MenuItem _menuCopyPath;
     readonly MenuItem _menuCopyDir;
@@ -575,15 +590,14 @@ public partial class SwitcherWindow : Window
         {
             var row = _rows[origin + i];
             if (row.Entry is not { } entry) continue;
-            row.SetKillLabel(kill);
+            row.SetKillLabel(entry.IsTilePair ? "" : kill);
             if (state.Indexes.TryGetValue(entry.Handle, out var index))
                 row.SetIndex(index);
             row.SetSection(i < state.GroupSections.Count ? state.GroupSections[i] : "");
             row.SetSubtitle(string.IsNullOrWhiteSpace(entry.DisplayProcessName) ? entry.ProcessName : entry.DisplayProcessName);
-            if (state.Icons.TryGetValue(entry.Handle, out var icon) && !ReferenceEquals(icon, row.Icon))
-                row.Icon = icon;
+            ApplyRowIcons(row, entry, state);
             var load = state.Loads.TryGetValue(entry.Handle, out var found) ? found : default;
-            row.ApplyLoad(state.ShowLoad, load);
+            row.ApplyLoad(state.ShowLoad && !entry.IsTilePair, load);
             row.ApplyMonitor(state.ShowMonitorBadges, entry, _host.Number, _thisScreen);
         }
         for (var i = 0; i < _rows.Count; i++)
@@ -925,7 +939,7 @@ public partial class SwitcherWindow : Window
         _thisScreen = loc["monitor.thisScreen"];
         var kill = loc["action.kill"];
         foreach (var row in _rows)
-            row.SetKillLabel(row.IsApp ? "" : kill);
+            row.SetKillLabel(row.IsApp || row.Entry?.IsTilePair == true ? "" : kill);
         DisplayFilterButton.Content = loc["monitor.only"];
         DisplayFilterButton.ToolTip = loc["monitor.onlyTip"];
         LocalizeMenu();
@@ -944,6 +958,7 @@ public partial class SwitcherWindow : Window
         {
             _menuKind = row.Kind;
             _menuForApp = row.IsApp;
+            _menuTile = row.Entry?.IsTilePair == true;
         }
         LocalizeMenu();
         _menu.PlacementTarget = WindowList;
@@ -1015,7 +1030,7 @@ public partial class SwitcherWindow : Window
         _menuRestore.Header = MenuHeader(loc["menu.restore"], "Ctrl+R");
         var pathRow = _menuKind is SwitcherKind.File or SwitcherKind.Window or SwitcherKind.App;
         var app = _menuKind == SwitcherKind.App ? Visibility.Visible : Visibility.Collapsed;
-        var window = _menuKind == SwitcherKind.Window ? Visibility.Visible : Visibility.Collapsed;
+        var window = _menuKind == SwitcherKind.Window && !_menuTile ? Visibility.Visible : Visibility.Collapsed;
         var path = pathRow ? Visibility.Visible : Visibility.Collapsed;
         _menuCopyPath.Visibility = path;
         _menuCopyDir.Visibility = path;
@@ -1230,6 +1245,24 @@ public partial class SwitcherWindow : Window
             InsertWindowRow(state, i, origin + i);
     }
 
+    static void ApplyRowIcons(SwitcherRow row, WindowEntry entry, SwitcherViewState state)
+    {
+        ImageSource? primary = null;
+        ImageSource? second = null;
+        if (entry.IsTilePair)
+        {
+            state.Icons.TryGetValue(entry.TileLeft, out primary);
+            state.Icons.TryGetValue(entry.TileRight, out second);
+            second ??= IconLoader.Letter(string.IsNullOrWhiteSpace(entry.SecondTitle) ? entry.Title : entry.SecondTitle);
+        }
+        if (primary is null && !state.Icons.TryGetValue(entry.Handle, out primary))
+            primary = IconLoader.Letter(entry.Title);
+        if (!ReferenceEquals(primary, row.Icon))
+            row.Icon = primary ?? IconLoader.Letter(entry.Title);
+        if (entry.IsTilePair && !ReferenceEquals(second, row.SecondIcon))
+            row.SecondIcon = second;
+    }
+
     void InsertWindowRow(SwitcherViewState state, int filteredIndex, int rowIndex)
     {
         var entry = state.Filtered[filteredIndex];
@@ -1237,8 +1270,9 @@ public partial class SwitcherWindow : Window
         state.Indexes.TryGetValue(entry.Handle, out var index);
         var section = filteredIndex < state.GroupSections.Count ? state.GroupSections[filteredIndex] : "";
         var row = new SwitcherRow(entry, icon ?? IconLoader.Letter(entry.Title), index ?? "", section);
-        row.SetKillLabel(Localizer.Current["action.kill"]);
-        row.ApplyLoad(state.ShowLoad, default);
+        ApplyRowIcons(row, entry, state);
+        row.SetKillLabel(entry.IsTilePair ? "" : Localizer.Current["action.kill"]);
+        row.ApplyLoad(state.ShowLoad && !entry.IsTilePair, default);
         row.ApplyMonitor(state.ShowMonitorBadges, entry, _host.Number, _thisScreen);
         _rows.Insert(rowIndex, row);
     }
@@ -1442,6 +1476,7 @@ public partial class SwitcherWindow : Window
         if (RowAt(e) is not { } row) return;
         _menuForApp = row.IsApp;
         _menuKind = row.Kind;
+        _menuTile = row.Entry?.IsTilePair == true;
         if (row.Kind is SwitcherKind.File or SwitcherKind.Calculation or SwitcherKind.FileHint)
             RowHovered?.Invoke(_rows.IndexOf(row));
         else if (row.Entry is { } entry) Hovered?.Invoke(entry.Handle);

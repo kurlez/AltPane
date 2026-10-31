@@ -24,6 +24,8 @@ namespace AltPane.Core.Settings;
 /// Schema 9 adds file-dialog quick jump. The toggle defaults on, the hotkey
 /// defaults to Ctrl+G, and the panel defaults to the bottom edge when those keys
 /// are missing. A stored choice is not rewritten.
+/// Schema 10 adds combined rows for windows tiled on the same monitor. The
+/// toggle defaults on when the key is missing. An explicit off is not rewritten.
 /// </summary>
 public static class SettingsMigration
 {
@@ -81,6 +83,13 @@ public static class SettingsMigration
                 settings.FileDialogHotkey = HotkeyChord.CtrlG();
             if (!Has(root, "fileDialogPanelEdge"))
                 settings.FileDialogPanelEdge = FileDialogPanelEdge.Bottom;
+            changed = true;
+        }
+
+        if (stored < 10)
+        {
+            if (!Has(root, "combineTiledWindows"))
+                settings.CombineTiledWindows = true;
             changed = true;
         }
 

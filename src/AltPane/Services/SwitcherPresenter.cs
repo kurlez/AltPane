@@ -406,6 +406,11 @@ internal sealed class SwitcherPresenter
 
     void ActivateEntry(WindowEntry entry, DisplayBounds? moveTo)
     {
+        if (entry.IsTilePair)
+        {
+            ActivatePair(entry);
+            return;
+        }
         if (!NativeMethods.IsWindow((nint)entry.Handle))
         {
             Notify?.Invoke(Localizer.Current["activate.missing"]);
@@ -417,6 +422,51 @@ internal sealed class SwitcherPresenter
         _windows.ArmActivation(entry.Handle);
         if (!WindowActions.TryActivate((nint)entry.Handle))
             Notify?.Invoke(Localizer.Current["activate.failed"]);
+    }
+
+    void ActivatePair(WindowEntry entry)
+    {
+        var focus = (nint)entry.FocusHandle;
+        var otherHandle = entry.FocusHandle == entry.TileLeft ? entry.TileRight : entry.TileLeft;
+        var other = (nint)otherHandle;
+        if (!NativeMethods.IsWindow(focus) && !NativeMethods.IsWindow(other))
+        {
+            Notify?.Invoke(Localizer.Current["activate.missing"]);
+            return;
+        }
+        _windows.ArmActivation(entry.FocusHandle);
+        if (!WindowActions.TryActivatePair(other, focus))
+            Notify?.Invoke(Localizer.Current["activate.failed"]);
+    }
+
+    UsageTier TileTier(PrioritySnapshot priority, WindowEntry entry)
+    {
+        if (!entry.IsTilePair) return priority.Tier(entry);
+        var left = Member(entry.TileLeft);
+        var right = Member(entry.TileRight);
+        var tier = UsageTier.Infrequent;
+        var any = false;
+        if (left is not null)
+        {
+            tier = priority.Tier(left);
+            any = true;
+        }
+        if (right is not null)
+        {
+            var other = priority.Tier(right);
+            tier = any ? (UsageTier)Math.Min((int)tier, (int)other) : other;
+        }
+        return tier;
+    }
+
+    WindowEntry? Member(long handle)
+    {
+        if (_session is null || handle == 0) return null;
+        foreach (var entry in _session.All)
+        {
+            if (!entry.IsTilePair && entry.Handle == handle) return entry;
+        }
+        return null;
     }
 
     public void ForceClose()
@@ -445,9 +495,21 @@ internal sealed class SwitcherPresenter
             _enumerationMs = clock.ElapsedMilliseconds;
         }
 
+        if (_settings().CombineTiledWindows && entries.Count > 1)
+        {
+            try
+            {
+                TileFrames.AppendPairs(entries, _activations.Rank);
+            }
+            catch (Exception ex)
+            {
+                AppLog.Error(ex);
+            }
+        }
+
         _session = new SwitcherSession(entries);
         var priority = _windows.Priority(_settings());
-        _session.SetOrderContext((long)_restore, Activations.Rank, priority.Tier, priority.IsShort);
+        _session.SetOrderContext((long)_restore, Activations.Rank, entry => TileTier(priority, entry), entry => TileTier(priority, entry) == UsageTier.Infrequent);
         _session.SetSortMode(_settings().SortMode);
         var opening = StableGroupedOrder.OpeningIndex(_session.SortMode, _session.ResultCount, delta);
         if (opening is int index)
@@ -465,6 +527,7 @@ internal sealed class SwitcherPresenter
         var live = new HashSet<long>(entries.Count);
         foreach (var entry in entries)
         {
+            if (entry.IsTilePair) continue;
             live.Add(entry.Handle);
             var path = entry.IconPath ?? "";
             var previous = _handlePaths.Rebind(entry.Handle.ToString(System.Globalization.CultureInfo.InvariantCulture), path);
@@ -868,6 +931,11 @@ internal sealed class SwitcherPresenter
         var session = _session;
         var selected = session?.Selected;
         if (session is null || selected is null) return;
+        if (selected.IsTilePair)
+        {
+            ShowStatus(Localizer.Current["tile.keep"]);
+            return;
+        }
         var hwnd = (nint)selected.Handle;
         if (!NativeMethods.IsWindow(hwnd))
         {
@@ -884,6 +952,11 @@ internal sealed class SwitcherPresenter
     {
         var selected = _session?.Selected;
         if (selected is null) return;
+        if (selected.IsTilePair)
+        {
+            ShowStatus(Localizer.Current["tile.keep"]);
+            return;
+        }
         var includeTree = forceTree ?? _settings().EndTaskKillsTree;
         var decision = ProcessActionPolicy.Evaluate(selected.KillProcessName, selected.KillProcessId);
         if (!decision.Allowed)
@@ -935,6 +1008,11 @@ internal sealed class SwitcherPresenter
     {
         var selected = _session?.Selected;
         if (selected is null) return;
+        if (selected.IsTilePair)
+        {
+            ShowStatus(Localizer.Current["tile.keep"]);
+            return;
+        }
         var key = AppIdentity.Key(selected);
         if (key.Length == 0) return;
         var settings = _settings();
@@ -945,7 +1023,7 @@ internal sealed class SwitcherPresenter
         catch (Exception ex) { AppLog.Error(ex); }
         var priority = _windows.Priority(settings);
         if (_session is null) return;
-        _session.SetPriority(priority.Tier, priority.IsShort);
+        _session.SetPriority(entry => TileTier(priority, entry), entry => TileTier(priority, entry) == UsageTier.Infrequent);
         var loc = Localizer.Current;
         var message = AppPriorityLists.IsPinned(settings.PinnedApps, key)
             ? loc["priority.pinned"]
@@ -1014,7 +1092,7 @@ internal sealed class SwitcherPresenter
     void RunAction(Action<nint> action, bool iconic, bool zoomed)
     {
         var selected = _session?.Selected;
-        if (selected is null || !NativeMethods.IsWindow((nint)selected.Handle)) return;
+        if (selected is null || selected.IsTilePair || !NativeMethods.IsWindow((nint)selected.Handle)) return;
         action((nint)selected.Handle);
         selected.IsIconic = iconic;
         selected.IsZoomed = zoomed;
@@ -1195,7 +1273,21 @@ internal sealed class SwitcherPresenter
         var live = MonitorUtil.Live();
         _displayCount = live.Count;
         foreach (var entry in _session.All)
+        {
+            if (entry.IsTilePair) continue;
             MonitorLocator.CopyTo(entry, MonitorLocator.Locate((nint)entry.Handle, live));
+        }
+        foreach (var entry in _session.All)
+        {
+            if (!entry.IsTilePair) continue;
+            var member = Member(entry.TileLeft);
+            if (member is null) continue;
+            entry.MonitorNumber = member.MonitorNumber;
+            entry.MonitorWidth = member.MonitorWidth;
+            entry.MonitorHeight = member.MonitorHeight;
+            entry.MonitorPrimary = member.MonitorPrimary;
+            entry.MonitorFriendlyName = member.MonitorFriendlyName;
+        }
         if (!_settings().ShowMonitorBadges || live.Count < 2)
             _session.SetMonitorFilter(0);
         else if (_session.MonitorFilter > 0)
@@ -1217,6 +1309,7 @@ internal sealed class SwitcherPresenter
         var catalog = _apps?.Visible;
         foreach (var entry in _session.All)
         {
+            if (entry.IsTilePair) continue;
             var shortcut = ShortcutIcon.Match(entry.IconPath, catalog);
             windows.Add(new WindowIconJob(
                 entry.Handle,
@@ -1776,6 +1869,8 @@ internal sealed class SwitcherPresenter
             return RowHints.Text(HintRow.Calculator, settings.ShowActionHint);
         if (_session.SelectedFile is not null)
             return RowHints.Text(HintRow.File, settings.ShowActionHint);
+        if (_session.Selected is { IsTilePair: true })
+            return RowHints.Text(HintRow.TilePair, settings.ShowActionHint);
         if (_session.Selected is not null)
             return RowHints.Text(HintRow.Window, settings.ShowActionHint, SelectedPath() is not null);
         if (_session.SelectedApp is { } app)
