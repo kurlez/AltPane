@@ -23,20 +23,49 @@
           CornerRadius="4"
           SnapsToDevicePixels="True">
     <DockPanel>
-      <Grid x:Name="SearchHost" DockPanel.Dock="Bottom" Height="30" PreviewMouseLeftButtonDown="Search_MouseDown">
-        <TextBlock x:Name="Placeholder" IsHitTestVisible="False" Margin="10,0,8,0"
-                   Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center" FontSize="13"/>
-        <TextBox x:Name="SearchBox" Background="Transparent" BorderThickness="0" Padding="8,0,8,0"
-                 VerticalContentAlignment="Center" FontSize="13"
-                 Foreground="{DynamicResource TextPrimaryBrush}" CaretBrush="{DynamicResource TextPrimaryBrush}"
-                 TextChanged="Search_TextChanged"/>
+      <Grid x:Name="SearchHost" DockPanel.Dock="Bottom" Height="30">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
+        <Grid Grid.Column="0" PreviewMouseLeftButtonDown="Search_MouseDown">
+          <TextBlock x:Name="Placeholder" IsHitTestVisible="False" Margin="10,0,8,0"
+                     Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center" FontSize="13"/>
+          <TextBox x:Name="SearchBox" Background="Transparent" BorderThickness="0" Padding="8,0,8,0"
+                   VerticalContentAlignment="Center" FontSize="13"
+                   Foreground="{DynamicResource TextPrimaryBrush}" CaretBrush="{DynamicResource TextPrimaryBrush}"
+                   TextChanged="Search_TextChanged"/>
+        </Grid>
+        <Button x:Name="JumpButton" Grid.Column="1" Focusable="False" IsTabStop="False"
+                Margin="0,4,4,4" Padding="8,0" MinWidth="44" FontSize="12"
+                ToolTipService.ShowOnDisabled="True"
+                PreviewMouseLeftButtonDown="Jump_MouseDown">
+          <Button.Template>
+            <ControlTemplate TargetType="Button">
+              <Border x:Name="Bd" Background="{DynamicResource SurfaceBrush}"
+                      BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="1"
+                      CornerRadius="3" Padding="{TemplateBinding Padding}">
+                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                  TextElement.Foreground="{DynamicResource TextPrimaryBrush}"/>
+              </Border>
+              <ControlTemplate.Triggers>
+                <Trigger Property="IsEnabled" Value="False">
+                  <Setter TargetName="Bd" Property="Opacity" Value="0.4"/>
+                </Trigger>
+                <Trigger Property="IsMouseOver" Value="True">
+                  <Setter TargetName="Bd" Property="Background" Value="{DynamicResource HoverBrush}"/>
+                </Trigger>
+              </ControlTemplate.Triggers>
+            </ControlTemplate>
+          </Button.Template>
+        </Button>
       </Grid>
       <Border x:Name="PopupHost" Visibility="Collapsed" Padding="2,2,2,0">
         <Grid>
           <ListBox x:Name="Rows" BorderThickness="0" Background="Transparent"
                    ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                    ScrollViewer.VerticalScrollBarVisibility="Auto"
-                   PreviewMouseLeftButtonUp="Rows_Click">
+                   PreviewMouseLeftButtonDown="Rows_MouseDown">
             <ListBox.ItemContainerStyle>
               <Style TargetType="ListBoxItem">
                 <Setter Property="Padding" Value="6,2"/>

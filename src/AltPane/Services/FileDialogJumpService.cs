@@ -45,6 +45,7 @@ internal sealed class FileDialogJumpService : IDisposable
     int _armedVk;
     bool _started;
     bool _suggestionsOpen;
+    bool _navigating;
     bool _disposed;
 
     public FileDialogJumpService(Func<AppSettings> settings, FileIndexService files, Dispatcher dispatcher)
@@ -272,6 +273,7 @@ internal sealed class FileDialogJumpService : IDisposable
             return;
         }
         var foreground = NativeMethods.GetForegroundWindow();
+        if (_navigating) return;
         if (foreground != 0 && foreground != _dialog && !IsPanel(foreground))
         {
             Detach();
@@ -432,26 +434,43 @@ internal sealed class FileDialogJumpService : IDisposable
 
     void Navigate(string path)
     {
-        if (_dialog == 0 || !NativeMethods.IsWindow(_dialog))
-        {
-            Detach();
-            return;
-        }
+        _navigating = true;
         try
         {
+            if (_dialog == 0 || !NativeMethods.IsWindow(_dialog))
+            {
+                AppLog.Info($"file dialog jump class= method=none ok=false path={path} detail=dialog-gone");
+                Detach();
+                return;
+            }
+            var cls = ClassOf(_dialog);
             var surface = new LiveDialogSurface(_dialog);
-            var result = DialogNavigation.Go(surface, path, _save);
-            AppLog.Info(result.Succeeded
-                ? $"file dialog jump ok address={result.UsedAddressBar} {path}"
-                : $"file dialog jump failed {path}");
+            var result = DialogNavigation.Go(surface, path, _save, System.IO.Directory.Exists);
+            if (result.Steps.Count == 0)
+                AppLog.Info($"file dialog jump class={cls} kind={surface.Kind} method={result.Method} ok={result.Succeeded} path={path} detail={result.Detail}");
+            foreach (var step in result.Steps)
+                AppLog.Info($"file dialog jump class={cls} kind={surface.Kind} method={step.Method} ok={step.Succeeded} path={path} detail={step.Detail}");
             if (result.Succeeded)
                 Remember(path);
         }
         catch (Exception ex)
         {
             AppLog.Error(ex);
+            AppLog.Info($"file dialog jump class= method=none ok=false path={path} detail=exception");
         }
-        _panel?.ReturnFocus(_dialog);
+        finally
+        {
+            _navigating = false;
+            if (_dialog != 0)
+                _panel?.ReturnFocus(_dialog);
+        }
+    }
+
+    static string ClassOf(nint hwnd)
+    {
+        var buffer = new System.Text.StringBuilder(64);
+        NativeMethods.GetClassName(hwnd, buffer, buffer.Capacity);
+        return buffer.ToString();
     }
 
     void Dismiss()

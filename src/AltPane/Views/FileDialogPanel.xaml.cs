@@ -3,6 +3,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using AltPane.Core.Dialogs;
 using AltPane.Core.Localization;
 
 namespace AltPane;
@@ -20,6 +21,7 @@ public partial class FileDialogPanel : Window
     public FileDialogPanel()
     {
         InitializeComponent();
+        Rows.SelectionChanged += (_, _) => UpdateJumpButton();
         SourceInitialized += (_, _) =>
         {
             var hwnd = new WindowInteropHelper(this).Handle;
@@ -38,6 +40,7 @@ public partial class FileDialogPanel : Window
     public event Action? DismissRequested;
     public event Action? LayoutChanged;
 
+    bool _navigating;
     public string Query => SearchBox.Text ?? "";
     public bool IsExpanded { get; private set; }
     public int RowCount => Rows.Items.Count;
@@ -48,6 +51,8 @@ public partial class FileDialogPanel : Window
         Placeholder.Text = Localizer.Current.Format("dialog.placeholder", hotkeyText);
         SearchHost.ToolTip = hint;
         EmptyText.Text = Localizer.Current["dialog.empty"];
+        JumpButton.Content = Localizer.Current["dialog.jump"];
+        UpdateJumpButton();
     }
 
     public void SetRows(IReadOnlyList<DialogFolderRow> rows, string? keepPath)
@@ -57,6 +62,7 @@ public partial class FileDialogPanel : Window
             selected = current.Path;
         Rows.ItemsSource = rows;
         EmptyText.Visibility = rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        UpdateJumpButton();
         LayoutChanged?.Invoke();
         var index = 0;
         if (!string.IsNullOrEmpty(selected))
@@ -138,7 +144,7 @@ public partial class FileDialogPanel : Window
     protected override void OnDeactivated(EventArgs e)
     {
         base.OnDeactivated(e);
-        if (SearchBox.IsKeyboardFocusWithin) return;
+        if (_navigating || SearchBox.IsKeyboardFocusWithin) return;
         var hwnd = new WindowInteropHelper(this).Handle;
         if (hwnd != 0) ApplyExtended(hwnd, noActivate: true);
         if (!IsExpanded) return;
@@ -174,8 +180,9 @@ public partial class FileDialogPanel : Window
         if (e.Key == Key.Enter)
         {
             e.Handled = true;
-            if (SelectedPath() is { Length: > 0 } path)
-                NavigateRequested?.Invoke(path);
+            var path = JumpTarget.Choose(SelectedPath(), FirstPath(), Query);
+            if (!string.IsNullOrEmpty(path))
+                BeginNavigate(path);
         }
     }
 
@@ -189,12 +196,46 @@ public partial class FileDialogPanel : Window
         Rows.ScrollIntoView(Rows.SelectedItem);
     }
 
-    void Rows_Click(object sender, MouseButtonEventArgs e)
+    void Rows_MouseDown(object sender, MouseButtonEventArgs e)
     {
         if (e.OriginalSource is not DependencyObject source) return;
         if (ItemsControl.ContainerFromElement(Rows, source) is not ListBoxItem item) return;
-        if (item.Content is DialogFolderRow row && row.Path.Length > 0)
-            NavigateRequested?.Invoke(row.Path);
+        if (item.Content is not DialogFolderRow row || row.Path.Length == 0) return;
+        e.Handled = true;
+        BeginNavigate(row.Path);
+    }
+
+    void Jump_MouseDown(object sender, MouseButtonEventArgs e)
+    {
+        e.Handled = true;
+        var path = JumpTarget.Choose(SelectedPath(), FirstPath(), Query);
+        if (string.IsNullOrEmpty(path)) return;
+        BeginNavigate(path);
+    }
+
+    void BeginNavigate(string path)
+    {
+        if (_navigating) return;
+        _navigating = true;
+        try
+        {
+            NavigateRequested?.Invoke(path);
+        }
+        finally
+        {
+            _navigating = false;
+        }
+    }
+
+    string? FirstPath() => Rows.Items.Count > 0 && Rows.Items[0] is DialogFolderRow row ? row.Path : null;
+
+    void UpdateJumpButton()
+    {
+        if (JumpButton is null) return;
+        var target = JumpTarget.Choose(SelectedPath(), FirstPath(), Query);
+        var enabled = !string.IsNullOrEmpty(target);
+        JumpButton.IsEnabled = enabled;
+        JumpButton.ToolTip = Localizer.Current[enabled ? "dialog.jumpTip" : "dialog.jumpEmpty"];
     }
 
     void Search_MouseDown(object sender, MouseButtonEventArgs e)
@@ -206,6 +247,7 @@ public partial class FileDialogPanel : Window
     void Search_TextChanged(object sender, TextChangedEventArgs e)
     {
         Placeholder.Visibility = string.IsNullOrEmpty(SearchBox.Text) ? Visibility.Visible : Visibility.Collapsed;
+        UpdateJumpButton();
         QueryChanged?.Invoke(SearchBox.Text ?? "");
     }
 

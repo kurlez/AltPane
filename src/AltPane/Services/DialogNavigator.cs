@@ -25,16 +25,33 @@ internal static class DialogEdit
     public static void Write(nint dialog, string? text)
     {
         var edit = Find(dialog);
-        if (edit == 0) return;
-        FileDialogNative.SendMessage(edit, FileDialogNative.WmSetText, 0, text ?? "");
+        if (edit == 0)
+        {
+            AppLog.Info($"file dialog filename edit missing on 0x{dialog:X}.");
+            return;
+        }
+        var value = text ?? "";
+        FileDialogNative.SendMessage(dialog, FileDialogNative.CdmSetControlText, FileDialogClassifier.FileNameControlId, value);
+        FileDialogNative.SendMessage(edit, FileDialogNative.WmSetText, 0, value);
+        var parent = FileDialogNative.GetParent(edit);
+        if (parent != 0 && parent != edit)
+        {
+            var editId = FileDialogNative.GetDlgCtrlID(edit);
+            FileDialogNative.SendMessage(parent, FileDialogNative.WmCommand, (FileDialogNative.EnChange << 16) | (editId & 0xFFFF), edit);
+        }
+        var combo = parent != 0 && parent != dialog ? parent : edit;
+        var comboId = FileDialogNative.GetDlgCtrlID(combo);
+        if (comboId == 0) comboId = FileDialogClassifier.FileNameControlId;
+        FileDialogNative.SendMessage(dialog, FileDialogNative.WmCommand, (FileDialogNative.CbnEditChange << 16) | (comboId & 0xFFFF), combo);
     }
 
     public static void Submit(nint dialog)
     {
-        // A dialog turns Enter into WM_COMMAND for the default button. Sending that
-        // once navigates when the filename is a folder. Do not click OK when the
-        // filename edit is missing, or the dialog can close on the old name.
-        if (Find(dialog) == 0) return;
+        // Enter in the filename box navigates when the text is a folder (trailing
+        // slash) and would otherwise dismiss the dialog. Do not press OK when the
+        // edit is missing, or the dialog can close on the old name.
+        var edit = Find(dialog);
+        if (edit == 0) return;
         var packed = FileDialogNative.SendMessage(dialog, FileDialogNative.DmGetDefId, 0, 0).ToInt64();
         var id = (int)(packed & 0xFFFF);
         var hasDefault = ((packed >> 16) & 0xFFFF) == FileDialogNative.DcHasDefId;
@@ -95,14 +112,28 @@ internal static class DialogAddress
                 var edit = target.FindFirst(TreeScope.Descendants, new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Edit));
                 if (edit is not null) target = edit;
             }
-            if (!target.TryGetCurrentPattern(ValuePattern.Pattern, out var pattern) || pattern is not ValuePattern value)
-                return false;
-            value.SetValue(folder);
+            if (!target.TryGetCurrentPattern(ValuePattern.Pattern, out var pattern) || pattern is not ValuePattern)
+            {
+                if (target.TryGetCurrentPattern(InvokePattern.Pattern, out var invoke) && invoke is InvokePattern invoker)
+                {
+                    invoker.Invoke();
+                    var opened = target.FindFirst(TreeScope.Descendants, new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Edit));
+                    if (opened is not null) target = opened;
+                }
+            }
+            if (target.TryGetCurrentPattern(ValuePattern.Pattern, out var ready) && ready is ValuePattern typed)
+                typed.SetValue(folder);
+            else
+            {
+                var hwndOnly = target.Current.NativeWindowHandle;
+                if (hwndOnly == 0) return false;
+                FileDialogNative.SendMessage(hwndOnly, FileDialogNative.WmSetText, 0, folder);
+            }
             var hwnd = target.Current.NativeWindowHandle;
             if (hwnd != 0)
             {
-                FileDialogNative.SendMessage(hwnd, FileDialogNative.WmKeyDown, FileDialogNative.VkReturn, 0);
-                FileDialogNative.SendMessage(hwnd, FileDialogNative.WmKeyUp, FileDialogNative.VkReturn, 0);
+                FileDialogNative.SendMessage(hwnd, FileDialogNative.WmKeyDown, FileDialogNative.VkReturn, 0x001C0001);
+                FileDialogNative.SendMessage(hwnd, FileDialogNative.WmKeyUp, FileDialogNative.VkReturn, unchecked((nint)0xC01C0001));
             }
             return true;
         }
@@ -157,6 +188,85 @@ internal static class DialogAddress
     }
 }
 
+internal static class ShellDialogBrowse
+{
+    const int BrowseSlot = 11;
+
+    [System.Runtime.InteropServices.UnmanagedFunctionPointer(System.Runtime.InteropServices.CallingConvention.StdCall)]
+    delegate int BrowseObjectDelegate(nint self, nint pidl, uint flags);
+
+    [System.Runtime.InteropServices.DllImport("shell32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    static extern int SHParseDisplayName(string name, nint bindContext, out nint pidl, uint attributes, out uint fetched);
+
+    [System.Runtime.InteropServices.DllImport("shell32.dll")]
+    static extern void ILFree(nint pidl);
+
+    public static bool TryBrowse(nint dialog, string folder)
+    {
+        nint pidl = 0;
+        try
+        {
+            var parsed = SHParseDisplayName(folder, 0, out pidl, 0, out _);
+            if (parsed != 0 || pidl == 0)
+            {
+                AppLog.Info($"file dialog shell browse parse failed hr=0x{parsed:X8} path={folder}");
+                return false;
+            }
+            var view = FindShellView(dialog);
+            var browser = view == 0 ? 0 : FileDialogNative.SendMessage(view, FileDialogNative.WmGetIShellBrowser, 0, 0);
+            if (!LooksLikePointer(browser))
+                browser = FileDialogNative.SendMessage(dialog, FileDialogNative.WmGetIShellBrowser, 0, 0);
+            if (!LooksLikePointer(browser))
+            {
+                AppLog.Info($"file dialog shell browse no view path={folder}");
+                return false;
+            }
+            var hr = CallBrowse(browser, pidl);
+            var ok = hr == 0;
+            AppLog.Info($"file dialog shell browse ok={ok} hr=0x{hr:X8} view=0x{view:X} path={folder}");
+            return ok;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error(ex);
+            return false;
+        }
+        finally
+        {
+            if (pidl != 0) ILFree(pidl);
+        }
+    }
+
+    static bool LooksLikePointer(nint value) => value.ToInt64() > 0x10000;
+
+    static int CallBrowse(nint browser, nint pidl)
+    {
+        var vtable = System.Runtime.InteropServices.Marshal.ReadIntPtr(browser);
+        var slot = System.Runtime.InteropServices.Marshal.ReadIntPtr(vtable, BrowseSlot * IntPtr.Size);
+        var browse = System.Runtime.InteropServices.Marshal.GetDelegateForFunctionPointer<BrowseObjectDelegate>(slot);
+        return browse(browser, pidl, FileDialogNative.SbspAbsolute | FileDialogNative.SbspSameBrowser);
+    }
+
+    static nint FindShellView(nint dialog)
+    {
+        nint found = 0;
+        EnumWindowsProc callback = (child, _) =>
+        {
+            var buffer = new System.Text.StringBuilder(64);
+            NativeMethods.GetClassName(child, buffer, buffer.Capacity);
+            if (buffer.ToString() == "SHELLDLL_DefView")
+            {
+                found = child;
+                return false;
+            }
+            return true;
+        };
+        NativeMethods.EnumChildWindows(dialog, callback, 0);
+        GC.KeepAlive(callback);
+        return found;
+    }
+}
+
 internal sealed class LiveDialogSurface : IDialogSurface
 {
     readonly nint _dialog;
@@ -166,7 +276,10 @@ internal sealed class LiveDialogSurface : IDialogSurface
     {
         _dialog = dialog;
         _location = DialogAddress.Read(dialog);
+        Kind = FileDialogProbe.TryClassify(dialog, out var kind, out _) ? kind : FileDialogKind.None;
     }
+
+    public FileDialogKind Kind { get; }
 
     public string FileName
     {
@@ -175,6 +288,21 @@ internal sealed class LiveDialogSurface : IDialogSurface
     }
 
     public string CurrentLocation => _location;
+
+    public void PrepareForJump()
+    {
+        if (_dialog != 0) WindowActions.TryActivate(_dialog);
+    }
+
+    public bool TryBrowseShell(string folder)
+    {
+        if (!ShellDialogBrowse.TryBrowse(_dialog, folder)) return false;
+        var address = DialogAddress.Read(_dialog);
+        _location = FolderPath.Same(address, folder) || FolderPath.Landed("", address, folder)
+            ? address
+            : folder;
+        return true;
+    }
 
     public void SubmitFileName()
     {

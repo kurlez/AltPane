@@ -26,6 +26,10 @@ Publishing steps, including winget and a future SignPath signature, are in [RELE
 - Pausing, exiting, or an unhandled exception removes the hook. If the process is killed, Windows drops the hook as well, so the native switcher works again.
 - Switcher windows are created at startup, one per monitor, and kept hidden. A background hook keeps the window list up to date, so opening paints that list instead of constructing a new window or walking every process. Icons are cached per executable. Each open writes one INFO line to `%APPDATA%\AltPane\altpane.log`: hotkey→visible milliseconds, enumeration milliseconds, and the row count. The working set is logged at startup and every 30 minutes.
 
+## File-dialog jump (0.4.14)
+
+Choosing a folder in the quick-jump bar now changes the Open or Save dialog. Enter, a click on a row, and the 跳转 button on the right of the search line all jump to the highlighted folder, or the first match, or a typed full path. The list stays open until that jump has been sent, so a click cannot dismiss it first. The dialog is tried in order: the shell folder view, then the filename box plus Enter (a Save dialog still gets its filename back), then the address bar. A path that is not a real folder is left alone. Every attempt is written to `altpane.log` with the dialog class, the method, the path, and whether it worked. See [RELEASE_NOTES_v0.4.14.md](RELEASE_NOTES_v0.4.14.md).
+
 ## Compact file-dialog bar (0.4.13)
 
 The folder jump on an Open or Save dialog is a slim one-line search bar on the dialog's bottom edge, about the height of a text box and narrow enough to stay out of the way. It sits at the bottom-left by default, or the bottom-right when that option is chosen, just outside the dialog so it does not cover the filename or the buttons. The folder list stays hidden until Ctrl+G or a click, then opens upward. Esc, a successful jump, or returning focus to the dialog closes the list again. Up, Down, Enter, pinyin, and multi-word search are unchanged, and a Save dialog still keeps the filename that was already typed. The same three settings remain: on/off, hotkey, and position (now the two bottom corners). See [RELEASE_NOTES_v0.4.13.md](RELEASE_NOTES_v0.4.13.md).
@@ -222,6 +226,8 @@ AltPane 是一个 Windows 桌面窗口切换器。运行期间它会用低级键
 0.4.6 在 Everything 连不上时改用内置文件索引（默认开启，不需要管理员）。后台低优先级扫描用户目录，跳过隐藏和系统目录、AppData，以及上面的代理目录；桌面、文档、下载、图片、视频、音乐、OneDrive 和开始菜单会另外纳入。名字和父目录表放在内存里，快照在 `%LOCALAPPDATA%\AltPane\file-index.bin`。文件变化由 `FileSystemWatcher` 防抖更新，缓冲区溢出就整目录重扫。搜索不区分大小写，多个词是 AND，中文名可以用拼音首字母。`f ` 和文档类型过滤不变。结果分组标成「内置索引」或「Everything」。设置里可以关掉内置索引、追加文件夹，排除列表沿用原来的那一份。扫描耗时、条数和内存记在 INFO。
 
 另有一项默认关闭的设置「单按 Win 键打开 AltPane」。只按下再松开 Win、中间没有别的键，会打开应用列表（开始菜单快捷方式和商店应用，带图标），而不是开始菜单。Win 的松开被吃掉，并注入一个未分配键（VK_E8），所以开始菜单不会弹出。Win+E、Win+R、Win+D、Win+Shift+S 以及其他组合键不变。输入名称或拼音首字母过滤，Enter 启动，Ctrl+Shift+Enter 以管理员运行，Esc 退出。Alt+Tab 的行为不变。详见 [RELEASE_NOTES_v0.4.6.md](RELEASE_NOTES_v0.4.6.md)。
+
+0.4.14 修正快速跳转选了文件夹却没有生效的问题。Enter、点击列表里的一行，以及搜索条右侧的「跳转」按钮，都会把打开 / 另存为对话框带到那个文件夹。优先用当前选中的一行，否则用第一条匹配，再否则用输入的完整路径。点下去的时候列表不会先收起来。对话框会先被激活，然后按顺序试：资源管理器视图、文件名框加回车（另存为仍把文件名放回去）、地址栏。路径不是真实文件夹就不动对话框。每一次尝试都写入 `altpane.log`，包括窗口类、用的方法、路径和成败。详见 [RELEASE_NOTES_v0.4.14.md](RELEASE_NOTES_v0.4.14.md)。
 
 0.4.13 把文件对话框上的快速跳转收成一条窄搜索条，高度大约就是一个输入框，默认贴在对话框底边的左下角（也可以改到右下角），挂在对话框外面，不挡住文件名和按钮。文件夹列表默认不显示。Ctrl+G 或点击之后才向上展开。Esc、跳转成功，或焦点回到对话框时，列表再收起。上下键、Enter、拼音和多词搜索不变，另存为仍保留已经输入的文件名。开关、热键和位置这三项设置还在，位置现在是两个底角。详见 [RELEASE_NOTES_v0.4.13.md](RELEASE_NOTES_v0.4.13.md)。
 

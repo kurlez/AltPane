@@ -262,6 +262,59 @@ public class DialogNavigationTests
         Assert.Equal(@"C:\start", surface.CurrentLocation);
     }
 
+    [Fact]
+    public void A_missing_folder_is_not_submitted()
+    {
+        var surface = new FakeDialog("notes.txt", @"C:\start");
+        var result = DialogNavigation.Go(surface, @"D:\Missing", saveDialog: true, exists: _ => false);
+        Assert.False(result.Succeeded);
+        Assert.Equal("not-found", result.Detail);
+        Assert.Equal(0, surface.Submits);
+        Assert.Equal(0, surface.AddressCalls);
+        Assert.Equal("notes.txt", surface.FileName);
+    }
+
+    [Fact]
+    public void A_common_item_dialog_tries_the_shell_view_before_the_filename_edit()
+    {
+        var surface = new OrderedDialog();
+        var result = DialogNavigation.Go(surface, @"D:\Work", saveDialog: true, exists: _ => true);
+        Assert.True(result.Succeeded);
+        Assert.Equal("ShellBrowser", result.Method);
+        Assert.Equal(new[] { "ShellBrowser" }, result.Steps.Select(step => step.Method));
+        Assert.Equal(0, surface.Submits);
+        Assert.Equal("notes.txt", surface.FileName);
+        Assert.Equal(@"D:\Work", surface.CurrentLocation);
+    }
+
+    [Fact]
+    public void The_jump_button_uses_the_selection_then_the_first_row_then_a_typed_path()
+    {
+        Assert.Equal(@"D:\Selected", JumpTarget.Choose(@"D:\Selected", @"D:\First", @"D:\Typed"));
+        Assert.Equal(@"D:\First", JumpTarget.Choose("  ", @"D:\First", "docs"));
+        Assert.Equal(@"D:\Typed", JumpTarget.Choose(null, null, @"D:\Typed"));
+        Assert.Null(JumpTarget.Choose(null, null, "docs"));
+        Assert.Null(JumpTarget.Choose("", "", "  "));
+    }
+
+    sealed class OrderedDialog : IDialogSurface
+    {
+        public string FileName { get; set; } = "notes.txt";
+        public string CurrentLocation { get; set; } = @"C:\start";
+        public int Submits { get; private set; }
+        public FileDialogKind Kind => FileDialogKind.CommonItem;
+
+        public void SubmitFileName() => Submits++;
+
+        public bool TryNavigateAddress(string folder) => false;
+
+        public bool TryBrowseShell(string folder)
+        {
+            CurrentLocation = FolderPath.Normalize(folder);
+            return true;
+        }
+    }
+
     sealed class FakeDialog : IDialogSurface
     {
         public FakeDialog(string fileName, string location)
@@ -345,13 +398,16 @@ public class DialogPanelAndVersionTests
         Assert.Equal("0.4.11", ProductVersion.Display(new Version(0, 4, 11, 0)));
         Assert.Equal("0.4.12", ProductVersion.Display(new Version(0, 4, 12, 0)));
         Assert.Equal("0.4.13", ProductVersion.Display(new Version(0, 4, 13, 0)));
-        Assert.Equal("0.4.13", ProductVersion.Display(null));
+        Assert.Equal("0.4.14", ProductVersion.Display(new Version(0, 4, 14, 0)));
+        Assert.Equal("0.4.14", ProductVersion.Display(null));
         Assert.True(ProductVersion.Compare("0.4.11", "0.4.12") < 0);
         Assert.True(ProductVersion.Compare("0.4.12", "0.4.13") < 0);
+        Assert.True(ProductVersion.Compare("0.4.13", "0.4.14") < 0);
         Assert.Equal("0.4.10.0", ProductVersion.AssemblyVersion("v0.4.10"));
         Assert.Equal("0.4.11.0", ProductVersion.AssemblyVersion("v0.4.11"));
         Assert.Equal("0.4.12.0", ProductVersion.AssemblyVersion("v0.4.12"));
         Assert.Equal("0.4.13.0", ProductVersion.AssemblyVersion("v0.4.13"));
+        Assert.Equal("0.4.14.0", ProductVersion.AssemblyVersion("v0.4.14"));
         Assert.Equal("0.4.10.0", ProductVersion.AssemblyVersion("0.4.10"));
         Assert.False(ProductVersion.TryParse("0.4", out _));
     }
