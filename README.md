@@ -26,9 +26,17 @@ Publishing steps, including winget and a future SignPath signature, are in [RELE
 - Pausing, exiting, or an unhandled exception removes the hook. If the process is killed, Windows drops the hook as well, so the native switcher works again.
 - Switcher windows are created at startup, one per monitor, and kept hidden. A background hook keeps the window list up to date, so opening paints that list instead of constructing a new window or walking every process. Icons are cached per executable. Each open writes one INFO line to `%APPDATA%\AltPane\altpane.log`: hotkey→visible milliseconds, enumeration milliseconds, and the row count. The working set is logged at startup and every 30 minutes.
 
+## File-dialog jump safety, window size, and memory (0.4.15)
+
+Clicking a folder in a legacy Open dialog no longer reads an `IShellBrowser` pointer from the other process. That read was an access violation and took the whole app down, because `AccessViolationException` cannot be caught. Jumps now use only the filename box (a trailing `\`, then the default button) and the address bar. Common-item Save and Open dialogs use the same order. Each attempt is written to `altpane.log` before the call returns, with the window class, the dialog kind, the method, the path, and why it failed. Unhandled managed exceptions are logged there too.
+
+Switching to a window no longer calls `ShowWindow(SW_SHOW)` on one that is already visible, and no longer uses `SwitchToThisWindow(true)`, both of which can unsnap or unmaximize onto a tiny restore rectangle. Only a minimized window is restored. Z-order changes pass `SWP_NOSIZE` and `SWP_NOMOVE` and run in the target window's DPI context. If the rectangle still changes, it is put back, and the before/after rectangle is logged. A cross-monitor move that would shrink a large window to a stamp is skipped.
+
+The process asks the workstation GC to return memory (`ConserveMemory` 9, concurrent GC off). After the switcher hides, the row visuals are released and the working set is trimmed. The icon cache is smaller. On the PC that reported 211 MB working set and 187 MB private after seven minutes, the idle private size should be well under that; this environment cannot measure a Windows process. See [RELEASE_NOTES_v0.4.15.md](RELEASE_NOTES_v0.4.15.md).
+
 ## File-dialog jump (0.4.14)
 
-Choosing a folder in the quick-jump bar now changes the Open or Save dialog. Enter, a click on a row, and the 跳转 button on the right of the search line all jump to the highlighted folder, or the first match, or a typed full path. The list stays open until that jump has been sent, so a click cannot dismiss it first. The dialog is tried in order: the shell folder view, then the filename box plus Enter (a Save dialog still gets its filename back), then the address bar. A path that is not a real folder is left alone. Every attempt is written to `altpane.log` with the dialog class, the method, the path, and whether it worked. See [RELEASE_NOTES_v0.4.14.md](RELEASE_NOTES_v0.4.14.md).
+Choosing a folder in the quick-jump bar now changes the Open or Save dialog. Enter, a click on a row, and the 跳转 button on the right of the search line all jump to the highlighted folder, or the first match, or a typed full path. The list stays open until that jump has been sent, so a click cannot dismiss it first. The dialog was tried in order: the shell folder view, then the filename box plus Enter (a Save dialog still gets its filename back), then the address bar. 0.4.15 removed the shell-view step after it crashed the process. A path that is not a real folder is left alone. Every attempt is written to `altpane.log` with the dialog class, the method, the path, and whether it worked. See [RELEASE_NOTES_v0.4.14.md](RELEASE_NOTES_v0.4.14.md).
 
 ## Compact file-dialog bar (0.4.13)
 
@@ -227,7 +235,9 @@ AltPane 是一个 Windows 桌面窗口切换器。运行期间它会用低级键
 
 另有一项默认关闭的设置「单按 Win 键打开 AltPane」。只按下再松开 Win、中间没有别的键，会打开应用列表（开始菜单快捷方式和商店应用，带图标），而不是开始菜单。Win 的松开被吃掉，并注入一个未分配键（VK_E8），所以开始菜单不会弹出。Win+E、Win+R、Win+D、Win+Shift+S 以及其他组合键不变。输入名称或拼音首字母过滤，Enter 启动，Ctrl+Shift+Enter 以管理员运行，Esc 退出。Alt+Tab 的行为不变。详见 [RELEASE_NOTES_v0.4.6.md](RELEASE_NOTES_v0.4.6.md)。
 
-0.4.14 修正快速跳转选了文件夹却没有生效的问题。Enter、点击列表里的一行，以及搜索条右侧的「跳转」按钮，都会把打开 / 另存为对话框带到那个文件夹。优先用当前选中的一行，否则用第一条匹配，再否则用输入的完整路径。点下去的时候列表不会先收起来。对话框会先被激活，然后按顺序试：资源管理器视图、文件名框加回车（另存为仍把文件名放回去）、地址栏。路径不是真实文件夹就不动对话框。每一次尝试都写入 `altpane.log`，包括窗口类、用的方法、路径和成败。详见 [RELEASE_NOTES_v0.4.14.md](RELEASE_NOTES_v0.4.14.md)。
+0.4.15 修了三件事。旧式打开对话框里点跳转会读到另一个进程的 `IShellBrowser` 指针，进程因访问违例直接退出；现在只通过文件名框和地址栏跳转，公共项和旧式对话框同一顺序，每一次尝试都把窗口类、种类、方法和失败原因写入 `altpane.log`。切换窗口时不再对已经可见的窗口调用 `SW_SHOW`，也不再使用会把最大化或贴边窗口还原成很小矩形的 `SwitchToThisWindow(true)`；只有最小化窗口才 `SW_RESTORE`。调整叠放顺序时带上不改大小和位置的标志，并在目标窗口自己的 DPI 上下文里调用。激活前后的矩形会写入日志，如果还是变了就放回去。跨屏幕移动若会把大窗口收成很小一块，则放弃这次移动。内存方面改用工作站 GC、关闭并发并尽量把空闲页还给系统；切换器隐藏后丢掉列表视觉树并裁剪工作集，图标缓存也缩小了。在报告 211 MB 工作集 / 187 MB 私有字节的那台机器上，空闲时应明显低于这个数；本环境无法在 Windows 上复测。详见 [RELEASE_NOTES_v0.4.15.md](RELEASE_NOTES_v0.4.15.md)。
+
+0.4.14 修正快速跳转选了文件夹却没有生效的问题。Enter、点击列表里的一行，以及搜索条右侧的「跳转」按钮，都会把打开 / 另存为对话框带到那个文件夹。优先用当前选中的一行，否则用第一条匹配，再否则用输入的完整路径。点下去的时候列表不会先收起来。对话框会先被激活，然后按顺序试：资源管理器视图、文件名框加回车（另存为仍把文件名放回去）、地址栏。0.4.15 删掉了资源管理器视图这一步，因为它会把进程打崩。路径不是真实文件夹就不动对话框。每一次尝试都写入 `altpane.log`，包括窗口类、用的方法、路径和成败。详见 [RELEASE_NOTES_v0.4.14.md](RELEASE_NOTES_v0.4.14.md)。
 
 0.4.13 把文件对话框上的快速跳转收成一条窄搜索条，高度大约就是一个输入框，默认贴在对话框底边的左下角（也可以改到右下角），挂在对话框外面，不挡住文件名和按钮。文件夹列表默认不显示。Ctrl+G 或点击之后才向上展开。Esc、跳转成功，或焦点回到对话框时，列表再收起。上下键、Enter、拼音和多词搜索不变，另存为仍保留已经输入的文件名。开关、热键和位置这三项设置还在，位置现在是两个底角。详见 [RELEASE_NOTES_v0.4.13.md](RELEASE_NOTES_v0.4.13.md)。
 

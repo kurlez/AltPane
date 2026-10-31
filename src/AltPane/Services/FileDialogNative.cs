@@ -19,11 +19,9 @@ internal static class FileDialogNative
     public const int EnChange = 0x0300;
     public const int CbnEditChange = 5;
     public const int WmUser = 0x0400;
-    public const int WmGetIShellBrowser = WmUser + 7;
+    public const int WmNextDlgCtl = 0x0028;
     public const int CdmFirst = WmUser + 100;
     public const int CdmSetControlText = CdmFirst + 4;
-    public const uint SbspAbsolute = 0;
-    public const uint SbspSameBrowser = 1;
 
     [DllImport("user32.dll")]
     public static extern int GetDlgCtrlID(nint hwnd);

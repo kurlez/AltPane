@@ -3,7 +3,6 @@ namespace AltPane.Core.Dialogs;
 public enum JumpMethod
 {
     None,
-    ShellBrowser,
     FileNameEdit,
     AddressBar
 }
@@ -16,10 +15,10 @@ public interface IDialogSurface
     void SubmitFileName();
     string CurrentLocation { get; }
     bool TryNavigateAddress(string folder);
-    /// <summary>Common item dialogs prefer the shell view. Legacy dialogs leave this unused.</summary>
+    /// <summary>Legacy and common-item dialogs use the same in-process fallback order.</summary>
     FileDialogKind Kind => FileDialogKind.Legacy;
-    /// <summary>IShellBrowser::BrowseObject, or an equivalent. False when that view is not available.</summary>
-    bool TryBrowseShell(string folder) => false;
+    /// <summary>Why the last attempt failed. Empty when it succeeded or was not tried.</summary>
+    string LastDetail => "";
     /// <summary>Bring the dialog forward so it will accept the navigation. Fakes do nothing.</summary>
     void PrepareForJump() { }
 }
@@ -91,29 +90,47 @@ public static class DialogNavigation
         return dot > 0 && dot < name.Length - 1;
     }
 
-    public static IReadOnlyList<JumpMethod> Plan(FileDialogKind kind) => kind switch
+    /// <summary>
+    /// Filename edit, then the address bar. Both stay inside this process
+    /// (window messages and UI Automation). A shell-view pointer from the dialog
+    /// belongs to the other process and must not be dereferenced here.
+    /// </summary>
+    public static IReadOnlyList<JumpMethod> Plan(FileDialogKind kind)
     {
-        FileDialogKind.CommonItem => new[] { JumpMethod.ShellBrowser, JumpMethod.FileNameEdit, JumpMethod.AddressBar },
-        _ => new[] { JumpMethod.FileNameEdit, JumpMethod.AddressBar, JumpMethod.ShellBrowser }
-    };
+        _ = kind;
+        return new[] { JumpMethod.FileNameEdit, JumpMethod.AddressBar };
+    }
 
-    public static NavigationResult Go(IDialogSurface surface, string? folder, bool saveDialog, Func<string, bool>? exists = null)
+    public static NavigationResult Go(
+        IDialogSurface surface,
+        string? folder,
+        bool saveDialog,
+        Func<string, bool>? exists = null,
+        Action<JumpStep>? onStep = null)
     {
         ArgumentNullException.ThrowIfNull(surface);
         var steps = new List<JumpStep>(3);
+        void Report(string method, bool ok, string detail)
+        {
+            var step = new JumpStep(method, ok, detail);
+            steps.Add(step);
+            onStep?.Invoke(step);
+        }
+
         var target = FolderPath.Normalize(folder);
         var previous = surface.FileName ?? "";
         if (!FolderPath.IsAbsolute(target))
-            return Failed(steps, "not-absolute");
+            return Failed(steps, "not-absolute", Report);
         if (exists is not null && !exists(target))
-            return Failed(steps, "not-found");
+            return Failed(steps, "not-found", Report);
 
         surface.PrepareForJump();
         var before = surface.CurrentLocation ?? "";
         foreach (var method in Plan(surface.Kind))
         {
             var ok = Try(surface, method, target, before);
-            steps.Add(new JumpStep(method.ToString(), ok, ok ? "ok" : "miss"));
+            var detail = ok ? "ok" : DetailOf(surface);
+            Report(method.ToString(), ok, detail);
             if (!ok) continue;
             var restored = FileNameToRestore(previous, saveDialog);
             if (restored.Length > 0)
@@ -135,6 +152,12 @@ public static class DialogNavigation
         };
     }
 
+    static string DetailOf(IDialogSurface surface)
+    {
+        var detail = surface.LastDetail;
+        return string.IsNullOrWhiteSpace(detail) ? "miss" : detail;
+    }
+
     static bool Try(IDialogSurface surface, JumpMethod method, string target, string before)
     {
         switch (method)
@@ -144,21 +167,16 @@ public static class DialogNavigation
                 surface.SubmitFileName();
                 return FolderPath.Landed(before, surface.CurrentLocation, target);
             case JumpMethod.AddressBar:
-                if (!surface.TryNavigateAddress(target)) return false;
-                return FolderPath.Landed(before, surface.CurrentLocation, target);
-            case JumpMethod.ShellBrowser:
-                if (!surface.TryBrowseShell(target)) return false;
-                var after = surface.CurrentLocation ?? "";
-                if (string.IsNullOrWhiteSpace(after)) return true;
-                return FolderPath.Landed(before, after, target) || FolderPath.Same(after, target);
+                return surface.TryNavigateAddress(target)
+                    && FolderPath.Landed(before, surface.CurrentLocation, target);
             default:
                 return false;
         }
     }
 
-    static NavigationResult Failed(List<JumpStep> steps, string detail)
+    static NavigationResult Failed(List<JumpStep> steps, string detail, Action<string, bool, string> report)
     {
-        steps.Add(new JumpStep(JumpMethod.None.ToString(), false, detail));
+        report(JumpMethod.None.ToString(), false, detail);
         return new NavigationResult(false, false, "")
         {
             Method = JumpMethod.None.ToString(),

@@ -1,6 +1,7 @@
 using AltPane.Core.Interop;
 using AltPane.Core.Layout;
 using AltPane.Core.Preview;
+using AltPane.Core.Windows;
 
 namespace AltPane;
 
@@ -68,6 +69,22 @@ internal static class WindowMover
                 restoreHeight,
                 restoreToMax);
             if (!plan.Move) return true;
+            if (plan.Maximize && (plan.Width < 80 || plan.Height < 60))
+            {
+                var coerced = ActivationPolicy.CoerceRestore(plan.X, plan.Y, plan.Width, plan.Height, target.Width, target.Height);
+                AppLog.Info($"Move coerce restore 0x{hwnd:X} {plan.Width}x{plan.Height} -> {coerced.Width}x{coerced.Height}");
+                plan = plan with { X = coerced.X, Y = coerced.Y, Width = coerced.Width, Height = coerced.Height };
+            }
+            if (!plan.Maximize && !iconic && ActivationPolicy.MoveWouldCollapse(width, height, plan.Width, plan.Height))
+            {
+                AppLog.Info($"Move refused 0x{hwnd:X}: {width}x{height} would become {plan.Width}x{plan.Height}");
+                return false;
+            }
+            if (plan.Width < 32 || plan.Height < 32)
+            {
+                AppLog.Info($"Move refused degenerate 0x{hwnd:X}: {plan.Width}x{plan.Height}");
+                return false;
+            }
 
             if (plan.Maximize || iconic)
                 return ApplyPlacement(hwnd, plan, originX, originY, iconic);

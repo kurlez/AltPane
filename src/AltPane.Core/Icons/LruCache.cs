@@ -69,6 +69,12 @@ public sealed class LruCache<T>
         return true;
     }
 
+    public void Clear()
+    {
+        _map.Clear();
+        _order.Clear();
+    }
+
     public int RemoveWhere(Func<string, bool> match)
     {
         var doomed = new List<string>();

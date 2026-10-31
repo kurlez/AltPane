@@ -17,6 +17,10 @@
          and pinyin follow CurrentUICulture. -->
     <TieredPGO>true</TieredPGO>
     <PublishReadyToRun>true</PublishReadyToRun>
+    <!-- A tray process does not want a per-core GC heap. ConserveMemory asks the
+         workstation GC to return committed pages instead of sitting on them. -->
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
     <!-- WPF reads PerMonitorV2 from app.manifest. WinForms also flags that as WFAC010. -->
     <NoWarn>$(NoWarn);WFAC010</NoWarn>
   </PropertyGroup>
@@ -27,6 +31,9 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\AltPane.Core\AltPane.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <RuntimeHostConfigurationOption Include="System.GC.ConserveMemory" Value="9" />
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="Assets\app.ico" LogicalName="AltPane.app.ico" />

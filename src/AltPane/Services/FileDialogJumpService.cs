@@ -445,11 +445,8 @@ internal sealed class FileDialogJumpService : IDisposable
             }
             var cls = ClassOf(_dialog);
             var surface = new LiveDialogSurface(_dialog);
-            var result = DialogNavigation.Go(surface, path, _save, System.IO.Directory.Exists);
-            if (result.Steps.Count == 0)
-                AppLog.Info($"file dialog jump class={cls} kind={surface.Kind} method={result.Method} ok={result.Succeeded} path={path} detail={result.Detail}");
-            foreach (var step in result.Steps)
-                AppLog.Info($"file dialog jump class={cls} kind={surface.Kind} method={step.Method} ok={step.Succeeded} path={path} detail={step.Detail}");
+            var result = DialogNavigation.Go(surface, path, _save, System.IO.Directory.Exists, step =>
+                AppLog.Info($"file dialog jump class={cls} kind={surface.Kind} method={step.Method} ok={step.Succeeded} path={path} detail={step.Detail}"));
             if (result.Succeeded)
                 Remember(path);
         }

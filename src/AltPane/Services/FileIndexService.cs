@@ -317,7 +317,7 @@ internal sealed class FileIndexService : IDisposable
                     {
                         IncludeSubdirectories = target.Recursive,
                         NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName,
-                        InternalBufferSize = 64 * 1024,
+                        InternalBufferSize = 16 * 1024,
                         EnableRaisingEvents = false
                     };
                     watcher.Changed += OnWatcher;

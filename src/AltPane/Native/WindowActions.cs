@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using AltPane.Core.Switcher;
+using AltPane.Core.Windows;
 
 namespace AltPane;
 
@@ -32,16 +33,23 @@ internal static class WindowActions
         }
 
         var partner = other != 0 && other != focus && NativeMethods.IsWindow(other);
-        if (partner && NativeMethods.IsIconic(other))
+        var focusRaw = ReadInContext(focus);
+        var otherRaw = partner ? ReadInContext(other) : default;
+        if (focusRaw.Iconic)
         {
-            AppLog.Info($"Pair activate other 0x{other:X} is minimized; leaving its position alone.");
-            partner = false;
+            AppLog.Info($"Pair activate focus 0x{focus:X} is minimized; SW_RESTORE only.");
+            ShowInContext(focus, ActivationPolicy.SwRestore);
         }
-        if (NativeMethods.IsIconic(focus))
-            AppLog.Info($"Pair activate focus 0x{focus:X} is minimized.");
+        if (partner && otherRaw.Iconic)
+        {
+            AppLog.Info($"Pair activate other 0x{other:X} is minimized; SW_RESTORE only.");
+            ShowInContext(other, ActivationPolicy.SwRestore);
+        }
 
+        var focusKept = focusRaw.Iconic ? ReadInContext(focus) : focusRaw;
+        var otherKept = partner && otherRaw.Iconic ? ReadInContext(other) : otherRaw;
         var foreground = NativeMethods.GetForegroundWindow();
-        AppLog.Info($"Pair activate begin focus 0x{focus:X} other 0x{(partner ? other : 0):X} fg 0x{foreground:X} focusTop={IsTopMost(focus)} otherTop={(partner ? IsTopMost(other) : false)}.");
+        AppLog.Info($"Pair activate begin focus 0x{focus:X} other 0x{(partner ? other : 0):X} fg 0x{foreground:X} focusTop={IsTopMost(focus)} otherTop={(partner ? IsTopMost(other) : false)} focusFrame={focusRaw} otherFrame={(partner ? otherRaw.ToString() : "-")}.");
 
         var attached = Attach(foreground, focus, partner ? other : 0);
         try
@@ -66,6 +74,9 @@ internal static class WindowActions
                 order = SignificantZOrder(focus, other);
                 raised = PairZOrder.IsRaised(order, focus, other);
             }
+
+            KeepFrame(focus, focusKept, "pair-focus");
+            if (partner) KeepFrame(other, otherKept, "pair-other");
 
             var now = NativeMethods.GetForegroundWindow();
             var focusActive = now == focus;
@@ -92,81 +103,37 @@ internal static class WindowActions
     {
         var otherWas = IsTopMost(other);
         var focusWas = IsTopMost(focus);
-        var flags = PlaceFlags;
-        if (!Defer(stack =>
-            {
-                stack = DeferOne(stack, other, NativeMethods.HwndTopMost, flags);
-                return DeferOne(stack, focus, NativeMethods.HwndTopMost, flags);
-            }))
-        {
-            Place(other, NativeMethods.HwndTopMost, "topmost-other");
-            Place(focus, NativeMethods.HwndTopMost, "topmost-focus");
-        }
-
+        // One window at a time, each in its own DPI context. A combined
+        // DeferWindowPos runs on this thread's context and can resize the
+        // window that does not match it, even with a zero size.
+        Place(other, NativeMethods.HwndTopMost, "topmost-other");
+        Place(focus, NativeMethods.HwndTopMost, "topmost-focus");
         ActivateFocus(focus);
-
-        if (!Defer(stack =>
-            {
-                if (!otherWas)
-                    stack = DeferOne(stack, other, NativeMethods.HwndNoTopMost, flags);
-                if (!focusWas)
-                    stack = DeferOne(stack, focus, NativeMethods.HwndNoTopMost, flags);
-                return stack;
-            }))
-        {
-            if (!otherWas) Place(other, NativeMethods.HwndNoTopMost, "notop-other");
-            if (!focusWas) Place(focus, NativeMethods.HwndNoTopMost, "notop-focus");
-        }
-
+        if (!otherWas) Place(other, NativeMethods.HwndNoTopMost, "notop-other");
+        if (!focusWas) Place(focus, NativeMethods.HwndNoTopMost, "notop-focus");
         Place(other, focus, "under-focus-after-topmost");
         return true;
     }
 
     static bool ActivateFocus(nint focus)
     {
+        using var dpi = DpiScope.Enter(focus);
         NativeMethods.SetForegroundWindow(focus);
         NativeMethods.BringWindowToTop(focus);
         if (NativeMethods.GetForegroundWindow() == focus) return true;
-        NativeMethods.SwitchToThisWindow(focus, true);
+        // false: the Alt-Tab form of this call restores maximized and snapped windows.
+        NativeMethods.SwitchToThisWindow(focus, false);
         return NativeMethods.GetForegroundWindow() == focus;
     }
-
-    const uint PlaceFlags =
-        NativeMethods.SwpNoMove | NativeMethods.SwpNoSize | NativeMethods.SwpNoActivate
-        | NativeMethods.SwpNoOwnerZOrder | NativeMethods.SwpNoSendChanging;
 
     static bool Place(nint hwnd, nint after, string label)
     {
         if (hwnd == 0) return false;
-        var ok = NativeMethods.SetWindowPos(hwnd, after, 0, 0, 0, 0, PlaceFlags);
+        using var dpi = DpiScope.Enter(hwnd);
+        var ok = NativeMethods.SetWindowPos(hwnd, after, 0, 0, 0, 0, ActivationPolicy.PreserveZOrder);
         if (!ok)
             AppLog.Info($"Pair SetWindowPos {label} 0x{hwnd:X} after 0x{after:X} failed {Marshal.GetLastWin32Error()}.");
         return ok;
-    }
-
-    static bool Defer(Func<nint, nint> fill)
-    {
-        var stack = NativeMethods.BeginDeferWindowPos(2);
-        if (stack == 0)
-        {
-            AppLog.Info($"Pair BeginDeferWindowPos failed {Marshal.GetLastWin32Error()}.");
-            return false;
-        }
-        stack = fill(stack);
-        if (stack == 0) return false;
-        var ok = NativeMethods.EndDeferWindowPos(stack);
-        if (!ok)
-            AppLog.Info($"Pair EndDeferWindowPos failed {Marshal.GetLastWin32Error()}.");
-        return ok;
-    }
-
-    static nint DeferOne(nint stack, nint hwnd, nint after, uint flags)
-    {
-        if (stack == 0 || hwnd == 0) return stack;
-        var next = NativeMethods.DeferWindowPos(stack, hwnd, after, 0, 0, 0, 0, flags);
-        if (next == 0)
-            AppLog.Info($"Pair DeferWindowPos 0x{hwnd:X} after 0x{after:X} failed {Marshal.GetLastWin32Error()}.");
-        return next;
     }
 
     static bool IsTopMost(nint hwnd) =>
@@ -285,10 +252,11 @@ internal static class WindowActions
         if (hwnd == 0 || !NativeMethods.IsWindow(hwnd)) return false;
         try
         {
-            if (NativeMethods.IsIconic(hwnd))
-                NativeMethods.ShowWindow(hwnd, NativeMethods.SwRestore);
-            else
-                NativeMethods.ShowWindow(hwnd, NativeMethods.SwShow);
+            var raw = ReadInContext(hwnd);
+            var show = ActivationPolicy.ShowCommand(raw.Iconic, raw.Visible);
+            if (show is int command)
+                ShowInContext(hwnd, command);
+            var kept = raw.Iconic ? ReadInContext(hwnd) : raw;
 
             var foreground = NativeMethods.GetForegroundWindow();
             var targetThread = NativeMethods.GetWindowThreadProcessId(hwnd, out _);
@@ -304,16 +272,20 @@ internal static class WindowActions
 
             NativeMethods.LockSetForegroundWindow(2);
             NativeMethods.AllowSetForegroundWindow(-1);
-            NativeMethods.SetForegroundWindow(hwnd);
-            NativeMethods.BringWindowToTop(hwnd);
-            if (NativeMethods.GetForegroundWindow() != hwnd)
-                NativeMethods.SwitchToThisWindow(hwnd, true);
+            using (DpiScope.Enter(hwnd))
+            {
+                NativeMethods.SetForegroundWindow(hwnd);
+                NativeMethods.BringWindowToTop(hwnd);
+                if (NativeMethods.GetForegroundWindow() != hwnd)
+                    NativeMethods.SwitchToThisWindow(hwnd, false);
+            }
 
             if (attachedTarget)
                 NativeMethods.AttachThreadInput(thisThread, targetThread, false);
             if (attachedForeground)
                 NativeMethods.AttachThreadInput(thisThread, foregroundThread, false);
 
+            KeepFrame(hwnd, kept, "activate");
             var active = NativeMethods.GetForegroundWindow() == hwnd;
             if (!active)
                 AppLog.Info($"Activate failed for 0x{hwnd:X}.");
@@ -323,6 +295,97 @@ internal static class WindowActions
         {
             AppLog.Error(ex);
             return false;
+        }
+    }
+
+    static void ShowInContext(nint hwnd, int command)
+    {
+        using var dpi = DpiScope.Enter(hwnd);
+        NativeMethods.ShowWindow(hwnd, command);
+    }
+
+    static WindowFrame ReadInContext(nint hwnd)
+    {
+        using var dpi = DpiScope.Enter(hwnd);
+        return ReadFrame(hwnd);
+    }
+
+    static WindowFrame ReadFrame(nint hwnd)
+    {
+        var left = 0;
+        var top = 0;
+        var width = 0;
+        var height = 0;
+        if (NativeMethods.GetWindowRect(hwnd, out var rect))
+        {
+            left = rect.Left;
+            top = rect.Top;
+            width = Math.Max(0, rect.Right - rect.Left);
+            height = Math.Max(0, rect.Bottom - rect.Top);
+        }
+        return new WindowFrame(
+            left,
+            top,
+            width,
+            height,
+            NativeMethods.IsIconic(hwnd),
+            NativeMethods.IsZoomed(hwnd),
+            NativeMethods.IsWindowVisible(hwnd));
+    }
+
+    /// <summary>
+    /// Put a window back if z-order or foreground calls changed its frame.
+    /// Runs in the window's DPI context so the saved physical rect is not scaled.
+    /// </summary>
+    static void KeepFrame(nint hwnd, WindowFrame before, string label)
+    {
+        if (hwnd == 0 || !NativeMethods.IsWindow(hwnd)) return;
+        using var dpi = DpiScope.Enter(hwnd);
+        var after = ReadFrame(hwnd);
+        if (!ActivationPolicy.FrameDrifted(before, after))
+        {
+            AppLog.Info($"Activate frame {label} 0x{hwnd:X} before {before} after {after} drifted=false");
+            return;
+        }
+
+        AppLog.Info($"Activate frame {label} 0x{hwnd:X} before {before} after {after} drifted=true");
+        if (ActivationPolicy.LostMaximized(before, after))
+            NativeMethods.ShowWindow(hwnd, ActivationPolicy.SwShowMaximized);
+        else
+            NativeMethods.SetWindowPos(
+                hwnd,
+                0,
+                before.X,
+                before.Y,
+                before.Width,
+                before.Height,
+                NativeMethods.SwpNoZOrder | NativeMethods.SwpNoActivate);
+        AppLog.Info($"Activate frame {label} 0x{hwnd:X} restored {ReadFrame(hwnd)}");
+    }
+
+    readonly struct DpiScope : IDisposable
+    {
+        readonly nint _previous;
+        readonly bool _active;
+
+        DpiScope(nint previous, bool active)
+        {
+            _previous = previous;
+            _active = active;
+        }
+
+        public static DpiScope Enter(nint hwnd)
+        {
+            if (hwnd == 0) return default;
+            var context = NativeMethods.GetWindowDpiAwarenessContext(hwnd);
+            if (context == 0) return default;
+            var previous = NativeMethods.SetThreadDpiAwarenessContext(context);
+            return new DpiScope(previous, previous != 0);
+        }
+
+        public void Dispose()
+        {
+            if (_active) NativeMethods.SetThreadDpiAwarenessContext(_previous);
         }
     }
 

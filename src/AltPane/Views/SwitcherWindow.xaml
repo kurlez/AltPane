@@ -146,7 +146,8 @@
                    Focusable="False"
                    IsTextSearchEnabled="False"
                    ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                   VirtualizingPanel.IsVirtualizing="False"
+                   VirtualizingPanel.IsVirtualizing="True"
+                   VirtualizingPanel.VirtualizationMode="Recycling"
                    HorizontalContentAlignment="Stretch"
                    PreviewMouseRightButtonDown="List_PreviewMouseRightButtonDown"
                    PreviewMouseDown="List_PreviewMouseDown">

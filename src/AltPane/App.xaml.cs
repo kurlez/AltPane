@@ -14,11 +14,13 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        ThreadPool.SetMinThreads(4, 4);
         DispatcherUnhandledException += OnDispatcherException;
-        AppDomain.CurrentDomain.UnhandledException += (_, args) =>
+        AppDomain.CurrentDomain.UnhandledException += (_, args) => LogUnhandled(args.ExceptionObject, args.IsTerminating);
+        TaskScheduler.UnobservedTaskException += (_, args) =>
         {
-            if (args.ExceptionObject is Exception ex) AppLog.Error(ex);
-            try { _host?.EmergencyUnhook(); } catch { }
+            LogUnhandled(args.Exception, terminating: false);
+            args.SetObserved();
         };
 
         try
@@ -93,10 +95,23 @@ public partial class App : Application
         base.OnExit(e);
     }
 
+    void LogUnhandled(object? error, bool terminating)
+    {
+        try
+        {
+            var text = error is Exception ex ? ex.ToString() : error?.ToString() ?? "(null)";
+            AppLog.Error($"unhandled exception terminating={terminating}{Environment.NewLine}{text}");
+        }
+        catch
+        {
+            // Logging must not throw from the crash path.
+        }
+        try { _host?.EmergencyUnhook(); } catch { }
+    }
+
     void OnDispatcherException(object sender, DispatcherUnhandledExceptionEventArgs e)
     {
-        AppLog.Error(e.Exception);
-        try { _host?.EmergencyUnhook(); } catch { }
+        LogUnhandled(e.Exception, terminating: true);
         e.Handled = true;
         MessageBox.Show(
             Core.Localization.Localizer.Current["crash.body"] + Environment.NewLine + Environment.NewLine + e.Exception.Message,

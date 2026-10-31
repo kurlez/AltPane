@@ -701,6 +701,15 @@ public partial class SwitcherWindow : Window
     public void HideSwitcher()
     {
         if (IsVisible) Hide();
+        ReleaseIdleVisuals();
+    }
+
+    /// <summary>Drop the realized row tree while the window is hidden. The next open fills it again.</summary>
+    public void ReleaseIdleVisuals()
+    {
+        if (IsVisible) return;
+        if (_rows.Count > 0) _rows.Clear();
+        if (_sidebarRows.Count > 0) _sidebarRows.Clear();
     }
 
     public void ForceClose()

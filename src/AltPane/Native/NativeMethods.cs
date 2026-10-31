@@ -256,6 +256,12 @@ internal static class NativeMethods
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool SetWindowPos(nint hWnd, nint hWndInsertAfter, int x, int y, int cx, int cy, uint uFlags);
 
+    [DllImport("user32.dll")]
+    public static extern nint GetWindowDpiAwarenessContext(nint hwnd);
+
+    [DllImport("user32.dll")]
+    public static extern nint SetThreadDpiAwarenessContext(nint value);
+
     [DllImport("user32.dll", SetLastError = true)]
     public static extern nint BeginDeferWindowPos(int nNumWindows);
 

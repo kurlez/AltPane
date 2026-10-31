@@ -83,7 +83,7 @@ internal sealed class AppHost : IDisposable
         {
             try
             {
-                AppLog.Info($"working set periodic {ProcessFootprint.Megabytes()} MB");
+                AppLog.Info($"working set periodic {ProcessFootprint.Megabytes()} MB, private {ProcessFootprint.PrivateMegabytes()} MB");
             }
             catch (Exception ex)
             {
@@ -106,7 +106,7 @@ internal sealed class AppHost : IDisposable
         try
         {
             ProcessFootprint.Trim();
-            AppLog.Info($"working set startup {ProcessFootprint.Megabytes()} MB");
+            AppLog.Info($"working set startup {ProcessFootprint.Megabytes()} MB, private {ProcessFootprint.PrivateMegabytes()} MB");
         }
         catch (Exception ex)
         {

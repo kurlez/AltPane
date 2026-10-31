@@ -9,9 +9,9 @@ namespace AltPane;
 internal static class IconLoader
 {
     public const int Edge = 32;
-    const int HitCapacity = 256;
-    const int PendingCapacity = 64;
-    const int MissCapacity = 1024;
+    const int HitCapacity = 96;
+    const int PendingCapacity = 24;
+    const int MissCapacity = 256;
 
     static readonly object Gate = new();
     static readonly LruCache<ImageSource> Hits = new(HitCapacity);
@@ -189,6 +189,16 @@ internal static class IconLoader
                 }
                 foreach (var key in stale) Misses.Remove(key);
             }
+        }
+    }
+
+    /// <summary>Drop decoded pixel buffers kept for a later UI pass. Frozen images stay in the small LRU.</summary>
+    public static void ReleaseIdle()
+    {
+        lock (Gate)
+        {
+            Pending.Clear();
+            Misses.Clear();
         }
     }
 

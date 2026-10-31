@@ -145,9 +145,14 @@ internal sealed class SwitcherDeck
         finally
         {
             foreach (var window in windows)
+            {
+                window.ReleaseIdleVisuals();
                 window.PopGuard();
+            }
         }
         _click = null;
+        IconLoader.ReleaseIdle();
+        ProcessFootprint.ScheduleTrim();
     }
 
     public void ForceClose()

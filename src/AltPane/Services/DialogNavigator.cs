@@ -34,6 +34,8 @@ internal static class DialogEdit
         FileDialogNative.SendMessage(dialog, FileDialogNative.CdmSetControlText, FileDialogClassifier.FileNameControlId, value);
         FileDialogNative.SendMessage(edit, FileDialogNative.WmSetText, 0, value);
         var parent = FileDialogNative.GetParent(edit);
+        if (parent != 0 && parent != dialog && parent != edit)
+            FileDialogNative.SendMessage(parent, FileDialogNative.WmSetText, 0, value);
         if (parent != 0 && parent != edit)
         {
             var editId = FileDialogNative.GetDlgCtrlID(edit);
@@ -52,6 +54,7 @@ internal static class DialogEdit
         // edit is missing, or the dialog can close on the old name.
         var edit = Find(dialog);
         if (edit == 0) return;
+        FileDialogNative.SendMessage(dialog, FileDialogNative.WmNextDlgCtl, edit, 1);
         var packed = FileDialogNative.SendMessage(dialog, FileDialogNative.DmGetDefId, 0, 0).ToInt64();
         var id = (int)(packed & 0xFFFF);
         var hasDefault = ((packed >> 16) & 0xFFFF) == FileDialogNative.DcHasDefId;
@@ -89,7 +92,7 @@ internal static class DialogAddress
         try
         {
             var root = AutomationElement.FromHandle(dialog);
-            var match = root is null ? null : Find(root, 80);
+            var match = root is null ? null : Find(root, 400);
             return match?.Current.Name ?? "";
         }
         catch (Exception ex)
@@ -104,7 +107,7 @@ internal static class DialogAddress
         try
         {
             var root = AutomationElement.FromHandle(dialog);
-            var match = root is null ? null : Find(root, 80);
+            var match = root is null ? null : Find(root, 400);
             if (match is null) return false;
             var target = match;
             if (!target.TryGetCurrentPattern(ValuePattern.Pattern, out _))
@@ -188,85 +191,6 @@ internal static class DialogAddress
     }
 }
 
-internal static class ShellDialogBrowse
-{
-    const int BrowseSlot = 11;
-
-    [System.Runtime.InteropServices.UnmanagedFunctionPointer(System.Runtime.InteropServices.CallingConvention.StdCall)]
-    delegate int BrowseObjectDelegate(nint self, nint pidl, uint flags);
-
-    [System.Runtime.InteropServices.DllImport("shell32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
-    static extern int SHParseDisplayName(string name, nint bindContext, out nint pidl, uint attributes, out uint fetched);
-
-    [System.Runtime.InteropServices.DllImport("shell32.dll")]
-    static extern void ILFree(nint pidl);
-
-    public static bool TryBrowse(nint dialog, string folder)
-    {
-        nint pidl = 0;
-        try
-        {
-            var parsed = SHParseDisplayName(folder, 0, out pidl, 0, out _);
-            if (parsed != 0 || pidl == 0)
-            {
-                AppLog.Info($"file dialog shell browse parse failed hr=0x{parsed:X8} path={folder}");
-                return false;
-            }
-            var view = FindShellView(dialog);
-            var browser = view == 0 ? 0 : FileDialogNative.SendMessage(view, FileDialogNative.WmGetIShellBrowser, 0, 0);
-            if (!LooksLikePointer(browser))
-                browser = FileDialogNative.SendMessage(dialog, FileDialogNative.WmGetIShellBrowser, 0, 0);
-            if (!LooksLikePointer(browser))
-            {
-                AppLog.Info($"file dialog shell browse no view path={folder}");
-                return false;
-            }
-            var hr = CallBrowse(browser, pidl);
-            var ok = hr == 0;
-            AppLog.Info($"file dialog shell browse ok={ok} hr=0x{hr:X8} view=0x{view:X} path={folder}");
-            return ok;
-        }
-        catch (Exception ex)
-        {
-            AppLog.Error(ex);
-            return false;
-        }
-        finally
-        {
-            if (pidl != 0) ILFree(pidl);
-        }
-    }
-
-    static bool LooksLikePointer(nint value) => value.ToInt64() > 0x10000;
-
-    static int CallBrowse(nint browser, nint pidl)
-    {
-        var vtable = System.Runtime.InteropServices.Marshal.ReadIntPtr(browser);
-        var slot = System.Runtime.InteropServices.Marshal.ReadIntPtr(vtable, BrowseSlot * IntPtr.Size);
-        var browse = System.Runtime.InteropServices.Marshal.GetDelegateForFunctionPointer<BrowseObjectDelegate>(slot);
-        return browse(browser, pidl, FileDialogNative.SbspAbsolute | FileDialogNative.SbspSameBrowser);
-    }
-
-    static nint FindShellView(nint dialog)
-    {
-        nint found = 0;
-        EnumWindowsProc callback = (child, _) =>
-        {
-            var buffer = new System.Text.StringBuilder(64);
-            NativeMethods.GetClassName(child, buffer, buffer.Capacity);
-            if (buffer.ToString() == "SHELLDLL_DefView")
-            {
-                found = child;
-                return false;
-            }
-            return true;
-        };
-        NativeMethods.EnumChildWindows(dialog, callback, 0);
-        GC.KeepAlive(callback);
-        return found;
-    }
-}
-
 internal sealed class LiveDialogSurface : IDialogSurface
 {
     readonly nint _dialog;
@@ -280,6 +204,7 @@ internal sealed class LiveDialogSurface : IDialogSurface
     }
 
     public FileDialogKind Kind { get; }
+    public string LastDetail { get; private set; } = "";
 
     public string FileName
     {
@@ -294,42 +219,68 @@ internal sealed class LiveDialogSurface : IDialogSurface
         if (_dialog != 0) WindowActions.TryActivate(_dialog);
     }
 
-    public bool TryBrowseShell(string folder)
-    {
-        if (!ShellDialogBrowse.TryBrowse(_dialog, folder)) return false;
-        var address = DialogAddress.Read(_dialog);
-        _location = FolderPath.Same(address, folder) || FolderPath.Landed("", address, folder)
-            ? address
-            : folder;
-        return true;
-    }
-
     public void SubmitFileName()
     {
-        var submitted = DialogEdit.Read(_dialog);
+        var submitted = DialogEdit.Read(_dialog).Trim();
+        if (submitted.Length < 3 || !(submitted.EndsWith('\\') || submitted.EndsWith('/')))
+        {
+            LastDetail = "edit-rejected";
+            AppLog.Info($"file dialog filename edit rejected on 0x{_dialog:X} read=\"{TrimLog(submitted)}\"");
+            return;
+        }
         DialogEdit.Submit(_dialog);
         var edit = DialogEdit.Read(_dialog);
         var address = DialogAddress.Read(_dialog);
-        if (FolderPath.Landed(_location, address, submitted) || FolderPath.Same(address, submitted))
-            _location = string.IsNullOrWhiteSpace(address) ? submitted : address;
-        else if (!string.Equals(edit, submitted, StringComparison.OrdinalIgnoreCase))
-            _location = string.IsNullOrWhiteSpace(address) ? submitted : address;
-        else if (!string.IsNullOrWhiteSpace(address))
+        if (FolderPath.Landed(_location, address, submitted) || FolderPath.Same(address, submitted) || Cleared(edit))
+        {
+            _location = FolderPath.Same(address, submitted) || FolderPath.Landed(_location, address, submitted)
+                ? (string.IsNullOrWhiteSpace(address) ? submitted : address)
+                : FolderPath.Normalize(submitted);
+            LastDetail = "ok";
+            return;
+        }
+        LastDetail = "not-consumed";
+        AppLog.Info($"file dialog filename not consumed on 0x{_dialog:X} edit=\"{TrimLog(edit)}\" address=\"{TrimLog(address)}\"");
+        if (!string.IsNullOrWhiteSpace(address))
             _location = address;
     }
 
     public bool TryNavigateAddress(string folder)
     {
-        if (!DialogAddress.TrySet(_dialog, folder)) return false;
+        if (!DialogAddress.TrySet(_dialog, folder))
+        {
+            LastDetail = "address-missing";
+            return false;
+        }
         var address = DialogAddress.Read(_dialog);
         if (string.IsNullOrWhiteSpace(address)
             || FolderPath.Landed(_location, address, folder)
             || FolderPath.Same(address, folder))
         {
             _location = string.IsNullOrWhiteSpace(address) ? folder : address;
+            LastDetail = "ok";
             return true;
         }
         _location = address;
-        return FolderPath.Landed("", address, folder);
+        LastDetail = "address-unchanged";
+        return false;
+    }
+
+    /// <summary>
+    /// The dialog cleared the filename box, which is what an Open dialog does after
+    /// it accepts a folder. A box that still holds the previous file name is not
+    /// success: that used to skip the address bar.
+    /// </summary>
+    static bool Cleared(string? edit)
+    {
+        var left = (edit ?? "").Trim().Trim('"');
+        return left.Length == 0;
+    }
+
+    static string TrimLog(string? text)
+    {
+        if (string.IsNullOrEmpty(text)) return "";
+        var flat = text.Replace('\r', ' ').Replace('\n', ' ').Trim();
+        return flat.Length <= 80 ? flat : flat[..80];
     }
 }
