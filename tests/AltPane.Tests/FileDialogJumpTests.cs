@@ -416,17 +416,20 @@ public class DialogPanelAndVersionTests
         Assert.Equal("0.4.13", ProductVersion.Display(new Version(0, 4, 13, 0)));
         Assert.Equal("0.4.14", ProductVersion.Display(new Version(0, 4, 14, 0)));
         Assert.Equal("0.4.15", ProductVersion.Display(new Version(0, 4, 15, 0)));
-        Assert.Equal("0.4.15", ProductVersion.Display(null));
+        Assert.Equal("0.4.16", ProductVersion.Display(new Version(0, 4, 16, 0)));
+        Assert.Equal("0.4.16", ProductVersion.Display(null));
         Assert.True(ProductVersion.Compare("0.4.11", "0.4.12") < 0);
         Assert.True(ProductVersion.Compare("0.4.12", "0.4.13") < 0);
         Assert.True(ProductVersion.Compare("0.4.13", "0.4.14") < 0);
         Assert.True(ProductVersion.Compare("0.4.14", "0.4.15") < 0);
+        Assert.True(ProductVersion.Compare("0.4.15", "0.4.16") < 0);
         Assert.Equal("0.4.10.0", ProductVersion.AssemblyVersion("v0.4.10"));
         Assert.Equal("0.4.11.0", ProductVersion.AssemblyVersion("v0.4.11"));
         Assert.Equal("0.4.12.0", ProductVersion.AssemblyVersion("v0.4.12"));
         Assert.Equal("0.4.13.0", ProductVersion.AssemblyVersion("v0.4.13"));
         Assert.Equal("0.4.14.0", ProductVersion.AssemblyVersion("v0.4.14"));
         Assert.Equal("0.4.15.0", ProductVersion.AssemblyVersion("v0.4.15"));
+        Assert.Equal("0.4.16.0", ProductVersion.AssemblyVersion("v0.4.16"));
         Assert.Equal("0.4.10.0", ProductVersion.AssemblyVersion("0.4.10"));
         Assert.False(ProductVersion.TryParse("0.4", out _));
     }
