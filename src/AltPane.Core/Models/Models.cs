@@ -185,7 +185,6 @@ public enum FileDialogPanelEdge
 
 public sealed class AppSettings
 {
-    public string CodexExecutable { get; set; } = "codex.exe";
     /// <summary>
     /// 1 is a v0.1.0 file (Win+Tab capture defaulted off). v0.2.0 still wrote 1, and is
     /// recognized by the presence of stickySwitcher. 3 is a file saved by v0.3.0.

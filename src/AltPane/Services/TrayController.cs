@@ -37,7 +37,6 @@ internal sealed class TrayController : IDisposable
         _menu.Items.Clear();
         Add(loc["tray.open"], () => _host.OpenSwitcher());
         Add(loc["tray.settings"], () => _host.ShowSettings());
-        Add("Codex AI · 翻译 / 格式整理 (Ctrl+Alt+J)", () => _host.ShowAiText(""));
         Add("关于", () => _host.ShowAbout());
         _menu.Items.Add(new WinForms.ToolStripSeparator());
         Add(settings.OverridePaused ? loc["tray.resume"] : loc["tray.pause"], () => _host.TogglePause());

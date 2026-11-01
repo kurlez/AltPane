@@ -19,8 +19,6 @@ internal sealed class AppHost : IDisposable
     readonly TrayController _tray;
     SettingsWindow? _settingsWindow;
     AboutWindow? _aboutWindow;
-    AiTextWindow? _aiWindow;
-    AiSelectionHotkey? _aiHotkey;
     bool _recording;
     bool _disposed;
     bool _migrated;
@@ -69,9 +67,6 @@ internal sealed class AppHost : IDisposable
         _files.Start();
         _dialogs.Start();
         _tray.Show();
-        _aiHotkey = new AiSelectionHotkey(ShowAiText);
-        if (!_aiHotkey.Registered)
-            _tray.Balloon("Ctrl+Alt+J 已被占用。仍可通过托盘菜单打开 Codex AI。");
         if (!Settings.OverridePaused && !_hotkeys.Install())
             _tray.Balloon(Localizer.Current["settings.hookFailed"]);
         if (_migrated)
@@ -120,28 +115,6 @@ internal sealed class AppHost : IDisposable
     }
 
     public void OpenSwitcher() => _hotkeys.RequestOpenFromTray();
-
-    public void ShowAiText(string text)
-    {
-        _hotkeys.RequestCancel();
-        if (_aiWindow is { IsVisible: true })
-        {
-            if (!string.IsNullOrWhiteSpace(text))
-                _tray.Balloon("AI 窗口已打开。请先处理当前内容，或关闭后重新选择文字。");
-            if (_aiWindow.WindowState == System.Windows.WindowState.Minimized)
-                _aiWindow.WindowState = System.Windows.WindowState.Normal;
-            _aiWindow.Activate();
-            return;
-        }
-        _aiWindow = new AiTextWindow(text, Settings.CodexExecutable, executable =>
-        {
-            Settings.CodexExecutable = executable;
-            TrySave();
-        });
-        _aiWindow.Closed += (_, _) => _aiWindow = null;
-        _aiWindow.Show();
-        _aiWindow.Activate();
-    }
 
     public void ShowSettings()
     {
@@ -227,8 +200,6 @@ internal sealed class AppHost : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
-        try { _aiHotkey?.Dispose(); } catch { }
-        try { _aiWindow?.Close(); } catch { }
         try { SystemEvents.UserPreferenceChanged -= OnPreference; } catch { }
         try { _dialogs.Dispose(); } catch (Exception ex) { AppLog.Error(ex); }
         try { _hotkeys.Uninstall(); } catch (Exception ex) { AppLog.Error(ex); }
@@ -245,8 +216,6 @@ internal sealed class AppHost : IDisposable
 
     void UpdateSettings(AppSettings draft)
     {
-        // The AI window saves independently of an already-open settings draft.
-        draft.CodexExecutable = Settings.CodexExecutable;
         draft.WelcomeShown = Settings.WelcomeShown;
         Settings = draft;
         AppLog.Verbose = Settings.VerboseLog;

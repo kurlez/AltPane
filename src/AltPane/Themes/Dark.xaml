@@ -1,7 +1,7 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-  <SolidColorBrush x:Key="WindowBgBrush" Color="#FF1B1C22"/>
-  <SolidColorBrush x:Key="SettingsBgBrush" Color="#FF1B1C22"/>
+  <SolidColorBrush x:Key="WindowBgBrush" Color="#FF181818"/>
+  <SolidColorBrush x:Key="SettingsBgBrush" Color="#FF181818"/>
   <SolidColorBrush x:Key="WindowEdgeBrush" Color="#FFB9C6FF"/>
   <SolidColorBrush x:Key="WindowEdgeInnerBrush" Color="#FF101114"/>
   <SolidColorBrush x:Key="SurfaceBrush" Color="#14FFFFFF"/>

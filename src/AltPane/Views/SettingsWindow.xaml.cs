@@ -608,7 +608,6 @@ public partial class SettingsWindow : Window
 
     static AppSettings Copy(AppSettings source) => new()
     {
-        CodexExecutable = source.CodexExecutable,
         Version = source.Version,
         Hotkey = new HotkeyChord
         {

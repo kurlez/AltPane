@@ -226,8 +226,8 @@ public class WindowFrameTests
         Assert.NotEqual(WindowFrame.BorderColor(true), WindowFrame.BorderColor(false));
         Assert.Equal(0x00FFC6B9, WindowFrame.BorderColor(true));
         Assert.Equal(0x00AD3A1E, WindowFrame.BorderColor(false));
-        Assert.Equal(0x00221C1B, WindowFrame.CaptionColor(true));
-        Assert.Equal(0x00F8F7F7, WindowFrame.CaptionColor(false));
+        Assert.Equal(0x00181818, WindowFrame.CaptionColor(true));
+        Assert.Equal(0x00E8E8E8, WindowFrame.CaptionColor(false));
         Assert.StartsWith("#FF", WindowFrame.WindowBackgroundHex(true));
         Assert.StartsWith("#FF", WindowFrame.WindowBackgroundHex(false));
     }

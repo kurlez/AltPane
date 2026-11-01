@@ -10,9 +10,9 @@ Publishing steps, including winget and a future SignPath signature, are in [RELE
 
 ## Features
 
-New in **0.4.16**: local Codex text translation and formatting, with selection
-capture, an AI window, and an official Codex login entry. See
-[release notes](RELEASE_NOTES_v0.4.16.md) and [setup instructions](#codex-ai-text-processing).
+**0.4.17** removes the Codex bridge, AI text window and login integration added
+in 0.4.16. Window backgrounds now use a slightly darker neutral gray in both
+themes. See [release notes](RELEASE_NOTES_v0.4.17.md).
 
 - Low-level keyboard hook overrides Alt+Tab and Alt+Shift+Tab. By default, releasing the trigger key leaves the switcher open (sticky mode). Enter or a click activates the selected window. Esc, or a click outside the switcher, cancels and restores the previous foreground window. Classic release-to-switch is a setting.
 - The hotkey is configurable. Win+Tab opens AltPane as well, unless that setting is turned off. A settings file written by 0.1.0 stored Win+Tab as off because that was the old implicit default. Loading that file turns Win+Tab capture, sticky mode, and the other 0.2 defaults on, and keeps the hotkey, theme, exclusions, and startup choice. A file that already contains `stickySwitcher` keeps an explicit off. The schema version is then stamped as 9. Schema 9 adds file-dialog quick jump (on by default, Ctrl+G, panel on the bottom edge). Settings shows whether Win+Tab is on or off. `showPreview`, `previewMinimized`, and `showOtherMonitorHints` from older files are ignored and left out of the next save. A file that was still on the old default, initial letter or stable grouped, moves to Focus time. An explicit Recent, app name, CPU, or memory choice stays. App name is still in the sort list, and choosing it again keeps it.
@@ -147,46 +147,6 @@ Startup registration writes the quoted path of the real executable to `HKCU\Soft
 Logs: `%APPDATA%\AltPane\altpane.log` (rotated to `altpane.log.old` around 1 MB). Startup records whether Win+Tab capture is on. Settings can also log each Win and Tab the hook sees. The tray menu has “Open log folder”.
 
 The app index is `%APPDATA%\AltPane\apps.json`. Launch counts and last-used times are `%APPDATA%\AltPane\launches.json`. Decayed focus time for the default sort is `%APPDATA%\AltPane\usage.json`, rewritten a few seconds after it changes. Both are rewritten only after the background scan changes, so the first Alt+Tab after startup reads whatever is already in memory. Settings choose the sources (Start Menu, Store, Desktop, PATH) and an exclusion list. A name matches the display name, process name, or file name. A token that contains `\` or `/` hides every app under that folder. PATH indexing skips `Windows\System32`, `SysWOW64`, and `WinSxS`. Duplicate targets keep the Start Menu or Store name over a desktop shortcut.
-
-## Codex AI text processing
-
-Install the official Codex CLI on Windows, open AltPane's AI window from the tray,
-and click **Sign in / 登录 Codex**. Complete the official Codex browser or console
-login flow. AltPane checks the login status automatically after the login process
-exits; **Check login / 检查登录** refreshes it at any time. Opening the AI window
-also checks status. Credentials remain managed by Codex; AltPane does not read,
-store or log tokens or account details. Cancel or closing the AI window stops the
-login process; any browser window already opened remains under your control.
-Login has a ten-minute timeout, and status checks have a fifteen-second timeout.
-If login was already authorized before cancellation, recheck its status.
-Select text in an application, then press **Ctrl+Alt+J** to open AltPane's AI window.
-Choose **Translate** (Simplified Chinese, English, or Japanese) or **Format**, review
-the input, and click **Run**. Copy the result when finished. If the application does
-not expose its selection through Windows UI Automation, copy the text yourself and
-use **Paste**. The tray menu also opens the AI window. If the shortcut is occupied,
-AltPane reports this and the tray entry remains available.
-
-The executable defaults to `codex.exe` on PATH. Use the AI window's file picker to
-select the native executable if necessary; `.cmd` and `.bat` wrappers are not
-supported. The path is saved in `settings.json` as `codexExecutable`. No separate
-API key is requested: the bridge uses the CLI's existing login and configuration.
-
-Each request starts a local `codex exec` process in a temporary working directory
-with the read-only sandbox and sends the prompt through standard input. It does
-not expose an HTTP port. Clicking Run sends the input to the CLI's configured AI
-service. AltPane does not log the input or result; the CLI's own retention follows
-its configuration. Temporary result files are removed after the request when
-possible. Cancel, closing the window, or a two-minute timeout stops the process
-tree. Results are copied only on request; source applications are never modified.
-Windows selection capture and desktop interaction require manual Windows testing.
-On Windows, verify the Sign in button opens the official login flow, successful
-login is reflected in the AI window, cancellation and missing CLI errors work,
-and Check login refreshes the status after a login outside AltPane.
-Also verify selection capture in Notepad, translation after login,
-formatting without changing the source application, Paste/Copy, Cancel and closing
-during a request. Also verify an unavailable executable, a logged-out CLI, and a
-Ctrl+Alt+J conflict produce usable feedback. Automated bridge tests use a fake CLI;
-they do not verify a live Codex account or service response.
 
 ## Build
 

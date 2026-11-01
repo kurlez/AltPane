@@ -24,7 +24,7 @@ public static class WindowFrame
     public static bool IsSheetOfGlass(FrameMargins margins) =>
         margins.Left < 0 || margins.Right < 0 || margins.Top < 0 || margins.Bottom < 0;
 
-    public static string WindowBackgroundHex(bool dark) => dark ? "#FF1B1C22" : "#FFF7F7F8";
+    public static string WindowBackgroundHex(bool dark) => dark ? "#FF181818" : "#FFE8E8E8";
 
     public static string EdgeHex(bool dark) => dark ? "#FFB9C6FF" : "#FF1E3AAD";
 
