@@ -281,6 +281,34 @@ public class CodexAppServerClientTests
     }
 
     [Fact]
+    public async Task Failed_commands_and_sandbox_warnings_are_shown_so_the_cause_is_visible()
+    {
+        var server = new FakeServer();
+        server.Script = m => m.Method == "turn/start"
+            ? new[]
+            {
+                FakeServer.Ok(m.IdRaw, "{\"turn\":{\"id\":\"u1\",\"items\":[],\"status\":\"inProgress\"}}"),
+                FakeServer.Note("windowsSandbox/setupCompleted", "{\"mode\":\"unelevated\",\"success\":false,\"error\":\"access denied\"}"),
+                FakeServer.Note("warning", "{\"message\":\"sandbox is degraded\"}"),
+                FakeServer.Note("item/completed", "{\"threadId\":\"t1\",\"turnId\":\"u1\",\"item\":{\"type\":\"commandExecution\",\"id\":\"c1\",\"command\":\"dotnet test\",\"status\":\"failed\",\"exitCode\":1,\"aggregatedOutput\":\"CreateProcessAsUser failed\"}}"),
+                FakeServer.Note("item/completed", "{\"threadId\":\"t1\",\"turnId\":\"u1\",\"item\":{\"type\":\"commandExecution\",\"id\":\"c2\",\"command\":\"dir\",\"status\":\"completed\",\"exitCode\":0,\"aggregatedOutput\":\"ok\"}}"),
+                FakeServer.Done("completed")
+            }
+            : HappyScript(m);
+        await using var client = new CodexAppServerClient(server, Options());
+        var events = new List<ImprovementEvent>();
+
+        await client.RunAsync("x", events.Add, CancellationToken.None);
+
+        Assert.Contains(events, e => e.Kind == ImprovementEventKind.Status && e.Text.Contains("access denied") && e.Text.Contains("improvementsFullAccess"));
+        Assert.Contains(events, e => e.Text == "⚠ sandbox is degraded");
+        var failed = Assert.Single(events, e => e.Text.StartsWith("✗ dotnet test"));
+        Assert.Contains("退出码 1", failed.Text);
+        Assert.Contains("CreateProcessAsUser failed", failed.Text);
+        Assert.DoesNotContain(events, e => e.Text.StartsWith("✗ dir"));
+    }
+
+    [Fact]
     public async Task Disposing_the_client_disposes_the_transport()
     {
         var server = new FakeServer();

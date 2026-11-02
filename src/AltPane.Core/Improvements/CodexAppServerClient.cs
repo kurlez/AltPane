@@ -222,6 +222,19 @@ public sealed class CodexAppServerClient : IAsyncDisposable
                 if (!string.IsNullOrWhiteSpace(text))
                     _emit(new ImprovementEvent(ImprovementEventKind.Status, text));
                 break;
+            case "warning":
+            case "guardianWarning":
+                Warn(CodexRpc.GetString(message.Params, "message"));
+                break;
+            case "configWarning":
+                Warn(CodexRpc.GetString(message.Params, "summary"));
+                break;
+            case "windowsSandbox/setupCompleted":
+                if (message.Params is { ValueKind: JsonValueKind.Object } setup
+                    && setup.TryGetProperty("success", out var success) && success.ValueKind == JsonValueKind.False)
+                    Warn("Windows 沙箱初始化失败：" + (CodexRpc.GetString(message.Params, "error") ?? "未知原因")
+                        + "。可在 settings.json 中将 improvementsFullAccess 设为 true 以关闭沙箱。");
+                break;
         }
     }
 
@@ -235,12 +248,44 @@ public sealed class CodexAppServerClient : IAsyncDisposable
                 _lastAgentText = text.Trim();
                 _emit(new ImprovementEvent(ImprovementEventKind.AgentText, _lastAgentText));
                 break;
+            case "commandExecution":
+                var failure = DescribeFailedCommand(parameters);
+                if (failure is not null)
+                    _emit(new ImprovementEvent(ImprovementEventKind.Command, failure));
+                break;
             case "fileChange":
                 var paths = ChangedPaths(parameters);
                 if (paths.Count > 0)
                     _emit(new ImprovementEvent(ImprovementEventKind.FileChange, string.Join(", ", paths)));
                 break;
         }
+    }
+
+    void Warn(string? text)
+    {
+        if (!string.IsNullOrWhiteSpace(text))
+            _emit(new ImprovementEvent(ImprovementEventKind.Status, "⚠ " + text.Trim()));
+    }
+
+    /// <summary>One line for a command that failed, was declined or exited non-zero, with the tail of its output. Null when it succeeded.</summary>
+    internal static string? DescribeFailedCommand(JsonElement? parameters)
+    {
+        if (parameters is null || parameters.Value.ValueKind != JsonValueKind.Object
+            || !parameters.Value.TryGetProperty("item", out var item) || item.ValueKind != JsonValueKind.Object)
+            return null;
+        var status = item.TryGetProperty("status", out var statusElement) && statusElement.ValueKind == JsonValueKind.String
+            ? statusElement.GetString() : null;
+        int? exitCode = item.TryGetProperty("exitCode", out var exitElement) && exitElement.ValueKind == JsonValueKind.Number
+            ? exitElement.GetInt32() : null;
+        var failed = status is "failed" or "declined" || exitCode is not null and not 0;
+        if (!failed) return null;
+        var command = item.TryGetProperty("command", out var commandElement) && commandElement.ValueKind == JsonValueKind.String
+            ? commandElement.GetString() : "";
+        var output = item.TryGetProperty("aggregatedOutput", out var outputElement) && outputElement.ValueKind == JsonValueKind.String
+            ? (outputElement.GetString() ?? "").Trim() : "";
+        if (output.Length > 400) output = "…" + output[^400..];
+        var reason = status == "declined" ? "被拒绝" : exitCode is { } code ? $"退出码 {code}" : "失败";
+        return $"✗ {command}（{reason}）" + (output.Length > 0 ? Environment.NewLine + output : "");
     }
 
     static List<string> ChangedPaths(JsonElement? parameters)
