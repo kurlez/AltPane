@@ -11,8 +11,8 @@ Publishing steps, including winget and a future SignPath signature, are in [RELE
 ## Features
 
 **0.4.18** adds **Improve AltPane…** to the tray menu: a "what should change?" box
-wired to a local `codex app-server` session that edits this source checkout, runs
-the tests and reports back. See [Improve AltPane](#improve-altpane-0418) and the
+wired to a local `codex app-server` session that edits a private clone; AltPane
+pushes a branch, GitHub builds it, and you install the download. See [Improve AltPane](#improve-altpane-0418) and the
 [release notes](RELEASE_NOTES_v0.4.18.md). 0.4.17 removed the one-shot Codex bridge
 and darkened the window backgrounds.
 
@@ -34,25 +34,27 @@ and darkened the window backgrounds.
 
 ## Improve AltPane (0.4.18)
 
-Idea: a freeform feedback box inside the app, connected to an agent that implements
-what you type, so rough edges are one sentence away from fixed. The tray menu entry
-**Improve AltPane…** opens it.
+A freeform "what should change?" box inside the app, connected to an agent that implements it.
+The tray entry **Improve AltPane…** opens it. Changes go through GitHub, not through your own checkout:
 
-- Requirements: the AltPane source checkout (the folder with `AltPane.sln`; found
-  automatically when AltPane runs from a build inside it, otherwise choose it in the
-  window) and the native Codex CLI (`codex.exe` on PATH, or `codexExecutable` in
-  `settings.json`; `.cmd`/`.bat` wrappers are refused). Run `codex login` once.
-- AltPane starts `codex app-server` (JSON lines over stdio), runs `initialize`, opens one
-  thread in the checkout with approval policy `never` and the `workspace-write` sandbox,
-  and sends each request as a turn on that thread. Later requests reuse the process and
-  context; the process is stopped after ten idle minutes. Cancel sends `turn/interrupt`.
-- Progress (commands run, files changed, the agent's summary) streams into the window.
-  Past requests and summaries are kept in `%APPDATA%\AltPane\improvements.json` (last 100).
-- The agent is told not to commit, push, publish or touch anything outside the checkout.
-  Any approval prompt Codex raises is declined. Review the result with `git diff`, then
-  rebuild to run it. Set `improvementsFullAccess` to `true` only if you want the sandbox
-  off (for example so `dotnet restore` can reach the network).
-- Settings keys: `improvementsRepository`, `codexExecutable`, `improvementsFullAccess`.
+1. AltPane keeps a private clone in `%LOCALAPPDATA%\AltPane\improve\repo` and resets it to the base branch for each request.
+2. A local `codex app-server` session edits that clone (approval policy `never`, `workspace-write` sandbox).
+3. AltPane, not the agent, commits and pushes a branch `improve/<date>-<slug>`.
+4. The existing `build.yml` workflow builds it on GitHub (tests plus the `AltPane-win-x64` artifact).
+5. AltPane waits for that run, downloads the executable with `gh run download`, and enables **Install and restart**.
+   A hidden PowerShell script waits for AltPane to exit, keeps the old file as `AltPane.exe.old`, copies the new one in and starts it.
+   If the install folder needs administrator rights the old file is restored and the reason is written to `%TEMP%\altpane-update-error.txt`.
+
+- Requirements: `git` and the GitHub CLI on PATH (`gh auth login` once, with a token that can push to the remote), and the native Codex CLI
+  (`codex.exe` on PATH, or `codexExecutable` in `settings.json`; `.cmd`/`.bat` wrappers are refused; run `codex login` once).
+- The agent is told not to run git, publish or touch anything outside the clone. Approval prompts are declined. Nothing is merged:
+  the branch stays on GitHub for you to review, merge or delete. A branch that fails the build is reported with the run link and is not installed.
+- One Codex process and thread are reused across requests and stopped after ten idle minutes. Cancel sends `turn/interrupt`.
+- Progress (commands, failed commands with output, sandbox warnings, files changed, the agent's summary, build state) streams into the window.
+  History is kept in `%APPDATA%\AltPane\improvements.json` (last 100).
+- Settings keys: `improvementsRemote` (default `https://github.com/kurlez/AltPane.git`; use your fork to keep requests out of upstream),
+  `improvementsBaseBranch` (default `main`), `codexExecutable`, `improvementsFullAccess` (default `false`; `true` removes the sandbox,
+  which you may need if Codex reports that it cannot launch commands on Windows).
 
 ## File-dialog jump safety, window size, and memory (0.4.15)
 

@@ -1,6 +1,6 @@
 namespace AltPane.Core.Improvements;
 
-/// <summary>Finds the native Codex executable and the AltPane source checkout.</summary>
+/// <summary>Finds the native Codex executable.</summary>
 public static class CodexLocator
 {
     public static string ValidateExecutable(string executable)
@@ -33,28 +33,4 @@ public static class CodexLocator
         }
         return null;
     }
-
-    /// <summary>Walks up from a folder looking for AltPane.sln. Returns the folder that holds it.</summary>
-    public static string? FindRepository(string? startDirectory)
-    {
-        if (string.IsNullOrWhiteSpace(startDirectory)) return null;
-        try
-        {
-            var directory = new DirectoryInfo(startDirectory);
-            while (directory is not null)
-            {
-                if (File.Exists(Path.Combine(directory.FullName, "AltPane.sln")))
-                    return directory.FullName;
-                directory = directory.Parent;
-            }
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
-        {
-            // Treated as not found.
-        }
-        return null;
-    }
-
-    public static bool IsRepository(string? directory) =>
-        !string.IsNullOrWhiteSpace(directory) && File.Exists(Path.Combine(directory, "AltPane.sln"));
 }

@@ -4,27 +4,27 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using AltPane.Core.Improvements;
 using AltPane.Core.Localization;
-using WinForms = System.Windows.Forms;
 
 namespace AltPane;
 
 /// <summary>
-/// "What should change?" box. The text goes to a local Codex app-server session that edits the AltPane
-/// source checkout. Progress streams into the log; past requests and the agent's summaries stay in a list.
+/// "What should change?" box. The text goes to a local Codex app-server session that edits a private clone;
+/// AltPane pushes a branch, GitHub builds it, and the finished build can be installed from here.
+/// Progress streams into the log; past requests and the agent's summaries stay in a list.
 /// </summary>
 internal sealed class ImprovementWindow : Window
 {
     readonly ImprovementService _service;
     readonly Func<ImprovementContext> _context;
-    readonly Action<string> _saveRepository;
+    readonly Func<string, bool> _install;
+    string? _builtExecutable;
     readonly string _historyPath = ImprovementHistory.DefaultPath();
     readonly List<ImprovementEntry> _history;
     readonly TextBox _input = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Padding = new Thickness(6, 4, 6, 4) };
     readonly TextBlock _hint = new() { IsHitTestVisible = false, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(11, 8, 11, 8) };
-    readonly TextBox _repo = new();
-    readonly Button _browse = new();
     readonly Button _send = new() { IsDefault = false };
     readonly Button _cancel = new() { IsEnabled = false };
+    readonly Button _installButton = new() { IsEnabled = false };
     readonly Button _close = new();
     readonly TextBox _log = new() { IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
     readonly ListBox _list = new();
@@ -32,11 +32,11 @@ internal sealed class ImprovementWindow : Window
     CancellationTokenSource? _request;
     bool _closed;
 
-    public ImprovementWindow(ImprovementService service, Func<ImprovementContext> context, string repository, Action<string> saveRepository)
+    public ImprovementWindow(ImprovementService service, Func<ImprovementContext> context, Func<string, bool> install)
     {
         _service = service;
         _context = context;
-        _saveRepository = saveRepository;
+        _install = install;
         _history = ImprovementHistory.Load(_historyPath);
         var loc = Localizer.Current;
         Title = "AltPane · " + loc["improve.title"];
@@ -46,8 +46,7 @@ internal sealed class ImprovementWindow : Window
         SetResourceReference(ForegroundProperty, "TextPrimaryBrush");
         _hint.SetResourceReference(TextBlock.ForegroundProperty, "TextSecondaryBrush");
         _hint.Text = loc["improve.hint"];
-        _repo.Text = repository;
-        _browse.Content = loc["improve.browse"];
+        _installButton.Content = loc["improve.install"];
         _send.Content = loc["improve.send"];
         _cancel.Content = loc["improve.cancel"];
         _close.Content = loc["improve.close"];
@@ -55,7 +54,7 @@ internal sealed class ImprovementWindow : Window
         var grid = new Grid { Margin = new Thickness(18) };
         foreach (var height in new[]
         {
-            GridLength.Auto, new GridLength(2, GridUnitType.Star), GridLength.Auto, GridLength.Auto,
+            GridLength.Auto, new GridLength(2, GridUnitType.Star), GridLength.Auto,
             GridLength.Auto, new GridLength(2, GridUnitType.Star), GridLength.Auto, new GridLength(1, GridUnitType.Star)
         })
             grid.RowDefinitions.Add(new RowDefinition { Height = height });
@@ -66,27 +65,18 @@ internal sealed class ImprovementWindow : Window
         inputHost.Children.Add(_hint);
         Add(grid, inputHost, 1);
 
-        var repoRow = new DockPanel();
-        DockPanel.SetDock(_browse, Dock.Right);
-        repoRow.Children.Add(_browse);
-        repoRow.Children.Add(_repo);
-        var repoBlock = new StackPanel();
-        repoBlock.Children.Add(new TextBlock { Text = loc["improve.repo"] });
-        repoBlock.Children.Add(repoRow);
-        Add(grid, repoBlock, 2);
-
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
-        foreach (var button in new[] { _send, _cancel, _close })
+        foreach (var button in new[] { _send, _cancel, _installButton, _close })
         {
             button.Padding = new Thickness(14, 4, 14, 4);
             button.Margin = new Thickness(8, 0, 0, 0);
             buttons.Children.Add(button);
         }
-        Add(grid, buttons, 3);
-        Add(grid, _status, 4);
-        Add(grid, _log, 5);
-        Add(grid, new TextBlock { Text = loc["improve.history"] }, 6);
-        Add(grid, _list, 7);
+        Add(grid, buttons, 2);
+        Add(grid, _status, 3);
+        Add(grid, _log, 4);
+        Add(grid, new TextBlock { Text = loc["improve.history"] }, 5);
+        Add(grid, _list, 6);
         Content = grid;
 
         _input.TextChanged += (_, _) => _hint.Visibility = _input.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -98,13 +88,14 @@ internal sealed class ImprovementWindow : Window
                 Send(this, new RoutedEventArgs());
             }
         };
-        _browse.Click += (_, _) =>
-        {
-            using var dialog = new WinForms.FolderBrowserDialog { SelectedPath = _repo.Text, ShowNewFolderButton = false };
-            if (dialog.ShowDialog() == WinForms.DialogResult.OK) _repo.Text = dialog.SelectedPath;
-        };
         _send.Click += Send;
         _cancel.Click += (_, _) => _request?.Cancel();
+        _installButton.Click += (_, _) =>
+        {
+            if (_builtExecutable is null) return;
+            if (MessageBox.Show(this, loc["improve.installConfirm"], Title, MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
+            if (!_install(_builtExecutable)) _status.Text = loc["improve.installFailed"];
+        };
         _close.Click += (_, _) => Close();
         _list.SelectionChanged += (_, _) =>
         {
@@ -145,8 +136,7 @@ internal sealed class ImprovementWindow : Window
         _send.IsEnabled = !busy;
         _cancel.IsEnabled = busy;
         _input.IsReadOnly = busy;
-        _repo.IsEnabled = !busy;
-        _browse.IsEnabled = !busy;
+        if (busy) _installButton.IsEnabled = false;
     }
 
     void Append(ImprovementEvent e) => Dispatcher.BeginInvoke(() =>
@@ -175,14 +165,6 @@ internal sealed class ImprovementWindow : Window
         string text;
         try { text = ImprovementPrompt.Normalize(_input.Text); }
         catch (ArgumentException ex) { _status.Text = ex.Message; return; }
-        var repository = _repo.Text.Trim();
-        if (repository.Length > 0 && !CodexLocator.IsRepository(repository))
-        {
-            _status.Text = loc["improve.noRepo"];
-            return;
-        }
-        if (repository.Length > 0) _saveRepository(repository);
-
         var entry = new ImprovementEntry { Request = text };
         using var request = new CancellationTokenSource();
         _request = request;
@@ -193,22 +175,30 @@ internal sealed class ImprovementWindow : Window
         {
             var result = await _service.RunAsync(text, _context(), Append, request.Token);
             entry.Summary = result.Summary;
+            _builtExecutable = null;
             switch (result.Outcome)
             {
-                case ImprovementOutcome.Completed:
+                case PipelineOutcome.Built:
                     entry.Status = "done";
+                    _builtExecutable = result.ExePath;
+                    _installButton.IsEnabled = !_closed;
                     _status.Text = loc["improve.done"];
                     _input.Clear();
                     break;
-                case ImprovementOutcome.Interrupted:
-                    entry.Status = "cancelled";
-                    _status.Text = loc["improve.cancelled"];
+                case PipelineOutcome.NoChanges:
+                    entry.Status = "failed";
+                    _status.Text = loc["improve.noChanges"] + " " + result.Summary;
+                    break;
+                case PipelineOutcome.BuildFailed:
+                    entry.Status = "failed";
+                    _status.Text = loc["improve.buildFailed"] + " " + result.RunUrl;
                     break;
                 default:
                     entry.Status = "failed";
                     _status.Text = (loc["improve.failed"] + " " + result.Summary).Trim();
                     break;
             }
+            if (result.RunUrl is not null) entry.Summary = (entry.Summary + Environment.NewLine + result.RunUrl).Trim();
         }
         catch (OperationCanceledException)
         {

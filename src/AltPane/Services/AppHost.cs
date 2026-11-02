@@ -165,11 +165,11 @@ internal sealed class AppHost : IDisposable
                 Settings.Theme.ToString(),
                 (int)(_improvementWindow?.ActualWidth ?? 0),
                 (int)(_improvementWindow?.ActualHeight ?? 0)),
-            _improvements.ResolveRepository() ?? "",
-            repository =>
+            newExecutable =>
             {
-                Settings.ImprovementsRepository = repository;
-                TrySave();
+                if (!SelfUpdater.Start(newExecutable)) return false;
+                Exit();
+                return true;
             });
         _improvementWindow.Closed += (_, _) => _improvementWindow = null;
         _improvementWindow.Show();
