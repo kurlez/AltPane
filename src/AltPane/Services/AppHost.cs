@@ -19,6 +19,8 @@ internal sealed class AppHost : IDisposable
     readonly TrayController _tray;
     SettingsWindow? _settingsWindow;
     AboutWindow? _aboutWindow;
+    ImprovementWindow? _improvementWindow;
+    readonly ImprovementService _improvements;
     bool _recording;
     bool _disposed;
     bool _migrated;
@@ -51,6 +53,7 @@ internal sealed class AppHost : IDisposable
         _presenter.Hotkeys = _hotkeys;
         _presenter.Notify += message => _tray?.Balloon(message);
         _presenter.PersistRequested += TrySave;
+        _improvements = new ImprovementService(() => Settings);
         _tray = new TrayController(this);
         Localizer.Current.LanguageChanged += (_, _) => _tray.Rebuild();
         SystemEvents.UserPreferenceChanged += OnPreference;
@@ -145,6 +148,34 @@ internal sealed class AppHost : IDisposable
         _aboutWindow.Activate();
     }
 
+    public void ShowImprovements()
+    {
+        if (_improvementWindow is { IsVisible: true })
+        {
+            _improvementWindow.Activate();
+            return;
+        }
+
+        _hotkeys.RequestCancel();
+        _improvementWindow = new ImprovementWindow(
+            _improvements,
+            () => new AltPane.Core.Improvements.ImprovementContext(
+                AltPane.Core.Versioning.ProductVersion.Display(typeof(AppHost).Assembly.GetName().Version),
+                Settings.Language.ToString(),
+                Settings.Theme.ToString(),
+                (int)(_improvementWindow?.ActualWidth ?? 0),
+                (int)(_improvementWindow?.ActualHeight ?? 0)),
+            _improvements.ResolveRepository() ?? "",
+            repository =>
+            {
+                Settings.ImprovementsRepository = repository;
+                TrySave();
+            });
+        _improvementWindow.Closed += (_, _) => _improvementWindow = null;
+        _improvementWindow.Show();
+        _improvementWindow.Activate();
+    }
+
     public void TogglePause()
     {
         Settings.OverridePaused = !Settings.OverridePaused;
@@ -210,6 +241,8 @@ internal sealed class AppHost : IDisposable
         try { _files.Dispose(); } catch { }
         try { _settingsWindow?.Close(); } catch { }
         try { _aboutWindow?.Close(); } catch { }
+        try { _improvementWindow?.Close(); } catch { }
+        try { _improvements.DisposeAsync().AsTask().Wait(TimeSpan.FromSeconds(2)); } catch { }
         try { _tray.Dispose(); } catch { }
         AppLog.Info("AltPane stopped.");
     }

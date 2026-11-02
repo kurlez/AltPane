@@ -295,6 +295,15 @@ public sealed class AppSettings
     /// When true (the default), two windows tiled on the same monitor also appear as one extra row.
     /// </summary>
     public bool CombineTiledWindows { get; set; } = true;
+    /// <summary>
+    /// AltPane source checkout the improvement agent may edit. Blank means look for AltPane.sln
+    /// above the running executable.
+    /// </summary>
+    public string ImprovementsRepository { get; set; } = "";
+    /// <summary>Native codex.exe for the improvement agent. Blank means search PATH.</summary>
+    public string CodexExecutable { get; set; } = "";
+    /// <summary>When true, the improvement agent runs without a sandbox. Off by default: it may write only inside the repository.</summary>
+    public bool ImprovementsFullAccess { get; set; }
 
     public static AppSettings CreateDefault() => new()
     {

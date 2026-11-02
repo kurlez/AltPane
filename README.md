@@ -10,9 +10,11 @@ Publishing steps, including winget and a future SignPath signature, are in [RELE
 
 ## Features
 
-**0.4.17** removes the Codex bridge, AI text window and login integration added
-in 0.4.16. Window backgrounds now use a slightly darker neutral gray in both
-themes. See [release notes](RELEASE_NOTES_v0.4.17.md).
+**0.4.18** adds **Improve AltPane…** to the tray menu: a "what should change?" box
+wired to a local `codex app-server` session that edits this source checkout, runs
+the tests and reports back. See [Improve AltPane](#improve-altpane-0418) and the
+[release notes](RELEASE_NOTES_v0.4.18.md). 0.4.17 removed the one-shot Codex bridge
+and darkened the window backgrounds.
 
 - Low-level keyboard hook overrides Alt+Tab and Alt+Shift+Tab. By default, releasing the trigger key leaves the switcher open (sticky mode). Enter or a click activates the selected window. Esc, or a click outside the switcher, cancels and restores the previous foreground window. Classic release-to-switch is a setting.
 - The hotkey is configurable. Win+Tab opens AltPane as well, unless that setting is turned off. A settings file written by 0.1.0 stored Win+Tab as off because that was the old implicit default. Loading that file turns Win+Tab capture, sticky mode, and the other 0.2 defaults on, and keeps the hotkey, theme, exclusions, and startup choice. A file that already contains `stickySwitcher` keeps an explicit off. The schema version is then stamped as 9. Schema 9 adds file-dialog quick jump (on by default, Ctrl+G, panel on the bottom edge). Settings shows whether Win+Tab is on or off. `showPreview`, `previewMinimized`, and `showOtherMonitorHints` from older files are ignored and left out of the next save. A file that was still on the old default, initial letter or stable grouped, moves to Focus time. An explicit Recent, app name, CPU, or memory choice stays. App name is still in the sort list, and choosing it again keeps it.
@@ -29,6 +31,28 @@ themes. See [release notes](RELEASE_NOTES_v0.4.17.md).
 - Settings are stored as JSON in `%APPDATA%\AltPane\settings.json`. A corrupt file is copied to `settings.json.bak` and defaults are loaded.
 - Pausing, exiting, or an unhandled exception removes the hook. If the process is killed, Windows drops the hook as well, so the native switcher works again.
 - Switcher windows are created at startup, one per monitor, and kept hidden. A background hook keeps the window list up to date, so opening paints that list instead of constructing a new window or walking every process. Icons are cached per executable. Each open writes one INFO line to `%APPDATA%\AltPane\altpane.log`: hotkey→visible milliseconds, enumeration milliseconds, and the row count. The working set is logged at startup and every 30 minutes.
+
+## Improve AltPane (0.4.18)
+
+Idea: a freeform feedback box inside the app, connected to an agent that implements
+what you type, so rough edges are one sentence away from fixed. The tray menu entry
+**Improve AltPane…** opens it.
+
+- Requirements: the AltPane source checkout (the folder with `AltPane.sln`; found
+  automatically when AltPane runs from a build inside it, otherwise choose it in the
+  window) and the native Codex CLI (`codex.exe` on PATH, or `codexExecutable` in
+  `settings.json`; `.cmd`/`.bat` wrappers are refused). Run `codex login` once.
+- AltPane starts `codex app-server` (JSON lines over stdio), runs `initialize`, opens one
+  thread in the checkout with approval policy `never` and the `workspace-write` sandbox,
+  and sends each request as a turn on that thread. Later requests reuse the process and
+  context; the process is stopped after ten idle minutes. Cancel sends `turn/interrupt`.
+- Progress (commands run, files changed, the agent's summary) streams into the window.
+  Past requests and summaries are kept in `%APPDATA%\AltPane\improvements.json` (last 100).
+- The agent is told not to commit, push, publish or touch anything outside the checkout.
+  Any approval prompt Codex raises is declined. Review the result with `git diff`, then
+  rebuild to run it. Set `improvementsFullAccess` to `true` only if you want the sandbox
+  off (for example so `dotnet restore` can reach the network).
+- Settings keys: `improvementsRepository`, `codexExecutable`, `improvementsFullAccess`.
 
 ## File-dialog jump safety, window size, and memory (0.4.15)
 
