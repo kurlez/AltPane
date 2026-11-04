@@ -1,5 +1,5 @@
 using System.Diagnostics;
-using AltPane.Core.Improvements;
+using AltPane.Core.Updates;
 using AltPane.Core.Settings;
 
 namespace AltPane;

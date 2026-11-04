@@ -19,8 +19,8 @@ internal sealed class AppHost : IDisposable
     readonly TrayController _tray;
     SettingsWindow? _settingsWindow;
     AboutWindow? _aboutWindow;
-    ImprovementWindow? _improvementWindow;
-    readonly ImprovementService _improvements;
+    RequestWindow? _requestWindow;
+    readonly UpdateService _updates;
     bool _recording;
     bool _disposed;
     bool _migrated;
@@ -53,7 +53,7 @@ internal sealed class AppHost : IDisposable
         _presenter.Hotkeys = _hotkeys;
         _presenter.Notify += message => _tray?.Balloon(message);
         _presenter.PersistRequested += TrySave;
-        _improvements = new ImprovementService(() => Settings);
+        _updates = new UpdateService(CurrentVersion, () => { Exit(); return true; }, message => _tray?.Balloon(message));
         _tray = new TrayController(this);
         Localizer.Current.LanguageChanged += (_, _) => _tray.Rebuild();
         SystemEvents.UserPreferenceChanged += OnPreference;
@@ -61,6 +61,8 @@ internal sealed class AppHost : IDisposable
     }
 
     public AppSettings Settings { get; private set; }
+
+    static string CurrentVersion => AltPane.Core.Versioning.ProductVersion.Display(typeof(AppHost).Assembly.GetName().Version);
 
     public void Start()
     {
@@ -70,6 +72,7 @@ internal sealed class AppHost : IDisposable
         _files.Start();
         _dialogs.Start();
         _tray.Show();
+        _updates.Start();
         if (!Settings.OverridePaused && !_hotkeys.Install())
             _tray.Balloon(Localizer.Current["settings.hookFailed"]);
         if (_migrated)
@@ -148,33 +151,24 @@ internal sealed class AppHost : IDisposable
         _aboutWindow.Activate();
     }
 
-    public void ShowImprovements()
+    public void ShowRequest()
     {
-        if (_improvementWindow is { IsVisible: true })
+        if (_requestWindow is { IsVisible: true })
         {
-            _improvementWindow.Activate();
+            _requestWindow.Activate();
             return;
         }
 
         _hotkeys.RequestCancel();
-        _improvementWindow = new ImprovementWindow(
-            _improvements,
-            () => new AltPane.Core.Improvements.ImprovementContext(
-                AltPane.Core.Versioning.ProductVersion.Display(typeof(AppHost).Assembly.GetName().Version),
-                Settings.Language.ToString(),
-                Settings.Theme.ToString(),
-                (int)(_improvementWindow?.ActualWidth ?? 0),
-                (int)(_improvementWindow?.ActualHeight ?? 0)),
-            newExecutable =>
-            {
-                if (!SelfUpdater.Start(newExecutable)) return false;
-                Exit();
-                return true;
-            });
-        _improvementWindow.Closed += (_, _) => _improvementWindow = null;
-        _improvementWindow.Show();
-        _improvementWindow.Activate();
+        _requestWindow = new RequestWindow(() => new AltPane.Core.Requests.RequestContext(
+            CurrentVersion,
+            System.Runtime.InteropServices.RuntimeInformation.OSDescription + " (" + System.Runtime.InteropServices.RuntimeInformation.OSArchitecture + ")"));
+        _requestWindow.Closed += (_, _) => _requestWindow = null;
+        _requestWindow.Show();
+        _requestWindow.Activate();
     }
+
+    public void CheckForUpdates() => _updates.CheckNow();
 
     public void TogglePause()
     {
@@ -241,8 +235,8 @@ internal sealed class AppHost : IDisposable
         try { _files.Dispose(); } catch { }
         try { _settingsWindow?.Close(); } catch { }
         try { _aboutWindow?.Close(); } catch { }
-        try { _improvementWindow?.Close(); } catch { }
-        try { _improvements.Shutdown(); } catch { }
+        try { _requestWindow?.Close(); } catch { }
+        try { _updates.Dispose(); } catch { }
         try { _tray.Dispose(); } catch { }
         AppLog.Info("AltPane stopped.");
     }

@@ -10,11 +10,10 @@ Publishing steps, including winget and a future SignPath signature, are in [RELE
 
 ## Features
 
-**0.4.18** adds **Improve AltPane…** to the tray menu: a "what should change?" box
-wired to a local `codex app-server` session that edits a private clone; AltPane
-pushes a branch, GitHub builds it, and you install the download. See [Improve AltPane](#improve-altpane-0418) and the
-[release notes](RELEASE_NOTES_v0.4.18.md). 0.4.17 removed the one-shot Codex bridge
-and darkened the window backgrounds.
+**0.4.19** replaces the Codex-based Improve window with **提需求… / Submit a request…**:
+the request becomes a GitHub issue in kurlez/AltPane that the maintainer's automation implements and releases.
+AltPane now also checks GitHub for a newer release and installs it after a SHA256 check.
+See [Requests and updates](#requests-and-updates-0419) and the [release notes](RELEASE_NOTES_v0.4.19.md).
 
 - Low-level keyboard hook overrides Alt+Tab and Alt+Shift+Tab. By default, releasing the trigger key leaves the switcher open (sticky mode). Enter or a click activates the selected window. Esc, or a click outside the switcher, cancels and restores the previous foreground window. Classic release-to-switch is a setting.
 - The hotkey is configurable. Win+Tab opens AltPane as well, unless that setting is turned off. A settings file written by 0.1.0 stored Win+Tab as off because that was the old implicit default. Loading that file turns Win+Tab capture, sticky mode, and the other 0.2 defaults on, and keeps the hotkey, theme, exclusions, and startup choice. A file that already contains `stickySwitcher` keeps an explicit off. The schema version is then stamped as 9. Schema 9 adds file-dialog quick jump (on by default, Ctrl+G, panel on the bottom edge). Settings shows whether Win+Tab is on or off. `showPreview`, `previewMinimized`, and `showOtherMonitorHints` from older files are ignored and left out of the next save. A file that was still on the old default, initial letter or stable grouped, moves to Focus time. An explicit Recent, app name, CPU, or memory choice stays. App name is still in the sort list, and choosing it again keeps it.
@@ -32,31 +31,33 @@ and darkened the window backgrounds.
 - Pausing, exiting, or an unhandled exception removes the hook. If the process is killed, Windows drops the hook as well, so the native switcher works again.
 - Switcher windows are created at startup, one per monitor, and kept hidden. A background hook keeps the window list up to date, so opening paints that list instead of constructing a new window or walking every process. Icons are cached per executable. Each open writes one INFO line to `%APPDATA%\AltPane\altpane.log`: hotkey→visible milliseconds, enumeration milliseconds, and the row count. The working set is logged at startup and every 30 minutes.
 
-## Improve AltPane (0.4.18)
+## Requests and updates (0.4.19)
 
-A freeform "what should change?" box inside the app, connected to an agent that implements it.
-The tray entry **Improve AltPane…** opens it. Changes go through GitHub, not through your own checkout:
+**提需求… / Submit a request…** (tray menu) opens a small window with a title, a description and **提交**.
+Submitting runs the GitHub CLI directly, without a shell, each argument passed separately:
 
-1. AltPane keeps a private clone in `%LOCALAPPDATA%\AltPane\improve\repo` and resets it to the base branch for each request.
-2. A local `codex app-server` session edits that clone (approval policy `never`, `workspace-write` sandbox).
-3. AltPane, not the agent, commits and pushes a branch `improve/<date>-<slug>`.
-4. The existing `build.yml` workflow builds it on GitHub (tests plus the `AltPane-win-x64` artifact).
-5. AltPane waits for that run, downloads the executable with `gh run download`, checks it against the `AltPane.exe.sha256` the build ships, and enables **Install and restart**.
-   Installing asks for confirmation first and shows the branch, commit and SHA256.
-   A hidden PowerShell script waits for AltPane to exit, keeps the old file as `AltPane.exe.old`, copies the new one in and starts it.
-   If the install folder needs administrator rights the old file is restored and the reason is written to `%TEMP%\altpane-update-error.txt`.
+```
+gh label create altpane-request --repo kurlez/AltPane --force      (failure ignored)
+gh issue create --repo kurlez/AltPane --title <title> --body-file <temp file> --label altpane-request --assignee @me
+```
 
-- If the push is refused for lack of permission, AltPane says so and suggests pointing `improvementsRemote` at your fork.
-- Requirements: `git` and the GitHub CLI on PATH (`gh auth login` once, with a token that can push to the remote), and the native Codex CLI
-  (`codex.exe` on PATH, or `codexExecutable` in `settings.json`; `.cmd`/`.bat` wrappers are refused; run `codex login` once).
-- The agent is told not to run git, publish or touch anything outside the clone. Approval prompts are declined. Nothing is merged:
-  the branch stays on GitHub for you to review, merge or delete. A branch that fails the build is reported with the run link and is not installed.
-- One Codex process and thread are reused across requests and stopped after ten idle minutes. Cancel sends `turn/interrupt`.
-- Progress (commands, failed commands with output, sandbox warnings, files changed, the agent's summary, build state) streams into the window.
-  History is kept in `%APPDATA%\AltPane\improvements.json` (last 100).
-- Settings keys: `improvementsRemote` (default `https://github.com/kurlez/AltPane.git`; use your fork to keep requests out of upstream),
-  `improvementsBaseBranch` (default `main`), `codexExecutable`, `improvementsFullAccess` (default `false`; `true` removes the sandbox,
-  which you may need if Codex reports that it cannot launch commands on Windows).
+The body is the description plus a footer with the AltPane version and the OS version. It is written to a temporary
+file, which is deleted afterwards. The new issue's link is shown with **打开**. The window explains in Chinese when gh is
+not installed (`winget install GitHub.cli`), not signed in (`gh auth login`), or the account lacks permission.
+Assigned issues are picked up by the maintainer's automation, which implements the change and publishes a release.
+
+**Updates.** About 30 seconds after startup and every six hours, AltPane reads
+`https://api.github.com/repos/kurlez/AltPane/releases/latest`. When that release is newer it asks
+「发现新版本 X，是否安装？」 (an automatic check asks once per version per session; **检查更新** in the tray always asks
+and also reports "already up to date"). On yes it downloads `AltPane-X-win-x64.zip` and its `.sha256`, refuses to
+install if the checksum is missing or different, extracts `AltPane.exe`, and starts a hidden PowerShell script. The script
+waits for AltPane to exit, keeps the old file as `AltPane.exe.old`, copies the new one in and starts it. If the folder
+needs administrator rights the old file stays, the reason goes to `%TEMP%\altpane-update-error.txt`, and the next start
+shows it in a tray notification.
+
+0.4.18's Codex agent, private clone, `improve/*` branches and branch-build installs are gone. Its settings keys
+(`improvementsRemote`, `improvementsBaseBranch`, `codexExecutable`, `improvementsFullAccess`) are ignored when read and
+left out of the next save.
 
 ## File-dialog jump safety, window size, and memory (0.4.15)
 

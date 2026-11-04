@@ -295,17 +295,6 @@ public sealed class AppSettings
     /// When true (the default), two windows tiled on the same monitor also appear as one extra row.
     /// </summary>
     public bool CombineTiledWindows { get; set; } = true;
-    /// <summary>
-    /// GitHub remote the improvement agent clones, pushes branches to, and builds from. The default is the
-    /// project itself; point it at your fork to keep requests out of the upstream repository.
-    /// </summary>
-    public string ImprovementsRemote { get; set; } = "https://github.com/kurlez/AltPane.git";
-    /// <summary>Branch each improvement starts from.</summary>
-    public string ImprovementsBaseBranch { get; set; } = "main";
-    /// <summary>Native codex.exe for the improvement agent. Blank means search PATH.</summary>
-    public string CodexExecutable { get; set; } = "";
-    /// <summary>When true, the improvement agent runs without a sandbox. Off by default: it may write only inside its private clone.</summary>
-    public bool ImprovementsFullAccess { get; set; }
 
     public static AppSettings CreateDefault() => new()
     {

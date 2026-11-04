@@ -1,4 +1,4 @@
-namespace AltPane.Core.Improvements;
+namespace AltPane.Core.Updates;
 
 public static class SelfUpdate
 {

@@ -1,11 +1,20 @@
 using System.Diagnostics;
 using System.Text;
 
-namespace AltPane.Core.Improvements;
+namespace AltPane.Core.Requests;
 
 public sealed record CommandResult(int ExitCode, string Output, string Error)
 {
     public bool Ok => ExitCode == 0;
+}
+
+/// <summary>The program could not be started, usually because it is not installed or not on PATH.</summary>
+public sealed class CommandNotFoundException : Exception
+{
+    public CommandNotFoundException(string fileName, Exception? inner = null)
+        : base($"无法启动 {fileName}。", inner) => FileName = fileName;
+
+    public string FileName { get; }
 }
 
 /// <summary>Runs a command-line tool and captures its output. Tests supply a scripted one.</summary>
@@ -14,6 +23,10 @@ public interface ICommandRunner
     Task<CommandResult> RunAsync(string fileName, IReadOnlyList<string> arguments, string? workingDirectory, CancellationToken cancellationToken);
 }
 
+/// <summary>
+/// Starts the program directly (no shell) and passes every argument through ProcessStartInfo.ArgumentList,
+/// so user text can never be interpreted as shell syntax.
+/// </summary>
 public sealed class ProcessCommandRunner : ICommandRunner
 {
     public async Task<CommandResult> RunAsync(string fileName, IReadOnlyList<string> arguments, string? workingDirectory, CancellationToken cancellationToken)
@@ -31,16 +44,17 @@ public sealed class ProcessCommandRunner : ICommandRunner
         };
         foreach (var argument in arguments) info.ArgumentList.Add(argument);
         // A credential or editor prompt would hang a window nobody can see.
-        info.Environment["GIT_TERMINAL_PROMPT"] = "0";
         info.Environment["GH_PROMPT_DISABLED"] = "1";
+        info.Environment["GH_NO_UPDATE_NOTIFIER"] = "1";
+        info.Environment["NO_COLOR"] = "1";
         using var process = new Process { StartInfo = info };
         try
         {
             process.Start();
         }
-        catch (System.ComponentModel.Win32Exception)
+        catch (System.ComponentModel.Win32Exception ex)
         {
-            throw new InvalidOperationException($"无法启动 {fileName}。请确认已安装，并且在 PATH 中。");
+            throw new CommandNotFoundException(fileName, ex);
         }
         process.StandardInput.Close();
         using var registration = cancellationToken.Register(() =>

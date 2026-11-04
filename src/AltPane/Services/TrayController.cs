@@ -37,7 +37,8 @@ internal sealed class TrayController : IDisposable
         _menu.Items.Clear();
         Add(loc["tray.open"], () => _host.OpenSwitcher());
         Add(loc["tray.settings"], () => _host.ShowSettings());
-        Add(loc["tray.improve"], () => _host.ShowImprovements());
+        Add(loc["tray.request"], () => _host.ShowRequest());
+        Add(loc["tray.checkUpdates"], () => _host.CheckForUpdates());
         Add("关于", () => _host.ShowAbout());
         _menu.Items.Add(new WinForms.ToolStripSeparator());
         Add(settings.OverridePaused ? loc["tray.resume"] : loc["tray.pause"], () => _host.TogglePause());

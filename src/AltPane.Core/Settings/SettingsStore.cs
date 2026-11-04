@@ -100,13 +100,6 @@ public static class SettingsStore
             settings.DocumentExtensions = AltPane.Core.Search.FileSearch.DefaultList;
         if (settings.EverythingHttpPort is < 1 or > 65535)
             settings.EverythingHttpPort = 80;
-        settings.ImprovementsRemote = (settings.ImprovementsRemote ?? "").Trim();
-        if (settings.ImprovementsRemote.Length == 0)
-            settings.ImprovementsRemote = "https://github.com/kurlez/AltPane.git";
-        settings.ImprovementsBaseBranch = (settings.ImprovementsBaseBranch ?? "").Trim();
-        if (settings.ImprovementsBaseBranch.Length == 0)
-            settings.ImprovementsBaseBranch = "main";
-        settings.CodexExecutable = (settings.CodexExecutable ?? "").Trim();
     }
 
     static List<string> NormalizeNames(List<string>? items)
