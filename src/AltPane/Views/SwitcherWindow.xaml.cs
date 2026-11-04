@@ -434,14 +434,16 @@ public partial class SwitcherWindow : Window
         {
             var hwnd = new WindowInteropHelper(this).Handle;
             WindowChrome.ApplyToolWindow(hwnd);
-            WindowChrome.ApplyBackdrop(hwnd, ThemeService.IsDark);
+            WindowChrome.ApplyBackdrop(hwnd, ThemeService.SwitcherIsDark);
             if (PresentationSource.FromVisual(this) is HwndSource source)
                 source.AddHook(PreventBlackFrame);
         };
-        ThemeService.Changed += dark => Dispatcher.BeginInvoke(() =>
+        ApplyPalette();
+        ThemeService.Changed += _ => Dispatcher.BeginInvoke(() =>
         {
+            ApplyPalette();
             var hwnd = new WindowInteropHelper(this).Handle;
-            if (hwnd != 0) WindowChrome.ApplyBackdrop(hwnd, dark);
+            if (hwnd != 0) WindowChrome.ApplyBackdrop(hwnd, ThemeService.SwitcherIsDark);
         });
         ApplyStaticText();
         Localizer.Current.LanguageChanged += (_, _) =>
@@ -450,6 +452,24 @@ public partial class SwitcherWindow : Window
             if (!IsVisible) return;
             LabelsRequested?.Invoke();
         };
+    }
+
+    System.Windows.ResourceDictionary? _palette;
+    bool? _paletteDark;
+
+    /// <summary>
+    /// Merges the switcher palette into this window's resources, so the switcher can
+    /// stay dark (the default) while settings and other windows follow the app theme.
+    /// </summary>
+    void ApplyPalette()
+    {
+        var dark = ThemeService.SwitcherIsDark;
+        if (_paletteDark == dark) return;
+        var merged = Resources.MergedDictionaries;
+        if (_palette is not null) merged.Remove(_palette);
+        _palette = ThemeService.Palette(dark);
+        merged.Add(_palette);
+        _paletteDark = dark;
     }
 
     public nint Handle => new WindowInteropHelper(this).Handle;

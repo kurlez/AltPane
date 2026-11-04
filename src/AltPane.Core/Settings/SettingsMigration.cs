@@ -26,6 +26,8 @@ namespace AltPane.Core.Settings;
 /// are missing. A stored choice is not rewritten.
 /// Schema 10 adds combined rows for windows tiled on the same monitor. The
 /// toggle defaults on when the key is missing. An explicit off is not rewritten.
+/// Schema 11 adds the switcher style. The switcher is dark when the key is
+/// missing, even with a light app theme. A stored follow-theme choice is kept.
 /// </summary>
 public static class SettingsMigration
 {
@@ -90,6 +92,13 @@ public static class SettingsMigration
         {
             if (!Has(root, "combineTiledWindows"))
                 settings.CombineTiledWindows = true;
+            changed = true;
+        }
+
+        if (stored < 11)
+        {
+            if (!Has(root, "switcherStyle"))
+                settings.SwitcherStyle = SwitcherStyle.Dark;
             changed = true;
         }
 

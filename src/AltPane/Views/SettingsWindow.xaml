@@ -60,6 +60,8 @@
 
           <TextBlock x:Name="ThemeLabel" FontWeight="SemiBold" Margin="0,0,0,6"/>
           <ComboBox x:Name="ThemeBox" Margin="0,0,0,10"/>
+          <TextBlock x:Name="SwitcherStyleLabel" FontWeight="SemiBold" Margin="0,0,0,6"/>
+          <ComboBox x:Name="SwitcherStyleBox" Margin="0,0,0,10"/>
           <TextBlock x:Name="LanguageLabel" FontWeight="SemiBold" Margin="0,0,0,6"/>
           <ComboBox x:Name="LanguageBox" Margin="0,0,0,10"/>
           <TextBlock x:Name="SizeLabel" FontWeight="SemiBold" Margin="0,0,0,6"/>

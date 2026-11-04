@@ -76,6 +76,7 @@ public partial class SettingsWindow : Window
         SidebarPinnedBox.Text = string.Join(Environment.NewLine, _draft.SidebarPinnedApps ?? new List<string>());
         SidebarHiddenBox.Text = string.Join(Environment.NewLine, _draft.SidebarHiddenApps ?? new List<string>());
         Select(ThemeBox, _draft.Theme);
+        Select(SwitcherStyleBox, _draft.SwitcherStyle);
         Select(LanguageBox, _draft.Language);
         Select(SizeBox, _draft.Size);
         Select(PlacementBox, _draft.Placement);
@@ -126,6 +127,7 @@ public partial class SettingsWindow : Window
         FileDialogEdgeLabel.Text = loc["settings.fileDialogEdge"];
         FileDialogRecordButton.Content = _recordDialog ? loc["settings.recording"] : loc["settings.record"];
         ThemeLabel.Text = loc["settings.theme"];
+        SwitcherStyleLabel.Text = loc["settings.switcherStyle"];
         LanguageLabel.Text = loc["settings.language"];
         SizeLabel.Text = loc["settings.size"];
         PlacementLabel.Text = loc["settings.placement"];
@@ -198,6 +200,11 @@ public partial class SettingsWindow : Window
             (AppTheme.Light, loc["settings.theme.light"]),
             (AppTheme.Dark, loc["settings.theme.dark"])
         }, _draft.Theme);
+        Fill(SwitcherStyleBox, new (SwitcherStyle, string)[]
+        {
+            (SwitcherStyle.Dark, loc["settings.switcherStyle.dark"]),
+            (SwitcherStyle.FollowTheme, loc["settings.switcherStyle.follow"])
+        }, _draft.SwitcherStyle);
         Fill(LanguageBox, new (AppLanguage, string)[]
         {
             (AppLanguage.System, loc["settings.language.system"]),
@@ -437,6 +444,7 @@ public partial class SettingsWindow : Window
         _draft.IndexDesktop = IndexDesktopBox.IsChecked == true;
         _draft.IndexPath = IndexPathBox.IsChecked == true;
         _draft.Theme = Read(ThemeBox, _draft.Theme);
+        _draft.SwitcherStyle = Read(SwitcherStyleBox, _draft.SwitcherStyle);
         _draft.Language = Read(LanguageBox, _draft.Language);
         _draft.Size = Read(SizeBox, _draft.Size);
         _draft.Placement = Read(PlacementBox, _draft.Placement);
@@ -619,6 +627,7 @@ public partial class SettingsWindow : Window
         StickySwitcher = source.StickySwitcher,
         QuickTapSwitches = source.QuickTapSwitches,
         Theme = source.Theme,
+        SwitcherStyle = source.SwitcherStyle,
         Size = source.Size,
         Placement = source.Placement,
         ShowMonitorBadges = source.ShowMonitorBadges,

@@ -81,6 +81,7 @@ public static class SettingsStore
         if (!Enum.IsDefined(settings.FileDialogPanelEdge))
             settings.FileDialogPanelEdge = FileDialogPanelEdge.Bottom;
         if (!Enum.IsDefined(settings.Theme)) settings.Theme = AppTheme.System;
+        if (!Enum.IsDefined(settings.SwitcherStyle)) settings.SwitcherStyle = SwitcherStyle.Dark;
         if (!Enum.IsDefined(settings.Size)) settings.Size = SwitcherSize.Comfortable;
         if (!Enum.IsDefined(settings.Placement)) settings.Placement = SwitcherPlacement.MouseCursor;
         if (!Enum.IsDefined(settings.Language)) settings.Language = AppLanguage.System;

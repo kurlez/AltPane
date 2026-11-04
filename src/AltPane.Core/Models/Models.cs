@@ -20,6 +20,14 @@ public enum AppTheme
     Dark
 }
 
+/// <summary>Palette used by the switcher window. Dark is the default and ignores <see cref="AppTheme"/>.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum SwitcherStyle
+{
+    Dark,
+    FollowTheme
+}
+
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum SwitcherSize
 {
@@ -205,8 +213,10 @@ public sealed class AppSettings
     /// defaults to the bottom edge when those keys are missing. An explicit choice is kept.
     /// 10 adds combined rows for windows tiled side by side. <see cref="CombineTiledWindows"/>
     /// defaults on when the key is missing. An explicit off is kept.
+    /// 11 adds <see cref="SwitcherStyle"/>. The switcher is dark when the key is missing,
+    /// whatever <see cref="Theme"/> says. An explicit follow-theme choice is kept.
     /// </summary>
-    public const int CurrentSchema = 10;
+    public const int CurrentSchema = 11;
 
     public int Version { get; set; } = CurrentSchema;
     public HotkeyChord? Hotkey { get; set; } = HotkeyChord.AltTab();
@@ -215,6 +225,8 @@ public sealed class AppSettings
     /// <summary>When true, a lone Win press opens AltPane's app list instead of the Start menu. Off by default.</summary>
     public bool OpenOnWinKey { get; set; }
     public AppTheme Theme { get; set; } = AppTheme.System;
+    /// <summary>Dark (the default) keeps the switcher dark in every theme. FollowTheme uses <see cref="Theme"/>.</summary>
+    public SwitcherStyle SwitcherStyle { get; set; } = SwitcherStyle.Dark;
     public SwitcherSize Size { get; set; } = SwitcherSize.Comfortable;
     public SwitcherPlacement Placement { get; set; } = SwitcherPlacement.MouseCursor;
     /// <summary>When true (the default), each row shows its display relative to the monitor drawing that switcher.</summary>
@@ -304,6 +316,7 @@ public sealed class AppSettings
         Placement = SwitcherPlacement.MouseCursor,
         ShowMonitorBadges = true,
         Theme = AppTheme.System,
+        SwitcherStyle = SwitcherStyle.Dark,
         Language = AppLanguage.System,
         ExcludedProcesses = new List<string>(),
         ExcludedApps = new List<string>(),

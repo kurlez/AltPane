@@ -37,6 +37,7 @@ internal sealed class AppHost : IDisposable
             AppLog.Info($"Migrated settings to schema {Settings.Version}. Win+Tab capture is {(Settings.CaptureWinTab ? "on" : "off")}.");
         AppLog.Info($"Win+Tab capture is {(Settings.CaptureWinTab ? "on" : "off")} (schema {Settings.Version}).");
         Localizer.Current.Apply(Settings.Language, CultureInfo.CurrentUICulture.Name);
+        ThemeService.SwitcherStyle = Settings.SwitcherStyle;
         ThemeService.Apply(Settings.Theme);
         _presenter = new SwitcherPresenter(() => Settings);
         _apps = new AppIndexService(() => Settings);
@@ -247,6 +248,7 @@ internal sealed class AppHost : IDisposable
         Settings = draft;
         AppLog.Verbose = Settings.VerboseLog;
         Localizer.Current.Apply(Settings.Language, CultureInfo.CurrentUICulture.Name);
+        ThemeService.SwitcherStyle = Settings.SwitcherStyle;
         ThemeService.Apply(Settings.Theme);
         try
         {

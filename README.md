@@ -10,6 +10,10 @@ Publishing steps, including winget and a future SignPath signature, are in [RELE
 
 ## Features
 
+**0.4.20** makes the switcher dark by default (深色风格), whatever the app theme is. Settings has
+**切换窗口风格 / Switcher style** to make it follow the theme again.
+See [Dark switcher](#dark-switcher-0420) and the [release notes](RELEASE_NOTES_v0.4.20.md).
+
 **0.4.19** replaces the Codex-based Improve window with **提需求… / Submit a request…**:
 the request becomes a GitHub issue in kurlez/AltPane that the maintainer's automation implements and releases.
 AltPane now also checks GitHub for a newer release and installs it after a SHA256 check.
@@ -30,6 +34,15 @@ See [Requests and updates](#requests-and-updates-0419) and the [release notes](R
 - Settings are stored as JSON in `%APPDATA%\AltPane\settings.json`. A corrupt file is copied to `settings.json.bak` and defaults are loaded.
 - Pausing, exiting, or an unhandled exception removes the hook. If the process is killed, Windows drops the hook as well, so the native switcher works again.
 - Switcher windows are created at startup, one per monitor, and kept hidden. A background hook keeps the window list up to date, so opening paints that list instead of constructing a new window or walking every process. Icons are cached per executable. Each open writes one INFO line to `%APPDATA%\AltPane\altpane.log`: hotkey→visible milliseconds, enumeration milliseconds, and the row count. The working set is logged at startup and every 30 minutes.
+
+## Dark switcher (0.4.20)
+
+The switcher window, including its frequent-apps sidebar, search line, window list, selection highlight, action hint
+and borders, uses the dark palette by default: a near-black background, light text, a blue selection band and a
+light-blue edge. The Windows frame (dark mode, border and caption colors) follows the same choice. Settings, About and
+the file-dialog bar keep following **主题 / Theme**. **切换窗口风格 / Switcher style** in Settings offers
+**深色（默认） / Dark (default)** and **跟随主题 / Follow the theme**. Settings schema 11 adds `switcherStyle`; a file
+without it gets the dark switcher, and an explicit `FollowTheme` is kept.
 
 ## Requests and updates (0.4.19)
 

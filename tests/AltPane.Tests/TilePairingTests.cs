@@ -365,11 +365,11 @@ public class TilePairingTests
         Assert.False(keptOld.Settings.CombineTiledWindows);
 
         var chosen = Path.Combine(directory, "chosen.json");
-        File.WriteAllText(chosen, """{ "version": 10, "combineTiledWindows": false }""");
+        File.WriteAllText(chosen, """{ "version": 11, "combineTiledWindows": false }""");
         var kept = SettingsStore.Load(chosen);
         Assert.False(kept.Migrated);
         Assert.False(kept.Settings.CombineTiledWindows);
-        Assert.Equal(10, kept.Settings.Version);
+        Assert.Equal(11, kept.Settings.Version);
 
         Assert.True(AppSettings.CreateDefault().CombineTiledWindows);
         SettingsStore.Save(oldPath, AppSettings.CreateDefault());

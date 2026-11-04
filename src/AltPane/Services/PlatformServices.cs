@@ -83,14 +83,19 @@ internal static class ThemeService
             _ => !SystemTheme.IsLight()
         };
 
-        var name = IsDark ? "Dark" : "Light";
-        var dict = new System.Windows.ResourceDictionary
-        {
-            Source = new Uri($"pack://application:,,,/Themes/{name}.xaml", UriKind.Absolute)
-        };
         var merged = System.Windows.Application.Current.Resources.MergedDictionaries;
         merged.Clear();
-        merged.Add(dict);
+        merged.Add(Palette(IsDark));
         Changed?.Invoke(IsDark);
     }
+
+    /// <summary>Switcher palette choice. Set before <see cref="Apply"/>, which notifies listeners.</summary>
+    public static Core.Models.SwitcherStyle SwitcherStyle { get; set; } = Core.Models.SwitcherStyle.Dark;
+
+    public static bool SwitcherIsDark => Core.Switcher.SwitcherAppearance.IsDark(SwitcherStyle, IsDark);
+
+    public static System.Windows.ResourceDictionary Palette(bool dark) => new()
+    {
+        Source = new Uri($"pack://application:,,,/Themes/{Core.Switcher.SwitcherAppearance.PaletteName(dark)}.xaml", UriKind.Absolute)
+    };
 }
