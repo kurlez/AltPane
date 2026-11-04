@@ -18,6 +18,7 @@ internal sealed class ImprovementWindow : Window
     readonly Func<ImprovementContext> _context;
     readonly Func<string, bool> _install;
     string? _builtExecutable;
+    PipelineResult? _built;
     readonly string _historyPath = ImprovementHistory.DefaultPath();
     readonly List<ImprovementEntry> _history;
     readonly TextBox _input = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Padding = new Thickness(6, 4, 6, 4) };
@@ -92,8 +93,13 @@ internal sealed class ImprovementWindow : Window
         _cancel.Click += (_, _) => _request?.Cancel();
         _installButton.Click += (_, _) =>
         {
-            if (_builtExecutable is null) return;
-            if (MessageBox.Show(this, loc["improve.installConfirm"], Title, MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
+            if (_builtExecutable is null || _built is null) return;
+            var message = string.Format(loc["improve.installConfirm"],
+                _built.Branch ?? "?",
+                _built.Commit is { Length: >= 7 } commit ? commit[..7] : _built.Commit ?? "?",
+                _built.Sha256 is null ? loc["improve.noChecksum"] : _built.Sha256,
+                _built.RunUrl ?? "");
+            if (MessageBox.Show(this, message, Title, MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) != MessageBoxResult.Yes) return;
             if (!_install(_builtExecutable)) _status.Text = loc["improve.installFailed"];
         };
         _close.Click += (_, _) => Close();
@@ -176,11 +182,13 @@ internal sealed class ImprovementWindow : Window
             var result = await _service.RunAsync(text, _context(), Append, request.Token);
             entry.Summary = result.Summary;
             _builtExecutable = null;
+            _built = null;
             switch (result.Outcome)
             {
                 case PipelineOutcome.Built:
                     entry.Status = "done";
                     _builtExecutable = result.ExePath;
+                    _built = result;
                     _installButton.IsEnabled = !_closed;
                     _status.Text = loc["improve.done"];
                     _input.Clear();

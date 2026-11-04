@@ -64,11 +64,18 @@ public sealed class ProcessRpcTransport : IRpcTransport
         }
     }
 
-    public ValueTask DisposeAsync()
+    /// <summary>Kills codex and every process it started (shells, builds), so nothing outlives AltPane.</summary>
+    public void Kill()
     {
         try { if (!_process.HasExited) _process.Kill(entireProcessTree: true); }
         catch (InvalidOperationException) { }
         catch (System.ComponentModel.Win32Exception) { }
+        catch (NotSupportedException) { }
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        Kill();
         _process.Dispose();
         _writeGate.Dispose();
         return ValueTask.CompletedTask;

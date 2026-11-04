@@ -7,4 +7,6 @@ public interface IRpcTransport : IAsyncDisposable
     Task<string?> ReadLineAsync(CancellationToken cancellationToken);
 
     Task WriteLineAsync(string line, CancellationToken cancellationToken);
+    /// <summary>Stops the other end immediately (the whole process tree for a real process).</summary>
+    void Kill() { }
 }

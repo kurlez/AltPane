@@ -41,10 +41,12 @@ The tray entry **Improve AltPane…** opens it. Changes go through GitHub, not t
 2. A local `codex app-server` session edits that clone (approval policy `never`, `workspace-write` sandbox).
 3. AltPane, not the agent, commits and pushes a branch `improve/<date>-<slug>`.
 4. The existing `build.yml` workflow builds it on GitHub (tests plus the `AltPane-win-x64` artifact).
-5. AltPane waits for that run, downloads the executable with `gh run download`, and enables **Install and restart**.
+5. AltPane waits for that run, downloads the executable with `gh run download`, checks it against the `AltPane.exe.sha256` the build ships, and enables **Install and restart**.
+   Installing asks for confirmation first and shows the branch, commit and SHA256.
    A hidden PowerShell script waits for AltPane to exit, keeps the old file as `AltPane.exe.old`, copies the new one in and starts it.
    If the install folder needs administrator rights the old file is restored and the reason is written to `%TEMP%\altpane-update-error.txt`.
 
+- If the push is refused for lack of permission, AltPane says so and suggests pointing `improvementsRemote` at your fork.
 - Requirements: `git` and the GitHub CLI on PATH (`gh auth login` once, with a token that can push to the remote), and the native Codex CLI
   (`codex.exe` on PATH, or `codexExecutable` in `settings.json`; `.cmd`/`.bat` wrappers are refused; run `codex login` once).
 - The agent is told not to run git, publish or touch anything outside the clone. Approval prompts are declined. Nothing is merged:

@@ -322,5 +322,8 @@ public sealed class CodexAppServerClient : IAsyncDisposable
         };
     }
 
+    /// <summary>Kills the app-server immediately, without awaiting anything.</summary>
+    public void Kill() => _transport.Kill();
+
     public ValueTask DisposeAsync() => _transport.DisposeAsync();
 }

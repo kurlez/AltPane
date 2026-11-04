@@ -31,8 +31,15 @@ jobs:
           -p:IncludeNativeLibrariesForSelfExtract=true
           -p:EnableCompressionInSingleFile=true
           -o publish
+      - name: Checksum the executable
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash publish/AltPane.exe -Algorithm SHA256).Hash.ToLower()
+          Set-Content -Path publish/AltPane.exe.sha256 -Value "$hash  AltPane.exe" -NoNewline
       - uses: actions/upload-artifact@v4
         with:
           name: AltPane-win-x64
-          path: publish/AltPane.exe
+          path: |
+            publish/AltPane.exe
+            publish/AltPane.exe.sha256
           if-no-files-found: error

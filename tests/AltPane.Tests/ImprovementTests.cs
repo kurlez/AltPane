@@ -14,6 +14,8 @@ sealed class FakeServer : IRpcTransport
     public List<string> Written { get; } = new();
     public Func<RpcMessage, IEnumerable<string>> Script { get; set; } = _ => Array.Empty<string>();
     public bool Disposed { get; private set; }
+    public bool Killed { get; private set; }
+    public void Kill() => Killed = true;
 
     public Task<string?> ReadLineAsync(CancellationToken cancellationToken) => _out.Reader.ReadAsync(cancellationToken).AsTask();
 
@@ -316,6 +318,14 @@ public class CodexAppServerClientTests
         Assert.True(server.Disposed);
     }
 
+    [Fact]
+    public void Kill_stops_the_transport_without_awaiting()
+    {
+        var server = new FakeServer();
+        new CodexAppServerClient(server, Options()).Kill();
+        Assert.True(server.Killed);
+    }
+
     static async Task WaitFor(Func<bool> condition)
     {
         for (var i = 0; i < 200 && !condition(); i++) await Task.Delay(25);
@@ -505,7 +515,7 @@ public class ImprovementWorkspaceTests
         Directory.CreateDirectory(Path.Combine(directory, ".git"));
         var git = new FakeCommands();
         await new ImprovementWorkspace(git, directory, "r", "main").PrepareAsync(CancellationToken.None);
-        Assert.Equal(new[] { "git reset --hard", "git clean -fd", "git fetch origin", "git checkout -B main origin/main" }, git.Calls.ToArray());
+        Assert.Equal(new[] { "git reset --hard", "git clean -fd", "git remote set-url origin r", "git fetch origin", "git checkout -B main origin/main" }, git.Calls.ToArray());
     }
 
     [Fact]
@@ -560,11 +570,26 @@ public class ImprovementWorkspaceTests
     [Fact]
     public async Task A_failing_git_command_reports_the_verb_and_the_error()
     {
-        var git = new FakeCommands { Script = (_, a) => a[0] == "push" ? FakeCommands.Fail("permission denied") : FakeCommands.Ok(a[0] == "status" ? "M a" : "x") };
+        var git = new FakeCommands { Script = (_, a) => a[0] == "push" ? FakeCommands.Fail("network unreachable") : FakeCommands.Ok(a[0] == "status" ? "M a" : "x") };
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             new ImprovementWorkspace(git, TempDirectory(), "r", "main").CommitAndPushAsync("b", "x", CancellationToken.None));
         Assert.Contains("git push", ex.Message);
-        Assert.Contains("permission denied", ex.Message);
+        Assert.Contains("network unreachable", ex.Message);
+        Assert.DoesNotContain("improvementsRemote", ex.Message);
+    }
+
+    [Theory]
+    [InlineData("remote: Permission to kurlez/AltPane.git denied to someone.\nfatal: unable to access 'https://github.com/kurlez/AltPane.git/': The requested URL returned error: 403")]
+    [InlineData("ERROR: Permission denied (publickey).")]
+    [InlineData("fatal: Authentication failed for 'https://github.com/kurlez/AltPane.git/'")]
+    public async Task A_push_without_permission_suggests_a_fork_in_improvementsRemote(string error)
+    {
+        var git = new FakeCommands { Script = (_, a) => a[0] == "push" ? FakeCommands.Fail(error) : FakeCommands.Ok(a[0] == "status" ? "M a" : "x") };
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            new ImprovementWorkspace(git, TempDirectory(), "https://github.com/kurlez/AltPane.git", "main").CommitAndPushAsync("b", "x", CancellationToken.None));
+        Assert.Contains("没有推送到 https://github.com/kurlez/AltPane.git 的权限", ex.Message);
+        Assert.Contains("fork", ex.Message);
+        Assert.Contains("improvementsRemote", ex.Message);
     }
 }
 
@@ -653,6 +678,45 @@ public class GitHubBuildTests
     }
 }
 
+public class ChecksumTests
+{
+    static string Exe(string content)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "altpane-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var exe = Path.Combine(directory, "AltPane.exe");
+        File.WriteAllText(exe, content);
+        return exe;
+    }
+
+    static string Hash(string content) =>
+        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(content))).ToLowerInvariant();
+
+    [Fact]
+    public void No_checksum_file_means_no_verification()
+    {
+        Assert.Null(GitHubBuild.VerifyChecksum(Exe("x")));
+    }
+
+    [Fact]
+    public void A_matching_checksum_is_returned()
+    {
+        var exe = Exe("hello");
+        File.WriteAllText(Path.Combine(Path.GetDirectoryName(exe)!, GitHubBuild.ChecksumFile), Hash("hello").ToUpperInvariant() + "  AltPane.exe");
+        Assert.Equal(Hash("hello"), GitHubBuild.VerifyChecksum(exe));
+    }
+
+    [Fact]
+    public void A_mismatch_throws_and_deletes_the_executable()
+    {
+        var exe = Exe("tampered");
+        File.WriteAllText(Path.Combine(Path.GetDirectoryName(exe)!, GitHubBuild.ChecksumFile), Hash("hello") + "  AltPane.exe");
+        var ex = Assert.Throws<InvalidOperationException>(() => GitHubBuild.VerifyChecksum(exe));
+        Assert.Contains("SHA256", ex.Message);
+        Assert.False(File.Exists(exe));
+    }
+}
+
 public class ImprovementPipelineTests
 {
     static readonly ImprovementContext Context = new("0.4.18", "En", "Dark", 100, 100);
@@ -707,6 +771,9 @@ public class ImprovementPipelineTests
         Assert.Equal("https://run/7", result.RunUrl);
         Assert.True(File.Exists(result.ExePath));
         Assert.Equal("Done.", result.Summary);
+        Assert.Equal("abc", result.Commit);
+        Assert.Null(result.Sha256);
+        Assert.Contains(events, e => e.Text.Contains("SHA256"));
         Assert.Contains("make it wider", Assert.Single(prompts));
         var order = commands.Calls.Select(c => c.Split(' ').Take(2).Aggregate((x, y) => x + " " + y)).ToList();
         Assert.True(order.IndexOf("gh auth") < order.IndexOf("git checkout"));

@@ -102,6 +102,25 @@ public sealed class GitHubBuild
         }
     }
 
+    public const string ChecksumFile = "AltPane.exe.sha256";
+
+    /// <summary>
+    /// Checks the executable against the AltPane.exe.sha256 file CI puts next to it. Returns the verified hash
+    /// (lowercase hex), or null when the artifact has no checksum file. Throws, and deletes the executable, on a mismatch.
+    /// </summary>
+    public static string? VerifyChecksum(string exePath)
+    {
+        var file = Path.Combine(Path.GetDirectoryName(exePath) ?? "", ChecksumFile);
+        if (!File.Exists(file)) return null;
+        var expected = File.ReadAllText(file).Trim().Split(new[] { ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault()?.ToLowerInvariant() ?? "";
+        string actual;
+        using (var stream = File.OpenRead(exePath))
+            actual = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(stream)).ToLowerInvariant();
+        if (expected.Length == 64 && expected == actual) return actual;
+        try { File.Delete(exePath); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+        throw new InvalidOperationException($"构建产物 SHA256 校验失败（期望 {expected}，实际 {actual}），已删除，不会安装。");
+    }
+
     /// <summary>Downloads the build's executable into an empty folder and returns its path.</summary>
     public async Task<string> DownloadAsync(long runId, string directory, CancellationToken cancellationToken)
     {

@@ -5,7 +5,9 @@ public enum PipelineOutcome { Built, NoChanges, AgentFailed, BuildFailed }
 /// <param name="Branch">The branch pushed for this request, once one exists.</param>
 /// <param name="RunUrl">The GitHub Actions run, once one exists.</param>
 /// <param name="ExePath">The downloaded AltPane.exe, only when <see cref="PipelineOutcome.Built"/>.</param>
-public sealed record PipelineResult(PipelineOutcome Outcome, string? Branch, string? RunUrl, string? ExePath, string Summary);
+/// <param name="Commit">The pushed commit, once one exists.</param>
+/// <param name="Sha256">The executable's SHA256 when CI published one and it matched; null when CI published none.</param>
+public sealed record PipelineResult(PipelineOutcome Outcome, string? Branch, string? RunUrl, string? ExePath, string Summary, string? Commit = null, string? Sha256 = null);
 
 /// <summary>
 /// One improvement request from start to an installable build: fresh clone state, agent edits,
@@ -57,10 +59,12 @@ public sealed class ImprovementPipeline
         var run = await _build.WaitAsync(branch, sha, Status, PollInterval, BuildTimeout, cancellationToken);
         if (!run.Succeeded)
             return new PipelineResult(PipelineOutcome.BuildFailed, branch, run.Url, null,
-                $"GitHub 构建未通过（{run.Conclusion}）。\n{agent.Summary}".Trim());
+                $"GitHub 构建未通过（{run.Conclusion}）。\n{agent.Summary}".Trim(), sha);
 
         Status("下载构建产物…");
         var exe = await _build.DownloadAsync(run.Id, _downloadDirectory, cancellationToken);
-        return new PipelineResult(PipelineOutcome.Built, branch, run.Url, exe, agent.Summary);
+        var checksum = GitHubBuild.VerifyChecksum(exe);
+        Status(checksum is null ? "构建产物未附带 SHA256，跳过校验。" : "SHA256 校验通过：" + checksum);
+        return new PipelineResult(PipelineOutcome.Built, branch, run.Url, exe, agent.Summary, sha, checksum);
     }
 }

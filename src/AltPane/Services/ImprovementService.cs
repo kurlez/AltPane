@@ -34,7 +34,7 @@ internal sealed class ImprovementService : IAsyncDisposable
         var executable = CodexLocator.Find(settings.CodexExecutable, Environment.GetEnvironmentVariable("PATH"), windows: true)
             ?? throw new InvalidOperationException(loc["improve.noCodex"]);
         CodexLocator.ValidateExecutable(executable);
-        if (!await _gate.WaitAsync(0, CancellationToken.None))
+        if (!await _gate.WaitAsync(0, CancellationToken.None).ConfigureAwait(false))
             throw new InvalidOperationException("已有改进请求正在运行。");
         try
         {
@@ -45,7 +45,7 @@ internal sealed class ImprovementService : IAsyncDisposable
                 new GitHubBuild(_commands, repository),
                 DownloadDirectory(),
                 (prompt, emit, token) => RunAgentAsync(prompt, emit, token, executable, workspace.Directory, settings.ImprovementsFullAccess, context.Version));
-            return await pipeline.RunAsync(request, context, onEvent, cancellationToken);
+            return await pipeline.RunAsync(request, context, onEvent, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -60,7 +60,7 @@ internal sealed class ImprovementService : IAsyncDisposable
     {
         var key = $"{executable}|{directory}|{fullAccess}";
         if (_client is { IsBroken: true } || (_client is not null && key != _clientKey))
-            await StopAsync();
+            await StopAsync().ConfigureAwait(false);
         if (_client is null)
         {
             var transport = ProcessRpcTransport.Start(executable, directory);
@@ -74,18 +74,18 @@ internal sealed class ImprovementService : IAsyncDisposable
         }
         try
         {
-            return await _client.RunAsync(prompt, onEvent, cancellationToken);
+            return await _client.RunAsync(prompt, onEvent, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
-            if (_client is { IsBroken: true }) await StopAsync();
+            if (_client is { IsBroken: true }) await StopAsync().ConfigureAwait(false);
         }
     }
 
     async Task StopWhenIdleAsync()
     {
-        if (!await _gate.WaitAsync(0, CancellationToken.None)) return;
-        try { await StopAsync(); }
+        if (!await _gate.WaitAsync(0, CancellationToken.None).ConfigureAwait(false)) return;
+        try { await StopAsync().ConfigureAwait(false); }
         finally { _gate.Release(); }
     }
 
@@ -95,7 +95,7 @@ internal sealed class ImprovementService : IAsyncDisposable
         _client = null;
         if (client is not null)
         {
-            try { await client.DisposeAsync(); }
+            try { await client.DisposeAsync().ConfigureAwait(false); }
             catch (Exception ex) { AppLog.Error(ex); }
         }
     }
@@ -103,6 +103,19 @@ internal sealed class ImprovementService : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         _idle?.Dispose();
-        await StopAsync();
+        await StopAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Synchronous shutdown for app exit. Kills the codex app-server process tree right away, without waiting
+    /// on async continuations, so it cannot deadlock the UI thread.
+    /// </summary>
+    public void Shutdown()
+    {
+        try { _idle?.Dispose(); } catch (ObjectDisposedException) { }
+        var client = Interlocked.Exchange(ref _client, null);
+        if (client is null) return;
+        try { client.Kill(); }
+        catch (Exception ex) { AppLog.Error(ex); }
     }
 }

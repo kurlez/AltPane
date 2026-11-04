@@ -40,6 +40,8 @@ public sealed class ImprovementWorkspace
         {
             await GitAsync(Directory, cancellationToken, "reset", "--hard");
             await GitAsync(Directory, cancellationToken, "clean", "-fd");
+            // improvementsRemote may have changed (for example to a fork) since the clone was made.
+            await GitAsync(Directory, cancellationToken, "remote", "set-url", "origin", _remote);
             await GitAsync(Directory, cancellationToken, "fetch", "origin");
         }
         await GitAsync(Directory, cancellationToken, "checkout", "-B", _baseBranch, "origin/" + _baseBranch);
@@ -65,8 +67,25 @@ public sealed class ImprovementWorkspace
         commit.AddRange(new[] { "commit", "-m", CommitMessage(request) });
         await GitAsync(Directory, cancellationToken, commit.ToArray());
         var sha = (await GitAsync(Directory, cancellationToken, "rev-parse", "HEAD")).Trim();
-        await GitAsync(Directory, cancellationToken, "push", "-u", "origin", branch);
+        var push = await _runner.RunAsync("git", new[] { "push", "-u", "origin", branch }, Directory, cancellationToken);
+        if (!push.Ok)
+        {
+            var detail = (string.IsNullOrWhiteSpace(push.Error) ? push.Output : push.Error).Trim();
+            if (detail.Length > 500) detail = detail[..500];
+            if (IsPermissionError(detail))
+                throw new InvalidOperationException(
+                    $"没有推送到 {_remote} 的权限。请在 GitHub 上 fork AltPane，然后把 settings.json 中的 improvementsRemote 改成你的 fork 地址（例如 https://github.com/<你的用户名>/AltPane.git），并确认 gh auth login 使用的账号可以推送。\n{detail}");
+            throw new InvalidOperationException($"git push 失败：{detail}");
+        }
         return sha;
+    }
+
+    /// <summary>True when git's push error means the signed-in account may not write to the remote.</summary>
+    public static bool IsPermissionError(string message)
+    {
+        foreach (var marker in new[] { "403", "Permission to", "permission denied", "Permission denied", "not allowed to push", "Authentication failed", "could not read Username", "Write access to repository not granted" })
+            if (message.Contains(marker, StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
     }
 
     async Task<string> GitAsync(string? directory, CancellationToken cancellationToken, params string[] arguments)

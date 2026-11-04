@@ -242,7 +242,7 @@ internal sealed class AppHost : IDisposable
         try { _settingsWindow?.Close(); } catch { }
         try { _aboutWindow?.Close(); } catch { }
         try { _improvementWindow?.Close(); } catch { }
-        try { _improvements.DisposeAsync().AsTask().Wait(TimeSpan.FromSeconds(2)); } catch { }
+        try { _improvements.Shutdown(); } catch { }
         try { _tray.Dispose(); } catch { }
         AppLog.Info("AltPane stopped.");
     }
