@@ -115,8 +115,17 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     public static extern nint CallNextHookEx(nint hhk, int nCode, nint wParam, nint lParam);
 
+    public const int VkLButton = 0x01;
+    public const int VkRButton = 0x02;
+    public const int VkMButton = 0x04;
+
     [DllImport("user32.dll")]
     public static extern short GetAsyncKeyState(int vKey);
+
+    public static bool AnyMouseButtonDown() =>
+        (GetAsyncKeyState(VkLButton) & 0x8000) != 0
+        || (GetAsyncKeyState(VkRButton) & 0x8000) != 0
+        || (GetAsyncKeyState(VkMButton) & 0x8000) != 0;
 
     [DllImport("user32.dll")]
     public static extern bool GetKeyboardState(byte[] lpKeyState);

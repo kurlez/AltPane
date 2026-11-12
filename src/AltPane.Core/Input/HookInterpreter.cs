@@ -121,6 +121,8 @@ public static class HookInterpreter
         var isHotkey = input.IsKeyDown && kind != ChordKind.None;
         var direction = HotkeyLogic.IsReverse(kind, hotkey, input.Modifiers) ? -1 : 1;
 
+        // Mouse buttons are ignored on purpose: Alt+Tab (and the configured
+        // hotkey) must still open the switcher while an OLE file drag is held.
         if (!input.SwitcherOpen)
             return isHotkey ? HookResult.Cycle(direction, latch: true) : HookResult.Pass();
 

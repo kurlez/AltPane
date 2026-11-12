@@ -1,4 +1,5 @@
 using System.Text.Json;
+using AltPane.Core.Input;
 using AltPane.Core.Models;
 
 namespace AltPane.Core.Settings;
@@ -28,6 +29,9 @@ namespace AltPane.Core.Settings;
 /// toggle defaults on when the key is missing. An explicit off is not rewritten.
 /// Schema 11 adds the switcher style. The switcher is dark when the key is
 /// missing, even with a light app theme. A stored follow-theme choice is kept.
+/// Schema 12 adds hover-to-activate during a file drag. The toggle defaults
+/// on, and the dwell defaults to 700 ms, when those keys are missing. An
+/// explicit off or a stored dwell is kept. The dwell is clamped to 300–2000 ms.
 /// </summary>
 public static class SettingsMigration
 {
@@ -99,6 +103,17 @@ public static class SettingsMigration
         {
             if (!Has(root, "switcherStyle"))
                 settings.SwitcherStyle = SwitcherStyle.Dark;
+            changed = true;
+        }
+
+        if (stored < 12)
+        {
+            if (!Has(root, "dragHoverActivate"))
+                settings.DragHoverActivate = true;
+            if (!Has(root, "dragHoverDwellMilliseconds"))
+                settings.DragHoverDwellMilliseconds = DragHoverDwell.DefaultMilliseconds;
+            else
+                settings.DragHoverDwellMilliseconds = DragHoverDwell.Clamp(settings.DragHoverDwellMilliseconds);
             changed = true;
         }
 

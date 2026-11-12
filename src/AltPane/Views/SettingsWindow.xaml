@@ -74,6 +74,10 @@
           <TextBlock x:Name="MoveNote" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="22,0,0,10"/>
           <CheckBox x:Name="TilePairsBox" Margin="0,0,0,2"/>
           <TextBlock x:Name="TilePairsNote" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="22,0,0,10"/>
+          <CheckBox x:Name="DragHoverBox" Margin="0,0,0,2" Checked="DragHoverBox_Changed" Unchecked="DragHoverBox_Changed"/>
+          <TextBlock x:Name="DragHoverNote" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="22,0,0,8"/>
+          <TextBlock x:Name="DragHoverDwellLabel" FontWeight="SemiBold" Margin="22,0,0,4"/>
+          <ComboBox x:Name="DragHoverDwellBox" Margin="22,0,0,10" Width="200" HorizontalAlignment="Left"/>
           <CheckBox x:Name="LoadBox" Margin="0,0,0,6"/>
           <TextBlock x:Name="SortLabel" FontWeight="SemiBold" Margin="0,4,0,6"/>
           <ComboBox x:Name="SortBox" Margin="0,0,0,8"/>

@@ -49,6 +49,7 @@ internal sealed class SwitcherPresenter
     bool _statusSticky;
     SystemLoad _system;
     readonly HoverGate _hover = new();
+    readonly DragHoverDwell _dragHover = new();
     readonly WheelNavigator _wheel = new();
     readonly EverythingClient _files = new();
     DispatcherTimer? _fileTimer;
@@ -184,6 +185,8 @@ internal sealed class SwitcherPresenter
             if (_session?.SelectIndex(index) == true) Refresh();
         };
         window.AllowHover = AllowHover;
+        window.AllowDragHover = () => _settings().DragHoverActivate;
+        window.FileDragHover += target => OnFileDragHover(window, target);
         window.WheelRequested += OnWheel;
         window.NavigateRequested += Nudge;
         window.SpaceRequested += OnSpace;
@@ -301,7 +304,7 @@ internal sealed class SwitcherPresenter
                 else
                 {
                     Refresh();
-                    _deck.ClaimKeyboard();
+                    MaybeClaimKeyboard();
                 }
                 break;
             case UiOp.CloseWindow:
@@ -381,11 +384,11 @@ internal sealed class SwitcherPresenter
         _deck.Prepare(settings, _restore);
         NoteOpened();
         _deck.Render(BuildState());
-        _deck.Reveal();
+        RevealDeck();
         var rows = _session?.All.Count ?? 0;
         if (OpenTiming.TryConsume(out var visibleMs))
             AppLog.Info($"open hotkey→visible {visibleMs} ms, enumeration {_enumerationMs} ms, rows {rows}");
-        if (snap.SearchMode) _deck.ClaimKeyboard();
+        if (snap.SearchMode) MaybeClaimKeyboard();
         QueueIcons();
         SyncSampler();
     }
@@ -690,6 +693,7 @@ internal sealed class SwitcherPresenter
         _session = null;
         _sampler.Stop();
         _arm.Clear();
+        _dragHover.Reset();
         _deck.HideAll();
     }
 
@@ -865,6 +869,7 @@ internal sealed class SwitcherPresenter
         _searchMode = false;
         _session = null;
         _arm.Clear();
+        _dragHover.Reset();
         if (wasVisible) _deck.HideAll();
         if (wasVisible && restore != 0)
             WindowActions.TryActivate(restore);
@@ -936,6 +941,123 @@ internal sealed class SwitcherPresenter
     {
         _hoverHighlight = enabled;
         _deck.SetHoverHighlight(enabled);
+    }
+
+    void RevealDeck() => _deck.Reveal(DragSwitcherPolicy.TakeForeground(NativeMethods.AnyMouseButtonDown()));
+
+    void MaybeClaimKeyboard()
+    {
+        if (DragSwitcherPolicy.ClaimKeyboard(NativeMethods.AnyMouseButtonDown()))
+            _deck.ClaimKeyboard();
+    }
+
+    void OnFileDragHover(SwitcherWindow window, DragHoverTarget target)
+    {
+        var settings = _settings();
+        if (!settings.DragHoverActivate)
+        {
+            _dragHover.Reset();
+            window.SetDragFill(null, 0);
+            return;
+        }
+
+        var now = Environment.TickCount64;
+        var dwell = settings.DragHoverDwellMilliseconds;
+        var empty = target.IsEmpty;
+        var fired = _dragHover.Note(empty ? null : target.Id, now, dwell);
+        var progress = _dragHover.Progress(now, dwell);
+        window.SetDragFill(empty ? null : _dragHover.TargetId, progress);
+        if (!empty)
+            SelectDragTarget(target);
+        if (!fired || empty) return;
+
+        window.SetDragFill(null, 0);
+        ActivateDragTarget(target);
+    }
+
+    void SelectDragTarget(DragHoverTarget target)
+    {
+        if (_session is null) return;
+        var changed = target.Kind switch
+        {
+            DragHoverKind.Window => _session.SelectHandle(target.Handle),
+            DragHoverKind.Pair => SelectPair(target),
+            _ => false
+        };
+        if (changed && _deck.IsVisible) Refresh();
+    }
+
+    bool SelectPair(DragHoverTarget target)
+    {
+        if (_session is null) return false;
+        foreach (var entry in _session.All)
+        {
+            if (entry.IsTilePair && entry.TileLeft == target.Handle && entry.TileRight == target.Partner)
+                return _session.SelectHandle(entry.Handle);
+        }
+        return false;
+    }
+
+    void ActivateDragTarget(DragHoverTarget target)
+    {
+        WindowEntry? entry = null;
+        if (target.Kind == DragHoverKind.Window && _session is not null)
+        {
+            foreach (var item in _session.All)
+            {
+                if (!item.IsTilePair && item.Handle == target.Handle)
+                {
+                    entry = item;
+                    break;
+                }
+            }
+        }
+        else if (target.Kind == DragHoverKind.Pair && _session is not null)
+        {
+            foreach (var item in _session.All)
+            {
+                if (item.IsTilePair && item.TileLeft == target.Handle && item.TileRight == target.Partner)
+                {
+                    entry = item;
+                    break;
+                }
+            }
+        }
+        else if (target.Kind == DragHoverKind.Sidebar)
+        {
+            if (_session is null || _sidebar.Count == 0) return;
+            var shown = FrequentApps.WithRunning(_sidebar, OpenApps());
+            FrequentApp? app = null;
+            if (!string.IsNullOrEmpty(target.SidebarKey))
+            {
+                foreach (var item in shown)
+                {
+                    if (string.Equals(item.Key, target.SidebarKey, StringComparison.OrdinalIgnoreCase))
+                    {
+                        app = item;
+                        break;
+                    }
+                }
+            }
+            if (app is null && (uint)target.SidebarIndex < (uint)shown.Count)
+                app = shown[target.SidebarIndex];
+            entry = app is { } found ? FindSidebarWindow(found) : null;
+        }
+
+        if (entry is null)
+        {
+            AppLog.Info($"Drag hover had no window for {target.Id}.");
+            _dragHover.Reset();
+            return;
+        }
+
+        AppLog.Info($"Drag hover activate {target.Id} '{entry.Title}' 0x{entry.Handle:X}");
+        DismissSwitcher();
+        Hotkeys?.RequestIdle();
+        // Raise in place. Do not move the window onto the switcher's monitor:
+        // after the switcher hides, the user drops into whichever window is
+        // already under the cursor or moves to it. Moving would steal the drop.
+        ActivateEntry(entry, moveTo: null);
     }
 
     static (double X, double Y) CursorPoint()
@@ -1316,7 +1438,7 @@ internal sealed class SwitcherPresenter
         }
         if (!wasVisible) return;
         Refresh();
-        _deck.Reveal();
+        RevealDeck();
         _deck.SetHoverHighlight(_hoverHighlight);
     }
 

@@ -83,6 +83,7 @@ public partial class SettingsWindow : Window
         MonitorBadgesBox.IsChecked = _draft.ShowMonitorBadges;
         MoveBox.IsChecked = _draft.MoveToSwitcherMonitor;
         TilePairsBox.IsChecked = _draft.CombineTiledWindows;
+        DragHoverBox.IsChecked = _draft.DragHoverActivate;
         VerboseBox.IsChecked = _draft.VerboseLog;
         EverythingBox.IsChecked = _draft.UseEverything;
         EverythingExtBox.Text = _draft.EverythingExtensions;
@@ -96,6 +97,7 @@ public partial class SettingsWindow : Window
         FileDialogBox.IsChecked = _draft.FileDialogJump;
         FileDialogHotkeyText.Text = HotkeyLogic.Format(_draft.FileDialogHotkey ?? HotkeyChord.CtrlG());
         UpdateFileDialogEnabled();
+        UpdateDragHoverEnabled();
         UpdateEverythingStatus();
         Select(SortBox, _draft.SortMode);
         Select(ThresholdBox, _draft.FocusThresholdMinutes);
@@ -137,6 +139,9 @@ public partial class SettingsWindow : Window
         MoveNote.Text = loc["settings.moveNote"];
         TilePairsBox.Content = loc["settings.tilePairs"];
         TilePairsNote.Text = loc["settings.tilePairsNote"];
+        DragHoverBox.Content = loc["settings.dragHover"];
+        DragHoverNote.Text = loc["settings.dragHoverNote"];
+        DragHoverDwellLabel.Text = loc["settings.dragHoverDwell"];
         VerboseBox.Content = loc["settings.verbose"];
         VerboseNote.Text = loc["settings.verboseNote"];
         EverythingBox.Content = loc["settings.everything"];
@@ -253,6 +258,19 @@ public partial class SettingsWindow : Window
             (FileDialogPanelEdge.Bottom, loc["settings.fileDialogEdge.bottom"]),
             (FileDialogPanelEdge.Right, loc["settings.fileDialogEdge.right"])
         }, _draft.FileDialogPanelEdge);
+        var dwell = DragHoverDwell.Clamp(_draft.DragHoverDwellMilliseconds);
+        var dwells = new List<(int Value, string Label)>
+        {
+            (400, loc["settings.dragHoverDwell.400"]),
+            (600, loc["settings.dragHoverDwell.600"]),
+            (700, loc["settings.dragHoverDwell.700"]),
+            (800, loc["settings.dragHoverDwell.800"]),
+            (1000, loc["settings.dragHoverDwell.1000"]),
+            (1200, loc["settings.dragHoverDwell.1200"])
+        };
+        if (dwells.TrueForAll(item => item.Value != dwell))
+            dwells.Add((dwell, loc.Format("settings.dragHoverDwell.custom", dwell)));
+        Fill(DragHoverDwellBox, dwells, dwell);
         if (_everythingStatus is { } status)
             ApplyEverythingStatus(status);
     }
@@ -349,6 +367,17 @@ public partial class SettingsWindow : Window
     }
 
     void FileDialogBox_Changed(object sender, RoutedEventArgs e) => UpdateFileDialogEnabled();
+
+    void DragHoverBox_Changed(object sender, RoutedEventArgs e) => UpdateDragHoverEnabled();
+
+    void UpdateDragHoverEnabled()
+    {
+        if (DragHoverDwellBox is null) return;
+        var on = DragHoverBox.IsChecked == true;
+        DragHoverDwellBox.IsEnabled = on;
+        DragHoverDwellLabel.IsEnabled = on;
+        DragHoverNote.Opacity = on ? 1 : 0.55;
+    }
 
     void FileDialogEdge_Changed(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
     {
@@ -451,6 +480,8 @@ public partial class SettingsWindow : Window
         _draft.ShowMonitorBadges = MonitorBadgesBox.IsChecked == true;
         _draft.MoveToSwitcherMonitor = MoveBox.IsChecked == true;
         _draft.CombineTiledWindows = TilePairsBox.IsChecked == true;
+        _draft.DragHoverActivate = DragHoverBox.IsChecked == true;
+        _draft.DragHoverDwellMilliseconds = DragHoverDwell.Clamp(Read(DragHoverDwellBox, _draft.DragHoverDwellMilliseconds));
         _draft.VerboseLog = VerboseBox.IsChecked == true;
         _draft.UseEverything = EverythingBox.IsChecked == true;
         _draft.EverythingExtensions = EverythingExtBox.Text.Trim();
@@ -633,6 +664,8 @@ public partial class SettingsWindow : Window
         ShowMonitorBadges = source.ShowMonitorBadges,
         MoveToSwitcherMonitor = source.MoveToSwitcherMonitor,
         CombineTiledWindows = source.CombineTiledWindows,
+        DragHoverActivate = source.DragHoverActivate,
+        DragHoverDwellMilliseconds = source.DragHoverDwellMilliseconds,
         UseEverything = source.UseEverything,
         EverythingExtensions = source.EverythingExtensions,
         DocumentExtensions = source.DocumentExtensions,

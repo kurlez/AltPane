@@ -215,8 +215,11 @@ public sealed class AppSettings
     /// defaults on when the key is missing. An explicit off is kept.
     /// 11 adds <see cref="SwitcherStyle"/>. The switcher is dark when the key is missing,
     /// whatever <see cref="Theme"/> says. An explicit follow-theme choice is kept.
+    /// 12 adds hover-to-activate during a file drag. <see cref="DragHoverActivate"/>
+    /// defaults on, and <see cref="DragHoverDwellMilliseconds"/> defaults to 700,
+    /// when those keys are missing. An explicit off or dwell is kept (the dwell is clamped).
     /// </summary>
-    public const int CurrentSchema = 11;
+    public const int CurrentSchema = 12;
 
     public int Version { get; set; } = CurrentSchema;
     public HotkeyChord? Hotkey { get; set; } = HotkeyChord.AltTab();
@@ -307,6 +310,13 @@ public sealed class AppSettings
     /// When true (the default), two windows tiled on the same monitor also appear as one extra row.
     /// </summary>
     public bool CombineTiledWindows { get; set; } = true;
+    /// <summary>
+    /// When true (the default), hovering a file drag on a switcher row for the
+    /// dwell time raises that window and hides the switcher, without taking the drop.
+    /// </summary>
+    public bool DragHoverActivate { get; set; } = true;
+    /// <summary>Milliseconds a file drag must stay on one row. Clamped to 300–2000, default 700.</summary>
+    public int DragHoverDwellMilliseconds { get; set; } = 700;
 
     public static AppSettings CreateDefault() => new()
     {
@@ -351,6 +361,8 @@ public sealed class AppSettings
         FileDialogJump = true,
         FileDialogHotkey = HotkeyChord.CtrlG(),
         FileDialogPanelEdge = FileDialogPanelEdge.Bottom,
-        CombineTiledWindows = true
+        CombineTiledWindows = true,
+        DragHoverActivate = true,
+        DragHoverDwellMilliseconds = 700
     };
 }

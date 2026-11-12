@@ -80,6 +80,7 @@ public static class SettingsStore
             settings.FileDialogHotkey = HotkeyChord.CtrlG();
         if (!Enum.IsDefined(settings.FileDialogPanelEdge))
             settings.FileDialogPanelEdge = FileDialogPanelEdge.Bottom;
+        settings.DragHoverDwellMilliseconds = DragHoverDwell.Clamp(settings.DragHoverDwellMilliseconds);
         if (!Enum.IsDefined(settings.Theme)) settings.Theme = AppTheme.System;
         if (!Enum.IsDefined(settings.SwitcherStyle)) settings.SwitcherStyle = SwitcherStyle.Dark;
         if (!Enum.IsDefined(settings.Size)) settings.Size = SwitcherSize.Comfortable;

@@ -17,7 +17,12 @@
         UseLayoutRounding="True"
         FontFamily="Segoe UI, Microsoft YaHei UI, Microsoft YaHei, sans-serif"
         TextOptions.TextFormattingMode="Display"
-        PreviewMouseWheel="Window_PreviewMouseWheel">
+        AllowDrop="True"
+        PreviewMouseWheel="Window_PreviewMouseWheel"
+        PreviewDragEnter="Window_PreviewFileDrag"
+        PreviewDragOver="Window_PreviewFileDrag"
+        PreviewDragLeave="Window_PreviewDragLeave"
+        PreviewDrop="Window_PreviewDrop">
   <Window.Resources>
     <Style x:Key="NakedTextBox" TargetType="TextBox">
       <Setter Property="Background" Value="Transparent"/>
@@ -77,9 +82,20 @@
                             </MultiDataTrigger.Conditions>
                             <Setter Property="Background" Value="{DynamicResource HoverBrush}"/>
                           </MultiDataTrigger>
+                          <DataTrigger Binding="{Binding DragHot}" Value="True">
+                            <Setter Property="Background" Value="{DynamicResource HoverBrush}"/>
+                          </DataTrigger>
                         </Style.Triggers>
                       </Style>
                     </Border.Style>
+                    <Grid>
+                    <Border HorizontalAlignment="Stretch" VerticalAlignment="Stretch" CornerRadius="8" Margin="-2,-5"
+                            Background="{DynamicResource AccentBrush}" Opacity="0.28" IsHitTestVisible="False"
+                            RenderTransformOrigin="0,0.5">
+                      <Border.RenderTransform>
+                        <ScaleTransform ScaleX="{Binding DragProgress}" ScaleY="1"/>
+                      </Border.RenderTransform>
+                    </Border>
                     <StackPanel>
                       <TextBlock Text="{Binding Shortcut}" FontSize="10" FontWeight="SemiBold"
                                  Foreground="{DynamicResource AccentBrush}" HorizontalAlignment="Center"/>
@@ -94,6 +110,7 @@
                       <TextBlock Text="{Binding Name}" FontSize="11" Foreground="{DynamicResource TextPrimaryBrush}"
                                  TextTrimming="CharacterEllipsis" TextAlignment="Center"/>
                     </StackPanel>
+                    </Grid>
                   </Border>
                   <DataTemplate.Triggers>
                     <DataTrigger Binding="{Binding Running}" Value="True">
@@ -190,6 +207,13 @@
                     <ColumnDefinition Width="64"/>
                     <ColumnDefinition Width="*"/>
                   </Grid.ColumnDefinitions>
+                  <Border Grid.ColumnSpan="2" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                          CornerRadius="6" Background="{DynamicResource AccentBrush}" Opacity="0.28"
+                          IsHitTestVisible="False" RenderTransformOrigin="0,0.5">
+                    <Border.RenderTransform>
+                      <ScaleTransform ScaleX="{Binding DragProgress}" ScaleY="1"/>
+                    </Border.RenderTransform>
+                  </Border>
                   <Grid Width="56" Height="32" VerticalAlignment="Center">
                     <Border Width="32" Height="32" CornerRadius="8" Background="{DynamicResource SurfaceBrush}" HorizontalAlignment="Left">
                       <Image Source="{Binding Icon}" Width="22" Height="22" RenderOptions.BitmapScalingMode="HighQuality"/>

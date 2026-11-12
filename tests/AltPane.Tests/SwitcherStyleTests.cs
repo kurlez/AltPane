@@ -34,9 +34,9 @@ public class SwitcherStyleTests
     }
 
     [Fact]
-    public void Defaults_are_dark_and_schema_is_11()
+    public void Defaults_are_dark_and_schema_is_at_least_11()
     {
-        Assert.Equal(11, AppSettings.CurrentSchema);
+        Assert.True(AppSettings.CurrentSchema >= 11);
         Assert.Equal(SwitcherStyle.Dark, AppSettings.CreateDefault().SwitcherStyle);
         Assert.Equal(SwitcherStyle.Dark, new AppSettings().SwitcherStyle);
     }
@@ -57,7 +57,6 @@ public class SwitcherStyleTests
         var follow = Path.Combine(directory, "follow.json");
         File.WriteAllText(follow, """{ "version": 11, "switcherStyle": "FollowTheme" }""");
         var kept = SettingsStore.Load(follow);
-        Assert.False(kept.Migrated);
         Assert.Equal(SwitcherStyle.FollowTheme, kept.Settings.SwitcherStyle);
     }
 

@@ -108,7 +108,7 @@ internal sealed class SwitcherDeck
             window.PlaceOffscreen(_size);
     }
 
-    public void Reveal()
+    public void Reveal(bool activate = true)
     {
         if (_shown.Count == 0) return;
         foreach (var window in _shown)
@@ -120,7 +120,7 @@ internal sealed class SwitcherDeck
                 if (i == _anchorIndex) continue;
                 _shown[i].Place(_size, activate: false);
             }
-            _shown[_anchorIndex].Place(_size, activate: true);
+            _shown[_anchorIndex].Place(_size, activate: activate);
             _keyboard = _shown[_anchorIndex];
         }
         finally

@@ -244,6 +244,21 @@ internal sealed class SwitcherRow : INotifyPropertyChanged
         }
     }
 
+    double _dragProgress;
+    public double DragProgress => _dragProgress;
+    public bool DragHot => _dragProgress > 0;
+
+    public void SetDragProgress(double value)
+    {
+        value = Math.Clamp(value, 0, 1);
+        if (Math.Abs(_dragProgress - value) < 0.01) return;
+        var wasHot = DragHot;
+        _dragProgress = value;
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(DragProgress)));
+        if (wasHot != DragHot)
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(DragHot)));
+    }
+
     public event PropertyChangedEventHandler? PropertyChanged;
 }
 
@@ -315,6 +330,21 @@ internal sealed class SidebarRow : INotifyPropertyChanged
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Running)));
         }
     }
+    double _dragProgress;
+    public double DragProgress => _dragProgress;
+    public bool DragHot => _dragProgress > 0;
+
+    public void SetDragProgress(double value)
+    {
+        value = Math.Clamp(value, 0, 1);
+        if (Math.Abs(_dragProgress - value) < 0.01) return;
+        var wasHot = DragHot;
+        _dragProgress = value;
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(DragProgress)));
+        if (wasHot != DragHot)
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(DragHot)));
+    }
+
     public event PropertyChangedEventHandler? PropertyChanged;
 }
 
@@ -363,6 +393,8 @@ public partial class SwitcherWindow : Window
     DisplayBounds _host;
     string _thisScreen = "";
     bool _mouseGesture;
+    DispatcherTimer? _dragTimer;
+    bool _fileDragInside;
 
     public SwitcherWindow()
     {
@@ -539,6 +571,8 @@ public partial class SwitcherWindow : Window
     public event Action? RevealRequested;
     public event Action<int>? RowActivated;
     public event Action<int>? RowHovered;
+    public event Action<DragHoverTarget>? FileDragHover;
+    public Func<bool>? AllowDragHover { get; set; }
     public event Action<int>? SidebarInvoked;
     public event Action<string>? SidebarPinRequested;
     public event Action<string>? SidebarUnpinRequested;
@@ -720,6 +754,7 @@ public partial class SwitcherWindow : Window
 
     public void HideSwitcher()
     {
+        StopFileDrag(notify: false);
         if (IsVisible) Hide();
         ReleaseIdleVisuals();
     }
@@ -1498,6 +1533,139 @@ public partial class SwitcherWindow : Window
             element = VisualTreeHelper.GetParent(element);
         }
         return false;
+    }
+
+    public void SetDragFill(string? id, double progress)
+    {
+        foreach (var row in _rows)
+        {
+            var match = id is not null && RowDragId(row) == id;
+            row.SetDragProgress(match ? progress : 0);
+        }
+        foreach (var row in _sidebarRows)
+        {
+            var match = id is not null && DragHoverTarget.Sidebar(row.Index, row.Key).Id == id;
+            row.SetDragProgress(match ? progress : 0);
+        }
+    }
+
+    static string? RowDragId(SwitcherRow row)
+    {
+        var target = TargetFrom(row);
+        return target.IsEmpty ? null : target.Id;
+    }
+
+    void Window_PreviewFileDrag(object sender, DragEventArgs e)
+    {
+        e.Effects = DragDropEffects.None;
+        e.Handled = true;
+        if (AllowDragHover?.Invoke() != true || !IsFileDrag(e))
+        {
+            StopFileDrag();
+            return;
+        }
+        _fileDragInside = true;
+        StartDragTimer();
+        ReportDrag(HitTestTarget(e.GetPosition(this)));
+    }
+
+    void Window_PreviewDragLeave(object sender, DragEventArgs e)
+    {
+        e.Effects = DragDropEffects.None;
+        e.Handled = true;
+        var pos = e.GetPosition(this);
+        if (pos.X >= 0 && pos.Y >= 0 && pos.X <= ActualWidth && pos.Y <= ActualHeight)
+            return;
+        StopFileDrag();
+    }
+
+    void Window_PreviewDrop(object sender, DragEventArgs e)
+    {
+        e.Effects = DragDropEffects.None;
+        e.Handled = true;
+        StopFileDrag();
+    }
+
+    void StartDragTimer()
+    {
+        if (_dragTimer is not null) return;
+        _dragTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
+        _dragTimer.Tick += DragTimer_Tick;
+        _dragTimer.Start();
+    }
+
+    void DragTimer_Tick(object? sender, EventArgs e)
+    {
+        if (!_fileDragInside || AllowDragHover?.Invoke() != true)
+        {
+            StopFileDrag();
+            return;
+        }
+        if (!NativeMethods.GetCursorPos(out var point)) return;
+        var local = PointFromScreen(new Point(point.X, point.Y));
+        if (local.X < -2 || local.Y < -2 || local.X > ActualWidth + 2 || local.Y > ActualHeight + 2)
+        {
+            StopFileDrag();
+            return;
+        }
+        ReportDrag(HitTestTarget(local));
+    }
+
+    void StopFileDrag(bool notify = true)
+    {
+        _fileDragInside = false;
+        if (_dragTimer is not null)
+        {
+            _dragTimer.Stop();
+            _dragTimer.Tick -= DragTimer_Tick;
+            _dragTimer = null;
+        }
+        if (notify) FileDragHover?.Invoke(DragHoverTarget.None);
+        SetDragFill(null, 0);
+    }
+
+    void ReportDrag(DragHoverTarget target) => FileDragHover?.Invoke(target);
+
+    DragHoverTarget HitTestTarget(Point local)
+    {
+        IInputElement? raw = null;
+        try { raw = InputHitTest(local); }
+        catch { }
+        var hit = raw as DependencyObject;
+        while (hit is not null)
+        {
+            if (hit is FrameworkElement { DataContext: SidebarRow side })
+                return DragHoverTarget.CanActivateSidebar(side.Running)
+                    ? DragHoverTarget.Sidebar(side.Index, side.Key)
+                    : DragHoverTarget.None;
+            if (hit is FrameworkElement { DataContext: SwitcherRow row })
+                return TargetFrom(row);
+            hit = VisualTreeHelper.GetParent(hit);
+        }
+        return DragHoverTarget.None;
+    }
+
+    static DragHoverTarget TargetFrom(SwitcherRow row)
+    {
+        if (row.Entry is { } entry)
+        {
+            if (entry.IsTilePair)
+                return DragHoverTarget.Pair(entry.TileLeft, entry.TileRight, entry.FocusHandle);
+            return DragHoverTarget.Window(entry.Handle);
+        }
+        return DragHoverTarget.None;
+    }
+
+    static bool IsFileDrag(DragEventArgs e)
+    {
+        try
+        {
+            return FileDragFormats.IsFileDrag(e.Data?.GetFormats());
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     void List_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
